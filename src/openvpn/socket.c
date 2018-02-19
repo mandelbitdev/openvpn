@@ -41,6 +41,10 @@
 #include "openvpn.h"
 #include "forward.h"
 
+#ifdef ENABLE_PLUGIN
+#include "openvpn-vsocket.h"
+#endif
+
 #include "memdbg.h"
 
 const int proto_overhead[] = { /* indexed by PROTO_x */
@@ -48,6 +52,9 @@ const int proto_overhead[] = { /* indexed by PROTO_x */
     IPv4_UDP_HEADER_SIZE, /* IPv4 */
     IPv4_TCP_HEADER_SIZE,
     IPv4_TCP_HEADER_SIZE,
+#ifdef ENABLE_PLUGIN
+    0,                    /* INDIRECT: doesn't really make sense */
+#endif
     IPv6_UDP_HEADER_SIZE, /* IPv6 */
     IPv6_TCP_HEADER_SIZE,
     IPv6_TCP_HEADER_SIZE,
@@ -982,9 +989,93 @@ bind_local(struct link_socket *sock, const sa_family_t ai_family)
     }
 }
 
+#ifdef ENABLE_PLUGIN
+static struct openvpn_vsocket_vtab *
+find_indirect_vtab(struct link_socket *sock, openvpn_plugin_handle_t *handlep)
+{
+    int i, n;
+
+    n = sock->info.plugins->common->n;
+    for (i = 0; i < n; i++)
+    {
+        struct plugin *p = &sock->info.plugins->common->plugins[i];
+        if (p->plugin_type_mask & OPENVPN_PLUGIN_MASK(OPENVPN_PLUGIN_SOCKET_INTERCEPT))
+        {
+            size_t size;
+            struct openvpn_vsocket_vtab *vtab =
+                p->get_vtab ? p->get_vtab(OPENVPN_VTAB_SOCKET_INTERCEPT_SOCKET_V1, &size)
+                : NULL;
+            if (!vtab)
+                continue;
+            ASSERT(size == sizeof(struct openvpn_vsocket_vtab));
+            *handlep = p->plugin_handle;
+            return vtab;
+        }
+    }
+
+    return NULL;
+}
+
+static void
+create_socket_indirect(struct link_socket *sock, sa_family_t ai_family)
+{
+    openvpn_plugin_handle_t handle;
+    const struct openvpn_vsocket_vtab *vtab = find_indirect_vtab(sock, &handle);
+    struct addrinfo *cur = NULL;
+    struct openvpn_sockaddr zero;
+
+    if (!vtab)
+        msg(M_FATAL, "INDIRECT: Socket bind failed: no provider plugin");
+
+    /* Partially replicates the functionality of socket_bind. No bind_ipv6_only,
+       presently. */
+    if (sock->bind_local) {
+        for (cur = sock->info.lsa->bind_local; cur; cur = cur->ai_next)
+        {
+            if (cur->ai_family == ai_family)
+            {
+                break;
+            }
+        }
+
+        if (!cur)
+        {
+            msg(M_FATAL, "INDIRECT: Socket bind failed: Addr to bind has no %s record",
+                addr_family_name(ai_family));
+        }
+    }
+
+    if (cur)
+    {
+        sock->indirect = vtab->bind(handle, cur->ai_addr, cur->ai_addrlen);
+    }
+    else if (ai_family == AF_UNSPEC)
+    {
+        msg(M_ERR, "INDIRECT: cannot bind with unspecified address family");
+    }
+    else
+    {
+        memset(&zero, 0, sizeof(zero));
+        zero.addr.sa.sa_family = ai_family;
+        addr_zero_host(&zero);
+        sock->indirect = vtab->bind(handle, &zero.addr.sa, af_addr_size(ai_family));
+    }
+
+    if (sock->indirect == NULL)
+        msg(M_ERR, "INDIRECT: Socket bind failed");
+}
+#endif  /* ENABLE_PLUGIN */
+
 static void
 create_socket(struct link_socket *sock, struct addrinfo *addr)
 {
+#ifdef ENABLE_PLUGIN
+    if (proto_is_indirect(sock->info.proto))
+    {
+        create_socket_indirect(sock, addr->ai_family);
+    }
+#endif
+
     if (addr->ai_protocol == IPPROTO_UDP || addr->ai_socktype == SOCK_DGRAM)
     {
         sock->sd = create_socket_udp(addr, sock->sockflags);
@@ -2144,7 +2235,12 @@ link_socket_init_phase2(struct link_socket *sock,
         }
 
         /* If socket has not already been created create it now */
-        if (sock->sd == SOCKET_UNDEFINED)
+        if (
+            sock->sd == SOCKET_UNDEFINED
+#ifdef ENABLE_PLUGIN
+            && !sock->indirect
+#endif
+        )
         {
             /* If we have no --remote and have still not figured out the
              * protocol family to use we will use the first of the bind */
@@ -2165,7 +2261,12 @@ link_socket_init_phase2(struct link_socket *sock,
         }
 
         /* Socket still undefined, give a warning and abort connection */
-        if (sock->sd == SOCKET_UNDEFINED)
+        if (
+            sock->sd == SOCKET_UNDEFINED
+#ifdef ENABLE_PLUGIN
+            && !sock->indirect
+#endif
+        )
         {
             msg(M_WARN, "Could not determine IPv4/IPv6 protocol");
             sig_info->signal_received = SIGUSR1;
@@ -2203,7 +2304,8 @@ link_socket_init_phase2(struct link_socket *sock,
         }
     }
 
-    phase2_set_socket_flags(sock);
+    if (sock->sd != SOCKET_UNDEFINED)
+        phase2_set_socket_flags(sock);
     linksock_print_addr(sock);
 
 done:
@@ -2225,6 +2327,14 @@ link_socket_close(struct link_socket *sock)
         const int gremlin = GREMLIN_CONNECTION_FLOOD_LEVEL(sock->gremlin);
 #else
         const int gremlin = 0;
+#endif
+
+#ifdef ENABLE_PLUGIN
+        if (sock->indirect)
+        {
+            sock->indirect->vtab->close(sock->indirect);
+            sock->indirect = NULL;
+        }
 #endif
 
         if (socket_defined(sock->sd))
@@ -3008,17 +3118,34 @@ static const struct proto_names proto_names[] = {
     {"tcp-server", "TCP_SERVER", AF_UNSPEC, PROTO_TCP_SERVER},
     {"tcp-client", "TCP_CLIENT", AF_UNSPEC, PROTO_TCP_CLIENT},
     {"tcp",        "TCP", AF_UNSPEC, PROTO_TCP},
+#ifdef ENABLE_PLUGIN
+    {"indirect", "INDIRECT", AF_UNSPEC, PROTO_INDIRECT},
+#endif
     /* force IPv4 */
     {"udp4",       "UDPv4", AF_INET, PROTO_UDP},
     {"tcp4-server","TCPv4_SERVER", AF_INET, PROTO_TCP_SERVER},
     {"tcp4-client","TCPv4_CLIENT", AF_INET, PROTO_TCP_CLIENT},
     {"tcp4",       "TCPv4", AF_INET, PROTO_TCP},
+#ifdef ENABLE_PLUGIN
+    {"indirect4", "INDIRECT_IPv4", AF_INET, PROTO_INDIRECT},
+#endif
     /* force IPv6 */
     {"udp6","UDPv6", AF_INET6, PROTO_UDP},
     {"tcp6-server","TCPv6_SERVER", AF_INET6, PROTO_TCP_SERVER},
     {"tcp6-client","TCPv6_CLIENT", AF_INET6, PROTO_TCP_CLIENT},
     {"tcp6","TCPv6", AF_INET6, PROTO_TCP},
+#ifdef ENABLE_PLUGIN
+    {"indirect6", "INDIRECT_IPv6", AF_INET6, PROTO_INDIRECT},
+#endif
 };
+
+#ifdef ENABLE_PLUGIN
+bool
+proto_is_indirect(int proto)
+{
+    return proto == PROTO_INDIRECT;
+}
+#endif /* ENABLE_PLUGIN */
 
 bool
 proto_is_net(int proto)
@@ -3032,6 +3159,10 @@ proto_is_net(int proto)
 bool
 proto_is_dgram(int proto)
 {
+#ifdef ENABLE_PLUGIN
+    if (proto_is_indirect(proto))
+        return true;
+#endif
     return proto_is_udp(proto);
 }
 
@@ -3166,6 +3297,14 @@ proto_remote(int proto, bool remote)
         return "TCPv4_CLIENT";
     }
 
+    if (proto == PROTO_INDIRECT)
+    {
+        /* FIXME: what is actually appropriate here? If this is used
+           on the wire (as implied above), then we really want to know
+           the exact plugin in use. */
+        return "INDIRECT";
+    }
+
     ASSERT(0);
     return ""; /* Make the compiler happy */
 }
@@ -3223,6 +3362,25 @@ link_socket_read_tcp(struct link_socket *sock,
     {
         return buf->len = 0; /* no error, but packet is still incomplete */
     }
+}
+
+int link_socket_read_indirect(struct link_socket *sock,
+                              struct buffer *buf,
+                              struct link_socket_actual *from)
+{
+    socklen_t fromlen = sizeof(from->dest.addr);
+    socklen_t expectedlen = af_addr_size(sock->info.af);
+    addr_zero_host(&from->dest);
+
+    ASSERT(sock->indirect);
+    buf->len = sock->indirect->vtab->recvfrom(
+        sock->indirect, BPTR(buf), buf_forward_capacity(buf),
+        &from->dest.addr.sa, &fromlen);
+    if (buf->len >= 0 && expectedlen && fromlen != expectedlen)
+    {
+        bad_address_length(fromlen, expectedlen);
+    }
+    return buf->len;
 }
 
 #ifndef _WIN32
@@ -3357,6 +3515,17 @@ link_socket_write_tcp(struct link_socket *sock,
 #endif
 }
 
+int link_socket_write_indirect(struct link_socket *sock,
+                               struct buffer *buf,
+                               struct link_socket_actual *to)
+{
+    ASSERT(sock->indirect);
+    return sock->indirect->vtab->sendto(
+        sock->indirect, BPTR(buf), BLEN(buf),
+        (struct sockaddr *) &to->dest.addr.sa,
+        (socklen_t) af_addr_size(to->dest.addr.sa.sa_family));
+}
+
 #if ENABLE_IP_PKTINFO
 
 size_t
@@ -3445,6 +3614,12 @@ link_socket_write_udp_posix_sendmsg(struct link_socket *sock,
 int
 socket_recv_queue(struct link_socket *sock, int maxsize)
 {
+    if (proto_is_indirect(sock->info.proto))
+    {
+        /* Indirect handler will take care of this, so do nothing. */
+        return IOSTATE_QUEUED;
+    }
+
     if (sock->reads.iostate == IOSTATE_INITIAL)
     {
         WSABUF wsabuf[1];
@@ -3792,6 +3967,105 @@ socket_finalize(SOCKET s,
  * Socket event notification
  */
 
+/* TODO: this might be better placed in event.c or similar */
+#ifdef ENABLE_PLUGIN
+
+struct encapsulated_event_set
+{
+    struct openvpn_vsocket_event_set_handle handle;
+    struct event_set *real;
+};
+
+#if EVENT_READ == OPENVPN_VSOCKET_EVENT_READ && \
+    EVENT_WRITE == OPENVPN_VSOCKET_EVENT_WRITE
+#define VSOCKET_EVENT_BITS_IDENTICAL 1
+#else
+#define VSOCKET_EVENT_BITS_IDENTICAL 0
+#endif
+
+static inline unsigned
+vsocket_translate_rwflags_in(unsigned vrwflags)
+{
+#if VSOCKET_EVENT_BITS_IDENTICAL
+    return vrwflags;
+#else
+    unsigned rwflags = 0;
+    if (vrwflags & OPENVPN_VSOCKET_EVENT_READ)
+        rwflags |= EVENT_READ;
+    if (vrwflags & OPENVPN_VSOCKET_EVENT_WRITE)
+        rwflags |= EVENT_WRITE;
+    return rwflags;
+#endif
+}
+
+static inline unsigned
+vsocket_translate_rwflags_out(unsigned rwflags)
+{
+#if VSOCKET_EVENT_BITS_IDENTICAL
+    return rwflags;
+#else
+    unsigned vrwflags = 0;
+    if (rwflags & EVENT_READ)
+        vrwflags |= OPENVPN_VSOCKET_EVENT_READ;
+    if (rwflags & EVENT_WRITE)
+        vrwflags |= OPENVPN_VSOCKET_EVENT_WRITE;
+    return vrwflags;
+#endif
+}
+
+static void
+encapsulated_event_set_set_event(openvpn_vsocket_event_set_handle_t handle,
+                                 openvpn_vsocket_native_event_t vev, unsigned vrwflags,
+                                 void *arg)
+{
+    unsigned rwflags = vsocket_translate_rwflags_in(vrwflags);
+    event_t ev;
+#ifdef _WIN32
+    struct rw_handle rw;
+    rw.read = vev->read;
+    rw.write = vev->write;
+    ev = &rw;
+#else
+    ev = vev;
+#endif
+
+    struct event_set *es = ((struct encapsulated_event_set *) handle)->real;
+    /* If rwflags == 0, we do nothing, because this is always one-shot mode. */
+    if (rwflags != 0)
+        event_ctl(es, ev, rwflags, arg);
+}
+
+static const struct openvpn_vsocket_event_set_vtab encapsulated_event_set_vtab = {
+    encapsulated_event_set_set_event
+};
+
+unsigned
+socket_do_indirect_pump(openvpn_vsocket_handle_t vsocket,
+                        struct event_set_return *esr, int *esrlen)
+{
+    int i = 0;
+    while (i < *esrlen)
+    {
+        unsigned vrwflags = vsocket_translate_rwflags_out(esr[i].rwflags);
+        if (vsocket->vtab->update_event(vsocket, esr[i].arg, vrwflags))
+        {
+            /* Consume the event; move the last one in place of it. */
+            if (i != *esrlen - 1)
+                memcpy(&esr[i], &esr[*esrlen-1], sizeof(struct event_set_return));
+            (*esrlen)--;
+        }
+        else
+        {
+            /* Don't consume the event; move to the next one. */
+            i++;
+        }
+    }
+
+    return vsocket_translate_rwflags_in(vsocket->vtab->pump(vsocket));
+}
+
+#endif  /* ENABLE_PLUGIN */
+
 unsigned int
 socket_set(struct link_socket *s,
            struct event_set *es,
@@ -3817,7 +4091,20 @@ socket_set(struct link_socket *s,
         /* if persistent is defined, call event_ctl only if rwflags has changed since last call */
         if (!persistent || *persistent != rwflags)
         {
-            event_ctl(es, socket_event_handle(s), rwflags, arg);
+#ifdef ENABLE_PLUGIN
+            if (s->indirect)
+            {
+                unsigned vrwflags = vsocket_translate_rwflags_out(rwflags);
+                struct encapsulated_event_set encapsulated_es;
+                encapsulated_es.handle.vtab = &encapsulated_event_set_vtab;
+                encapsulated_es.real = es;
+                s->indirect->vtab->request_event(s->indirect, &encapsulated_es.handle, vrwflags);
+            }
+            else
+#endif
+            {
+                event_ctl(es, socket_event_handle(s), rwflags, arg);
+            }
             if (persistent)
             {
                 *persistent = rwflags;
