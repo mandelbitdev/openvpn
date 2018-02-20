@@ -20,13 +20,6 @@ free_context(struct obfs_test_context *context)
     free(context);
 }
 
-/* Stub until the actual code is added. */
-void
-obfs_test_initialize_socket_vtab(void)
-{
-    /* nothing */
-}
-
 OPENVPN_EXPORT int
 openvpn_plugin_open_v3(int version, struct openvpn_plugin_args_open_in const *args,
                        struct openvpn_plugin_args_open_return *out)

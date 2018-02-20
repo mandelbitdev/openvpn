@@ -14,6 +14,10 @@ openvpn_plugin_obfs_test_la_SOURCES = \
 	obfs-test-munging.c \
 	obfs-test.exports
 
+openvpn_plugin_obfs_test_la_SOURCES += obfs-test-posix.c
+# No LIBADD necessary; we assume we can access the global symbol space,
+# and core OpenVPN will already link with everything needed for sockets.
+
 openvpn_plugin_obfs_test_la_LDFLAGS = $(AM_LDFLAGS) \
 	-export-symbols "$(srcdir)/obfs-test.exports" \
 	-module -shared -avoid-version -no-undefined
