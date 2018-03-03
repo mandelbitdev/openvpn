@@ -3232,7 +3232,7 @@ do_link_socket_new(struct context *c)
  * bind TCP/UDP sockets
  */
 static void
-do_init_socket_1(struct context *c, const int mode)
+do_init_socket_1(struct context *c)
 {
     unsigned int sockflags = c->options.sockflags;
     int i;
@@ -3246,6 +3246,25 @@ do_init_socket_1(struct context *c, const int mode)
 
     for (i = 0; i < c->c1.link_sockets_num; i++)
     {
+        int mode = LS_MODE_DEFAULT;
+
+        /* mode allows CM_CHILD_TCP
+         * instances to inherit acceptable fds
+         * from a top-level parent */
+        if (c->options.mode == MODE_SERVER)
+        {
+            /* initializing listening socket */
+            if (c->mode == CM_TOP)
+            {
+                mode = LS_MODE_TCP_LISTEN;
+            }
+            /* initializing socket to client */
+            else if (c->mode == CM_CHILD_TCP)
+            {
+                mode = LS_MODE_TCP_ACCEPT_FROM;
+            }
+        }
+
         /* init each socket with its specific port */
         link_socket_init_phase1(c->c2.link_sockets[i],
                                 c->options.ce.local_list->array[i]->local,
@@ -3253,7 +3272,7 @@ do_init_socket_1(struct context *c, const int mode)
                                 c->options.ce.remote,
                                 c->options.ce.remote_port,
                                 c->c1.dns_cache,
-                                c->options.ce.proto,
+                                c->options.ce.local_list->array[i]->proto,
                                 c->options.ce.af,
                                 c->options.ce.bind_ipv6_only,
                                 mode,
@@ -3974,7 +3993,6 @@ init_instance(struct context *c, const struct env_set *env, const unsigned int f
 {
     const struct options *options = &c->options;
     const bool child = (c->mode == CM_CHILD_TCP || c->mode == CM_CHILD_UDP);
-    int link_socket_mode = LS_MODE_DEFAULT;
 
     /* init garbage collection level */
     gc_init(&c->c2.gc);
@@ -4016,21 +4034,6 @@ init_instance(struct context *c, const struct env_set *env, const unsigned int f
 
     /* map in current connection entry */
     next_connection_entry(c);
-
-    /* link_socket_mode allows CM_CHILD_TCP
-     * instances to inherit acceptable fds
-     * from a top-level parent */
-    if (c->options.ce.proto == PROTO_TCP_SERVER)
-    {
-        if (c->mode == CM_TOP)
-        {
-            link_socket_mode = LS_MODE_TCP_LISTEN;
-        }
-        else if (c->mode == CM_CHILD_TCP)
-        {
-            link_socket_mode = LS_MODE_TCP_ACCEPT_FROM;
-        }
-    }
 
     /* should we disable paging? */
     if (c->first_time && options->mlock)
@@ -4103,7 +4106,8 @@ init_instance(struct context *c, const struct env_set *env, const unsigned int f
     {
         do_event_set_init(c, SHAPER_DEFINED(&c->options));
     }
-    else if (c->mode == CM_CHILD_TCP)
+    //else if (c->mode == CM_CHILD_TCP)
+    else if (child)
     {
         do_event_set_init(c, false);
     }
@@ -4181,7 +4185,7 @@ init_instance(struct context *c, const struct env_set *env, const unsigned int f
     /* bind the TCP/UDP socket */
     if (c->mode == CM_P2P || c->mode == CM_TOP || c->mode == CM_CHILD_TCP)
     {
-        do_init_socket_1(c, link_socket_mode);
+        do_init_socket_1(c);
     }
 
     /* initialize tun/tap device object,

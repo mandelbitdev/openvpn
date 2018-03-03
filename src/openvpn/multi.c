@@ -439,7 +439,7 @@ multi_init(struct multi_context *m, struct context *t, bool tcp_mode, int thread
     /*
      * Initialize multi-socket TCP I/O wait object
      */
-    if (tcp_mode)
+//    if (tcp_mode)
     {
         m->mtcp = multi_tcp_init(t->options.max_clients, &m->max_clients);
     }
@@ -2496,9 +2496,8 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
     struct context *c;
     struct mroute_addr src, dest;
     unsigned int mroute_flags;
-    struct multi_instance *mi;
+    struct multi_instance *mi = NULL;
     bool ret = true;
-    bool floated = false;
 
     if (m->pending)
     {
@@ -2510,7 +2509,8 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
 #ifdef MULTI_DEBUG_EVENT_LOOP
         printf("TCP/UDP -> TUN [%d]\n", BLEN(&m->top.c2.buf));
 #endif
-        multi_set_pending(m, multi_get_create_instance_udp(m, &floated, ls));
+        mi = multi_get_create_instance_udp(m, ls);
+        multi_set_pending(m, mi);
     }
     else
     {
@@ -2530,7 +2530,7 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
             c->c2.buf = m->top.c2.buf;
 
             /* transfer from-addr from top-level context buffer to instance */
-            if (!floated)
+            if (!mi->floated)
             {
                 c->c2.from = m->top.c2.from;
             }
@@ -2546,9 +2546,9 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
             perf_push(PERF_PROC_IN_LINK);
             lsi = get_link_socket_info(c);
             orig_buf = c->c2.buf.data;
-            if (process_incoming_link_part1(c, lsi, floated))
+            if (process_incoming_link_part1(c, lsi, (mi ? mi->floated : false)))
             {
-                if (floated)
+                if (mi && mi->floated)
                 {
                     multi_process_float(m, m->pending, ls);
                 }
@@ -3368,22 +3368,102 @@ uninit_management_callback_multi(struct multi_context *m)
     uninit_management_callback();
 }
 
+/* return true if at least one socket is configured for using TCP */
+static bool
+has_tcp_mode(struct context *c)
+{
+    for (int i = 0; i < c->options.ce.local_list->len; i++)
+    {
+        if (!proto_is_dgram(c->options.ce.local_list->array[i]->proto))
+            return true;
+    }
+    return false;
+}
+
+static void
+tunnel_server_iowork(struct context *c, struct multi_context *multi)
+{
+    while (true)
+    {
+        perf_push(PERF_EVENT_LOOP);
+
+        multi_get_timeout(multi, &multi->top.c2.timeval);
+
+        for (int i = 0; i < c->options.ce.local_list->len; i++)
+        {
+           if (!proto_is_dgram(c->c2.link_sockets[i]->info.proto))
+           {
+               socket_set_listen_persistent(c->c2.link_sockets[i],
+                                            multi->mtcp->es,
+                                            &c->c2.link_sockets[i]->ev_arg);
+           }
+        }
+    }
+}
+
 /*
  * Top level event loop.
  */
 void
 tunnel_server(struct context *top)
 {
+    struct multi_context multi;
+
     ASSERT(top->options.mode == MODE_SERVER);
 
-    if (proto_is_dgram(top->options.ce.proto))
+    top->mode = CM_TOP;
+    context_clear_2(top);
+
+    /* initialize top-tunnel instance */
+    init_instance_handle_signals(top, top->es, CC_HARD_USR1_TO_HUP);
+    if (IS_SIG(top))
     {
-        tunnel_server_udp(top);
+        return;
     }
-    else
+
+    /* initialize global multi_context object */
+    multi_init(&multi, top, has_tcp_mode(top), MC_SINGLE_THREADED);
+
+    /* initialize our cloned top object */
+    multi_top_init(&multi, top);
+
+    /* initialize management interface */
+    init_management_callback_multi(&multi);
+
+    /* finished with initialization */
+    initialization_sequence_completed(top, ISC_SERVER); /* --mode server --proto udp */
+
+#ifdef ENABLE_ASYNC_PUSH
+    multi.top.c2.inotify_fd = inotify_init();
+    if (multi.top.c2.inotify_fd < 0)
     {
-        tunnel_server_tcp(top);
+        msg(D_MULTI_ERRORS | M_ERRNO, "MULTI: inotify_init error");
     }
+#endif
+
+//    if (proto_is_dgram(top->options.ce.proto))
+//    {
+//        tunnel_server_udp(&multi);
+//    }
+//    else
+    {
+        tunnel_server_tcp(&multi);
+    }
+
+#ifdef ENABLE_ASYNC_PUSH
+    close(top->c2.inotify_fd);
+#endif
+
+    /* shut down management interface */
+    uninit_management_callback_multi(&multi);
+
+    /* save ifconfig-pool */
+    multi_ifconfig_pool_persist(&multi, true);
+
+    /* tear down tunnel instance (unless --persist-tun) */
+    multi_uninit(&multi);
+    multi_top_free(&multi);
+    close_instance(top);
 }
 
 #else  /* if P2MP_SERVER */

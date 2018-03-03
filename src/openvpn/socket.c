@@ -1438,7 +1438,7 @@ openvpn_connect(socket_descriptor_t sd,
     return status;
 }
 
-void
+static void
 set_actual_address(struct link_socket_actual *actual, struct addrinfo *ai)
 {
     CLEAR(*actual);

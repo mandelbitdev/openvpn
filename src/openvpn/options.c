@@ -1945,6 +1945,7 @@ alloc_local_entry(struct connection_entry *ce, const int msglevel,
     }
 
     ALLOC_OBJ_CLEAR_GC(e, struct local_entry, gc);
+    e->proto = PROTO_NONE;
     l->array[l->len++] = e;
 
     return e;
@@ -2860,6 +2861,15 @@ options_postprocess_mutate_ce(struct options *o, struct connection_entry *ce)
         {
             ce->proto = PROTO_TCP_SERVER;
         }
+
+        ASSERT(o->ce.local_list);
+        for (int i = 0; i < o->ce.local_list->len; i++)
+        {
+            if (o->ce.local_list->array[i]->proto == PROTO_TCP)
+                o->ce.local_list->array[i]->proto = PROTO_TCP_SERVER;
+            else if (o->ce.local_list->array[i]->proto == PROTO_NONE)
+                o->ce.local_list->array[i]->proto = ce->proto;
+        }
     }
 #endif
 #if P2MP
@@ -2868,6 +2878,15 @@ options_postprocess_mutate_ce(struct options *o, struct connection_entry *ce)
         if (ce->proto == PROTO_TCP)
         {
             ce->proto = PROTO_TCP_CLIENT;
+        }
+
+        ASSERT(o->ce.local_list);
+        for (int i = 0; i < o->ce.local_list->len; i++)
+        {
+            if (o->ce.local_list->array[i]->proto == PROTO_TCP)
+                o->ce.local_list->array[i]->proto = PROTO_TCP_CLIENT;
+            else if (o->ce.local_list->array[i]->proto == PROTO_NONE)
+                o->ce.local_list->array[i]->proto = ce->proto;
         }
     }
 #endif
@@ -3077,12 +3096,6 @@ options_postprocess_mutate(struct options *o)
         *ace = o->ce;
     }
 
-    ASSERT(o->connection_list);
-    for (i = 0; i < o->connection_list->len; ++i)
-    {
-        options_postprocess_mutate_ce(o, o->connection_list->array[i]);
-    }
-
     if (o->ce.local_list)
     {
         for (i = 0; i < o->ce.local_list->len; i++)
@@ -3098,6 +3111,12 @@ options_postprocess_mutate(struct options *o)
         ASSERT(e);
         e->port = o->ce.local_port;
         e->bind_local = o->ce.bind_local;
+    }
+
+    ASSERT(o->connection_list);
+    for (i = 0; i < o->connection_list->len; ++i)
+    {
+        options_postprocess_mutate_ce(o, o->connection_list->array[i]);
     }
 
     /* use the same listen list for every outgoing connection */
@@ -5354,7 +5373,7 @@ add_option(struct options *options,
         VERIFY_PERMISSION(OPT_P_UP);
         options->ifconfig_nowarn = true;
     }
-    else if (streq(p[0], "local") && p[1] && !p[3])
+    else if (streq(p[0], "local") && p[1] && !p[4])
     {
         struct local_entry *e;
 
@@ -5376,6 +5395,11 @@ add_option(struct options *options,
         {
             e->port = p[2];
             e->bind_local = true;
+        }
+
+        if (p[3])
+        {
+            e->proto = ascii2proto(p[3]);
         }
     }
     else if (streq(p[0], "remote-random") && !p[1])
@@ -5949,12 +5973,12 @@ add_option(struct options *options,
         goto err;
 #endif /* ENABLE_FEATURE_SHAPER */
     }
-    else if (streq(p[0], "port") && p[1] && !p[2])
+    else if (streq(p[0], "port") && p[1] && !p[3])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL|OPT_P_CONNECTION);
         options->ce.local_port = options->ce.remote_port = p[1];
     }
-    else if (streq(p[0], "lport") && p[1] && !p[2])
+    else if (streq(p[0], "lport") && p[1] && !p[3])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL|OPT_P_CONNECTION);
         options->ce.local_port_defined = true;

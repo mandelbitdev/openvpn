@@ -88,6 +88,7 @@ struct local_entry
     const char *local;
     const char *port;
     bool bind_local;
+    int proto;
 };
 
 struct connection_entry

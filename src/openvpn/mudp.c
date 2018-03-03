@@ -48,8 +48,7 @@
  */
 
 struct multi_instance *
-multi_get_create_instance_udp(struct multi_context *m, bool *floated,
-                              struct link_socket *ls)
+multi_get_create_instance_udp(struct multi_context *m, struct link_socket *ls)
 {
     struct gc_arena gc = gc_new();
     struct mroute_addr real;
@@ -77,9 +76,10 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
             {
                 mi = m->instances[peer_id];
 
-                *floated = !link_socket_actual_match(&mi->context.c2.from, &m->top.c2.from);
+                mi->floated = !link_socket_actual_match(&mi->context.c2.from,
+                                                        &m->top.c2.from);
 
-                if (*floated)
+                if (mi->floated)
                 {
                     /* reset prefix, since here we are not sure peer is the one it claims to be */
                     ungenerate_prefix(mi);
@@ -304,88 +304,41 @@ p2mp_iow_flags(const struct multi_context *m)
  * @param top - Top-level context structure.
  */
 static void
-tunnel_server_udp_single_threaded(struct context *top)
+tunnel_server_udp_single_threaded(struct multi_context *multi)
 {
-    struct multi_context multi;
-
-    top->mode = CM_TOP;
-    context_clear_2(top);
-
-    /* initialize top-tunnel instance */
-    init_instance_handle_signals(top, top->es, CC_HARD_USR1_TO_HUP);
-    if (IS_SIG(top))
-    {
-        return;
-    }
-
-    /* initialize global multi_context object */
-    multi_init(&multi, top, false, MC_SINGLE_THREADED);
-
-    /* initialize our cloned top object */
-    multi_top_init(&multi, top);
-
-    /* initialize management interface */
-    init_management_callback_multi(&multi);
-
-    /* finished with initialization */
-    initialization_sequence_completed(top, ISC_SERVER); /* --mode server --proto udp */
-
-#ifdef ENABLE_ASYNC_PUSH
-    multi.top.c2.inotify_fd = inotify_init();
-    if (multi.top.c2.inotify_fd < 0)
-    {
-        msg(D_MULTI_ERRORS | M_ERRNO, "MULTI: inotify_init error");
-    }
-#endif
-
     /* per-packet event loop */
     while (true)
     {
         perf_push(PERF_EVENT_LOOP);
 
         /* set up and do the io_wait() */
-        multi_get_timeout(&multi, &multi.top.c2.timeval);
-        io_wait(&multi.top, p2mp_iow_flags(&multi));
-        MULTI_CHECK_SIG(&multi);
+        multi_get_timeout(multi, &multi->top.c2.timeval);
+        io_wait(&multi->top, p2mp_iow_flags(multi));
+        MULTI_CHECK_SIG(multi);
 
         /* check on status of coarse timers */
-        multi_process_per_second_timers(&multi);
+        multi_process_per_second_timers(multi);
 
         /* timeout? */
-        if (multi.top.c2.event_set_status == ES_TIMEOUT)
+        if (multi->top.c2.event_set_status == ES_TIMEOUT)
         {
-            multi_process_timeout(&multi, MPP_PRE_SELECT|MPP_CLOSE_ON_SIGNAL);
+            multi_process_timeout(multi, MPP_PRE_SELECT|MPP_CLOSE_ON_SIGNAL);
         }
         else
         {
             /* process I/O */
-            multi_process_io_udp(&multi);
-            MULTI_CHECK_SIG(&multi);
+            multi_process_io_udp(multi);
+            MULTI_CHECK_SIG(multi);
         }
 
         perf_pop();
     }
-
-#ifdef ENABLE_ASYNC_PUSH
-    close(top->c2.inotify_fd);
-#endif
-
-    /* shut down management interface */
-    uninit_management_callback_multi(&multi);
-
-    /* save ifconfig-pool */
-    multi_ifconfig_pool_persist(&multi, true);
-
-    /* tear down tunnel instance (unless --persist-tun) */
-    multi_uninit(&multi);
-    multi_top_free(&multi);
-    close_instance(top);
 }
 
 void
-tunnel_server_udp(struct context *top)
+tunnel_server_udp(struct multi_context *multi)
 {
-    tunnel_server_udp_single_threaded(top);
+    tunnel_server_udp_single_threaded(multi);
 }
 
 #endif /* if P2MP_SERVER */

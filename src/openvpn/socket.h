@@ -443,9 +443,6 @@ void link_socket_bad_incoming_addr(struct buffer *buf,
                                    const struct link_socket_info *info,
                                    const struct link_socket_actual *from_addr);
 
-void set_actual_address(struct link_socket_actual *actual,
-                        struct addrinfo *ai);
-
 void link_socket_bad_outgoing_addr(void);
 
 void setenv_trusted(struct env_set *es, const struct link_socket_info *info);

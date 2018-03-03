@@ -79,6 +79,7 @@ struct multi_instance {
     struct gc_arena gc;
     bool defined;
     bool halt;
+    bool floated;
     int refcount;
     int route_count;           /* number of routes (including cached routes) owned by this instance */
     time_t created;             /**< Time at which a VPN tunnel instance
