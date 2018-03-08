@@ -102,6 +102,7 @@ struct multi_instance {
     struct schedule_entry se;  /* this must be the first element of the structure,
                                 * We cast between this and schedule_entry so the
                                 * beginning of the struct must be identical */
+    struct event_arg ev_arg;
     struct gc_arena gc;
     bool halt;
     int refcount;
