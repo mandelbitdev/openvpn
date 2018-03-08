@@ -1712,6 +1712,8 @@ link_socket_new(void)
     ALLOC_OBJ_CLEAR(sock, struct link_socket);
     sock->sd = SOCKET_UNDEFINED;
     sock->ctrl_sd = SOCKET_UNDEFINED;
+    sock->ev_arg.type = EVENT_ARG_LINK_SOCKET;
+
     return sock;
 }
 

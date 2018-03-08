@@ -165,6 +165,8 @@ struct link_socket
 {
     struct link_socket_info info;
 
+    struct event_arg ev_arg;
+
     socket_descriptor_t sd;
     socket_descriptor_t ctrl_sd; /* only used for UDP over Socks */
 

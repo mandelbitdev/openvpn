@@ -75,6 +75,7 @@ struct deferred_signal_schedule_entry
  */
 struct multi_instance {
     struct schedule_entry se;  /* this must be the first element of the structure */
+    struct event_arg ev_arg;
     struct gc_arena gc;
     bool defined;
     bool halt;
