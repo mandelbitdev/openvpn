@@ -485,7 +485,7 @@ multi_tcp_dispatch(struct multi_context *m, struct multi_instance *mi, const int
             ASSERT(mi);
             ASSERT(mi->context.c2.link_socket);
             set_prefix(mi);
-            read_incoming_link(&mi->context);
+            read_incoming_link(&mi->context, mi->context.c2.link_socket);
             clear_prefix();
             if (!IS_SIG(&mi->context))
             {
@@ -720,6 +720,7 @@ multi_tcp_process_io(struct multi_context *m)
                         multi_tcp_action(m, mi, TA_SOCKET_READ, false);
                     }
                     break;
+
                 /* new incoming TCP client attempting to connect? */
                 case EVENT_ARG_LINK_SOCKET:
                     ASSERT(m->top.c2.link_socket);
