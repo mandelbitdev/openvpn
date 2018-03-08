@@ -1713,6 +1713,7 @@ link_socket_new(void)
     sock->sd = SOCKET_UNDEFINED;
     sock->ctrl_sd = SOCKET_UNDEFINED;
     sock->ev_arg.type = EVENT_ARG_LINK_SOCKET;
+    sock->ev_arg.u.ls = sock;
 
     return sock;
 }
