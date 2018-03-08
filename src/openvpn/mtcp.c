@@ -720,6 +720,7 @@ multi_tcp_process_io(struct multi_context *m)
                         multi_tcp_action(m, mi, TA_SOCKET_READ, false);
                     }
                     break;
+
                 /* new incoming TCP client attempting to connect? */
                 case EVENT_ARG_LINK_SOCKET:
                     ASSERT(m->top.c2.link_socket);
