@@ -118,7 +118,13 @@ static const char usage_message[] =
     "--version       : Show copyright and version information.\n"
     "\n"
     "Tunnel Options:\n"
-    "--local host    : Local host name or ip address. Implies --bind.\n"
+    "--local host|* [port] : Local host name or ip address and port. '*' can be used\n"
+    "                        as hostname and means 'any host' (openvpn will listen on\n"
+    "                        what is returned by the OS). Implies --bind.\n"
+    "                        0.0.0.0 or :: can be used to specifically open a socket\n"
+    "                        listening on any IPv4 or IPv6 address respectively.\n"
+    "                        The user can specify multiple --local entries to have\n"
+    "                        a server listen on multiple sockets at the same time.\n"
     "--remote host [port] : Remote host name or ip address.\n"
     "--remote-random : If multiple --remote options specified, choose one randomly.\n"
     "--remote-random-hostname : Add a random string to remote DNS name.\n"
@@ -963,8 +969,9 @@ setenv_connection_entry(struct env_set *es,
                         const int i)
 {
     setenv_str_i(es, "proto", proto2ascii(e->proto, e->af, false), i);
-    setenv_str_i(es, "local", e->local, i);
-    setenv_str_i(es, "local_port", e->local_port, i);
+    /* expected to befor single socket contexts only */
+    setenv_str_i(es, "local", e->local_list->array[0]->local, i);
+    setenv_str_i(es, "local_port", e->local_list->array[0]->port, i);
     setenv_str_i(es, "remote", e->remote, i);
     setenv_str_i(es, "remote_port", e->remote_port, i);
 
@@ -1472,8 +1479,12 @@ static void
 show_connection_entry(const struct connection_entry *o)
 {
     msg(D_SHOW_PARMS, "  proto = %s", proto2ascii(o->proto, o->af, false));
-    SHOW_STR(local);
-    SHOW_STR(local_port);
+    msg(D_SHOW_PARMS, "  Local Sockets:");
+    for (int i = 0; i < o->local_list->len; i++)
+    {
+        msg(D_SHOW_PARMS, "    [%s]:%s", o->local_list->array[i]->local,
+            o->local_list->array[i]->port);
+    }
     SHOW_STR(remote);
     SHOW_STR(remote_port);
     SHOW_BOOL(remote_float);
@@ -1908,6 +1919,37 @@ options_postprocess_http_proxy_override(struct options *o)
 
 #endif /* ifdef ENABLE_MANAGEMENT */
 
+static struct local_list *
+alloc_local_list_if_undef(struct connection_entry *ce, struct gc_arena *gc)
+{
+    if (!ce->local_list)
+    {
+        ALLOC_OBJ_CLEAR_GC(ce->local_list, struct local_list, gc);
+    }
+    return ce->local_list;
+}
+
+static struct local_entry *
+alloc_local_entry(struct connection_entry *ce, const int msglevel,
+                  struct gc_arena *gc)
+{
+    struct local_list *l = alloc_local_list_if_undef(ce, gc);
+    struct local_entry *e;
+
+    if (l->len >= CONNECTION_LIST_SIZE)
+    {
+        msg(msglevel, "Maximum number of 'local' options (%d) exceeded",
+            CONNECTION_LIST_SIZE);
+
+        return NULL;
+    }
+
+    ALLOC_OBJ_CLEAR_GC(e, struct local_entry, gc);
+    l->array[l->len++] = e;
+
+    return e;
+}
+
 static struct connection_list *
 alloc_connection_list_if_undef(struct options *options)
 {
@@ -2053,9 +2095,17 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         msg(M_USAGE, "only one of --daemon or --inetd may be specified");
     }
 
-    if (options->inetd && (ce->local || ce->remote))
+    if (options->inetd && (ce->local_list->len > 1
+                           || ce->local_list->array[0]->local
+                           || strcmp(ce->local_list->array[0]->local, "*")
+                           || ce->remote))
     {
         msg(M_USAGE, "--local or --remote cannot be used with --inetd");
+    }
+
+    if (ce->remote && ce->local_list->len > 1)
+    {
+        msg(M_USAGE, "multiple --local do not make sense in Client mode");
     }
 
     if (options->inetd && ce->proto == PROTO_TCP_CLIENT)
@@ -2109,23 +2159,10 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
      * Sanity check on --local, --remote, and --ifconfig
      */
 
-    if (proto_is_net(ce->proto)
-        && string_defined_equal(ce->local, ce->remote)
-        && string_defined_equal(ce->local_port, ce->remote_port))
-    {
-        msg(M_USAGE, "--remote and --local addresses are the same");
-    }
-
     if (string_defined_equal(ce->remote, options->ifconfig_local)
         || string_defined_equal(ce->remote, options->ifconfig_remote_netmask))
     {
         msg(M_USAGE, "--local and --remote addresses must be distinct from --ifconfig addresses");
-    }
-
-    if (string_defined_equal(ce->local, options->ifconfig_local)
-        || string_defined_equal(ce->local, options->ifconfig_remote_netmask))
-    {
-        msg(M_USAGE, "--local addresses must be distinct from --ifconfig addresses");
     }
 
     if (string_defined_equal(options->ifconfig_local, options->ifconfig_remote_netmask))
@@ -2138,11 +2175,6 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         msg(M_USAGE, "--bind and --nobind can't be used together");
     }
 
-    if (ce->local && !ce->bind_local)
-    {
-        msg(M_USAGE, "--local and --nobind don't make sense when used together");
-    }
-
     if (ce->local_port_defined && !ce->bind_local)
     {
         msg(M_USAGE, "--lport and --nobind don't make sense when used together");
@@ -2151,6 +2183,29 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
     if (!ce->remote && !ce->bind_local)
     {
         msg(M_USAGE, "--nobind doesn't make sense unless used with --remote");
+    }
+
+    for (int i = 0; i < ce->local_list->len; i++)
+    {
+        struct local_entry *le = ce->local_list->array[i];
+
+        if (proto_is_net(ce->proto)
+            && string_defined_equal(le->local, ce->remote)
+            && string_defined_equal(le->port, ce->remote_port))
+        {
+            msg(M_USAGE, "--remote and a --local addresses are the same");
+        }
+
+        if (string_defined_equal(le->local, options->ifconfig_local)
+            || string_defined_equal(le->local, options->ifconfig_remote_netmask))
+        {
+            msg(M_USAGE, "--local addresses must be distinct from --ifconfig addresses");
+        }
+
+        if (le->local && !ce->bind_local)
+        {
+            msg(M_USAGE, "--local and --nobind don't make sense when used together");
+        }
     }
 
     /*
@@ -2817,12 +2872,12 @@ options_postprocess_mutate_ce(struct options *o, struct connection_entry *ce)
     }
 #endif
 
-    if (ce->proto == PROTO_TCP_CLIENT && !ce->local && !ce->local_port_defined && !ce->bind_defined)
+    if (ce->proto == PROTO_TCP_CLIENT && !ce->local_list && !ce->local_port_defined && !ce->bind_defined)
     {
         ce->bind_local = false;
     }
 
-    if (ce->proto == PROTO_UDP && ce->socks_proxy_server && !ce->local && !ce->local_port_defined && !ce->bind_defined)
+    if (ce->proto == PROTO_UDP && ce->socks_proxy_server && !ce->local_list && !ce->local_port_defined && !ce->bind_defined)
     {
         ce->bind_local = false;
     }
@@ -2868,7 +2923,16 @@ options_postprocess_mutate_ce(struct options *o, struct connection_entry *ce)
             ce->tun_mtu_extra = TAP_MTU_EXTRA_DEFAULT;
         }
     }
+}
 
+static void
+options_postprocess_mutate_le(struct options *o, struct local_entry *le)
+{
+    /* use the global port if none is specified */
+    if (!le->port)
+    {
+        le->port = o->ce.local_port;
+    }
 }
 
 #ifdef _WIN32
@@ -3017,6 +3081,29 @@ options_postprocess_mutate(struct options *o)
     for (i = 0; i < o->connection_list->len; ++i)
     {
         options_postprocess_mutate_ce(o, o->connection_list->array[i]);
+    }
+
+    if (o->ce.local_list)
+    {
+        for (i = 0; i < o->ce.local_list->len; i++)
+        {
+            options_postprocess_mutate_le(o, o->ce.local_list->array[i]);
+        }
+    }
+    else
+    {
+        /* if no 'local' directive was specified, convert the global port
+         * setting to a listen entry */
+        struct local_entry *e = alloc_local_entry(&o->ce, M_USAGE, &o->gc);
+        ASSERT(e);
+        e->port = o->ce.local_port;
+        e->bind_local = o->ce.bind_local;
+    }
+
+    /* use the same listen list for every outgoing connection */
+    for (i = 0; i < o->connection_list->len; ++i)
+    {
+        o->connection_list->array[i]->local_list = o->ce.local_list;
     }
 
     if (o->tls_server)
@@ -5267,10 +5354,29 @@ add_option(struct options *options,
         VERIFY_PERMISSION(OPT_P_UP);
         options->ifconfig_nowarn = true;
     }
-    else if (streq(p[0], "local") && p[1] && !p[2])
+    else if (streq(p[0], "local") && p[1] && !p[3])
     {
+        struct local_entry *e;
+
         VERIFY_PERMISSION(OPT_P_GENERAL|OPT_P_CONNECTION);
-        options->ce.local = p[1];
+
+        e = alloc_local_entry(&options->ce, M_USAGE, &options->gc);
+        ASSERT(e);
+
+        /* '*' is treated as 'ask the system to get some socket',
+         * therefore force binding on a particular address only when
+         * actually specified. */
+        if (strcmp(p[1], "*") != 0)
+        {
+            e->local = p[1];
+            e->bind_local = true;
+        }
+
+        if (p[2])
+        {
+            e->port = p[2];
+            e->bind_local = true;
+        }
     }
     else if (streq(p[0], "remote-random") && !p[1])
     {

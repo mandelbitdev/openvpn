@@ -232,7 +232,7 @@ do_preresolve_host(struct context *c,
 void
 do_preresolve(struct context *c)
 {
-    int i;
+    int i, j;
     struct connection_list *l = c->options.connection_list;
     const unsigned int preresolve_flags = GETADDR_RESOLVE
                                           |GETADDR_UPDATE_MANAGEMENT_STATE
@@ -305,11 +305,19 @@ do_preresolve(struct context *c)
             }
         }
 
-        if (ce->bind_local)
+        flags |= GETADDR_PASSIVE;
+        flags &= ~GETADDR_RANDOMIZE;
+
+        for (j = 0; j < ce->local_list->len; j++)
         {
-            flags |= GETADDR_PASSIVE;
-            flags &= ~GETADDR_RANDOMIZE;
-            status = do_preresolve_host(c, ce->local, ce->local_port, ce->af, flags);
+            struct local_entry *le = ce->local_list->array[j];
+
+            if (!le->local)
+            {
+                continue;
+            }
+
+            status = do_preresolve_host(c, le->local, le->port, ce->af, flags);
             if (status != 0)
             {
                 goto err;
