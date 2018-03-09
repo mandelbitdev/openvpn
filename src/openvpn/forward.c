@@ -57,12 +57,18 @@ static const char *
 wait_status_string(struct context *c, struct gc_arena *gc)
 {
     struct buffer out = alloc_buf_gc(64, gc);
-    buf_printf(&out, "I/O WAIT %s|%s|%s|%s %s",
+    int i;
+
+    buf_printf(&out, "I/O WAIT %s|%s| %s",
                tun_stat(c->c1.tuntap, EVENT_READ, gc),
                tun_stat(c->c1.tuntap, EVENT_WRITE, gc),
-               socket_stat(c->c2.link_socket, EVENT_READ, gc),
-               socket_stat(c->c2.link_socket, EVENT_WRITE, gc),
                tv_string(&c->c2.timeval, gc));
+    for (i = 0; i < c->c1.link_sockets_num; i++)
+    {
+        buf_printf(&out, "\n %s|%s",
+                   socket_stat(c->c2.link_sockets[i], EVENT_READ, gc),
+                   socket_stat(c->c2.link_sockets[i], EVENT_WRITE, gc));
+    }
     return BSTR(&out);
 }
 
@@ -98,7 +104,7 @@ check_tls_errors(struct context *c)
 {
     if (c->c2.tls_multi && c->c2.tls_exit_signal)
     {
-        if (link_socket_connection_oriented(c->c2.link_socket))
+        if (link_socket_connection_oriented(c->c2.link_sockets[0]))
         {
             if (c->c2.tls_multi->n_soft_errors)
             {
@@ -558,6 +564,7 @@ check_status_file(struct context *c)
 #ifdef ENABLE_FRAGMENT
 /*
  * Should we deliver a datagram fragment to remote?
+ * c is expected to be a single-link context (p2p or child)
  */
 static void
 check_fragment(struct context *c)
@@ -1114,7 +1121,9 @@ process_incoming_link_part1(struct context *c, struct link_socket_info *lsi, boo
         decrypt_status = openvpn_decrypt(&c->c2.buf, c->c2.buffers->decrypt_buf,
                                          co, &c->c2.frame, ad_start);
 
-        if (!decrypt_status && link_socket_connection_oriented(c->c2.link_socket))
+        if (!decrypt_status
+            /* all sockets are of the same type, so just check the first one */
+            && link_socket_connection_oriented(c->c2.link_sockets[0]))
         {
             /* decryption errors are fatal in TCP mode */
             register_signal(c->sig, SIGUSR1, "decryption-error"); /* SOFT-SIGUSR1 -- decryption error in TCP mode */
@@ -1436,7 +1445,7 @@ drop_if_recursive_routing(struct context *c, struct buffer *buf)
  */
 
 void
-process_incoming_tun(struct context *c)
+process_incoming_tun(struct context *c, struct link_socket *out_ls)
 {
     struct gc_arena gc = gc_new();
 
@@ -1469,7 +1478,8 @@ process_incoming_tun(struct context *c)
          */
         unsigned int flags = PIPV4_PASSTOS | PIP_MSSFIX | PIPV4_CLIENT_NAT
                              | PIPV6_ICMP_NOHOST_CLIENT;
-        process_ip_header(c, flags, &c->c2.buf);
+        process_ip_header(c, flags, &c->c2.buf,
+                          out_ls);
 
 #ifdef PACKET_TRUNCATION_CHECK
         /* if (c->c2.buf.len > 1) --c->c2.buf.len; */
@@ -1630,7 +1640,8 @@ ipv6_send_icmp_unreachable(struct context *c, struct buffer *buf, bool client)
 }
 
 void
-process_ip_header(struct context *c, unsigned int flags, struct buffer *buf)
+process_ip_header(struct context *c, unsigned int flags, struct buffer *buf,
+                  struct link_socket *ls)
 {
     if (!c->options.ce.mssfix)
     {
@@ -1664,7 +1675,7 @@ process_ip_header(struct context *c, unsigned int flags, struct buffer *buf)
             /* extract TOS from IP header */
             if (flags & PIPV4_PASSTOS)
             {
-                link_socket_extract_tos(c->c2.link_socket, &ipbuf);
+                link_socket_extract_tos(ls, &ipbuf);
             }
 #endif
 
@@ -1872,7 +1883,7 @@ process_outgoing_link(struct context *c, struct link_socket *ls)
  */
 
 void
-process_outgoing_tun(struct context *c)
+process_outgoing_tun(struct context *c, struct link_socket *in_ls)
 {
     /*
      * Set up for write() call to TUN/TAP
@@ -1889,9 +1900,8 @@ process_outgoing_tun(struct context *c)
      * The --mssfix option requires
      * us to examine the IP header (IPv4 or IPv6).
      */
-    process_ip_header(c,
-                      PIP_MSSFIX | PIPV4_EXTRACT_DHCP_ROUTER | PIPV4_CLIENT_NAT | PIP_OUTGOING,
-                      &c->c2.to_tun);
+    process_ip_header(c, PIP_MSSFIX|PIPV4_EXTRACT_DHCP_ROUTER|PIPV4_CLIENT_NAT|PIP_OUTGOING, &c->c2.to_tun,
+                      in_ls);
 
     if (c->c2.to_tun.len <= c->c2.frame.buf.payload_size)
     {
@@ -2053,6 +2063,7 @@ io_wait_dowork(struct context *c, const unsigned int flags)
 #if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
     static uintptr_t dco_shift = DCO_SHIFT;    /* Event from DCO linux kernel module */
 #endif
+    int i;
 
     /*
      * Decide what kind of events we want to wait for.
@@ -2158,8 +2169,11 @@ io_wait_dowork(struct context *c, const unsigned int flags)
     /*
      * Configure event wait based on socket, tuntap flags.
      */
-    socket_set(c->c2.link_socket, c->c2.event_set, socket,
-               &c->c2.link_socket->ev_arg, NULL);
+    for (i = 0; i < c->c1.link_sockets_num; i++)
+    {
+        socket_set(c->c2.link_sockets[i], c->c2.event_set, socket,
+                   &c->c2.link_sockets[i]->ev_arg, NULL);
+    }
     tun_set(c->c1.tuntap, c->c2.event_set, tuntap, (void *)tun_shift, NULL);
 #if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
     if (socket & EVENT_READ && c->c2.did_open_tun)
@@ -2197,7 +2211,7 @@ io_wait_dowork(struct context *c, const unsigned int flags)
 
     if (!c->sig->signal_received)
     {
-        if (!(flags & IOW_CHECK_RESIDUAL) || !socket_read_residual(c->c2.link_socket))
+        if (!(flags & IOW_CHECK_RESIDUAL) || !sockets_read_residual(c))
         {
             int status;
 
@@ -2236,6 +2250,9 @@ io_wait_dowork(struct context *c, const unsigned int flags)
                         }
 
                         shift = socket_shift;
+                        /* mark socket so that the multi code knows where we
+                         * have pending i/o */
+                        ev_arg->pending = true;
                     }
                     else
                     {
@@ -2289,7 +2306,7 @@ process_io(struct context *c, struct link_socket *ls)
     /* TUN device ready to accept write */
     else if (status & TUN_WRITE)
     {
-        process_outgoing_tun(c);
+        process_outgoing_tun(c, ls);
     }
     /* Incoming data on TCP/UDP port */
     else if (status & SOCKET_READ)
@@ -2306,7 +2323,7 @@ process_io(struct context *c, struct link_socket *ls)
         read_incoming_tun(c);
         if (!IS_SIG(c))
         {
-            process_incoming_tun(c);
+            process_incoming_tun(c, ls);
         }
     }
     else if (status & DCO_READ)
