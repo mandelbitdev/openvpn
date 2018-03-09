@@ -1001,6 +1001,10 @@ setenv_connection_entry(struct env_set *es,
                         const struct connection_entry *e,
                         const int i)
 {
+    setenv_str_i(es, "proto", proto2ascii(e->proto, e->af, false), i);
+    /* expected to be for single socket contexts only */
+    setenv_str_i(es, "local", e->local_list->array[0]->local, i);
+    setenv_str_i(es, "local_port", e->local_list->array[0]->port, i);
     setenv_str_i(es, "remote", e->remote, i);
     setenv_str_i(es, "remote_port", e->remote_port, i);
 
