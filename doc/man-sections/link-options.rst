@@ -106,13 +106,15 @@ the local and the remote host.
   is not reliable. It is recommended to set tun-mtu with enough headroom
   instead.
 
---local host
-  Local host name or IP address for bind. If specified, OpenVPN will bind
-  to this address only. If unspecified, OpenVPN will bind to all
-  interfaces.
+--local host|* [port]
+  Local host name or IP address and port for bind. If specified, OpenVPN will bind
+  to this address. If unspecified, OpenVPN will bind to all interfaces.
+  '*' can be used as hostname and means 'any host' (OpenVPN will listen on what
+  is returned by the OS). Implies --bind, 0.0.0.0 or :: can be used to specifically
+  open a socket.
 
 --lport port
-  Set local TCP/UDP port number or name. Cannot be used together with
+  Set default TCP/UDP port number. Cannot be used together with
   ``--nobind`` option.
 
 --mark value

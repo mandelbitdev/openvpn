@@ -342,7 +342,6 @@ do_preresolve_host(struct context *c,
 void
 do_preresolve(struct context *c)
 {
-    int i;
     struct connection_list *l = c->options.connection_list;
     const unsigned int preresolve_flags = GETADDR_RESOLVE
                                           |GETADDR_UPDATE_MANAGEMENT_STATE
@@ -350,13 +349,13 @@ do_preresolve(struct context *c)
                                           |GETADDR_FATAL;
 
 
-    for (i = 0; i < l->len; ++i)
+    for (int i = 0; i < l->len; ++i)
     {
         int status;
         const char *remote;
         int flags = preresolve_flags;
 
-        struct connection_entry *ce = c->options.connection_list->array[i];
+        struct connection_entry *ce = l->array[i];
 
         if (proto_is_dgram(ce->proto))
         {
@@ -416,12 +415,19 @@ do_preresolve(struct context *c)
             }
         }
 
-        if (ce->bind_local)
+        flags |= GETADDR_PASSIVE;
+        flags &= ~GETADDR_RANDOMIZE;
+
+        for (int j = 0; j < ce->local_list->len; j++)
         {
-            flags |= GETADDR_PASSIVE;
-            flags &= ~GETADDR_RANDOMIZE;
-            status = do_preresolve_host(c, ce->local, ce->local_port,
-                                        ce->af, flags);
+            struct local_entry *le = ce->local_list->array[j];
+
+            if (!le->local)
+            {
+                continue;
+            }
+
+            status = do_preresolve_host(c, le->local, le->port, ce->af, flags);
             if (status != 0)
             {
                 goto err;
@@ -1863,14 +1869,14 @@ link_socket_init_phase1(struct context *c,
 {
     ASSERT(c->c2.link_sockets[sock_index]);
 
-    c->c2.link_sockets[sock_index]->local_host = c->options.ce.local;
-    c->c2.link_sockets[sock_index]->local_port = c->options.ce.local_port;
+    c->c2.link_sockets[sock_index]->local_host = c->options.ce.local_list->array[sock_index]->local;
+    c->c2.link_sockets[sock_index]->local_port = c->options.ce.local_list->array[sock_index]->port;
     c->c2.link_sockets[sock_index]->remote_host = c->options.ce.remote;
     c->c2.link_sockets[sock_index]->remote_port = c->options.ce.remote_port;
     c->c2.link_sockets[sock_index]->dns_cache = c->c1.dns_cache;
     c->c2.link_sockets[sock_index]->http_proxy = c->c1.http_proxy;
     c->c2.link_sockets[sock_index]->socks_proxy = c->c1.socks_proxy;
-    c->c2.link_sockets[sock_index]->bind_local = c->options.ce.bind_local;
+    c->c2.link_sockets[sock_index]->bind_local = c->options.ce.local_list->array[sock_index]->bind_local;
     c->c2.link_sockets[sock_index]->resolve_retry_seconds = c->options.resolve_retry_seconds;
     c->c2.link_sockets[sock_index]->mtu_discover_type = c->options.ce.mtu_discover_type;
 
