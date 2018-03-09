@@ -106,6 +106,7 @@ the local and the remote host.
   is not reliable. It is recommended to set tun-mtu with enough headroom
   instead.
 
+<<<<<<< HEAD
 --local host|* [port] [protocol]
   Local host name or IP address and port for bind. If specified, OpenVPN will bind
   to this address. If unspecified, OpenVPN will bind to all interfaces.
@@ -113,12 +114,27 @@ the local and the remote host.
   is returned by the OS).
   On a client, or in point-to-point mode, this can only be specified once (1 socket).
 
+=======
+--local host|* [port]
+  Local host name or IP address and port for bind. If specified, OpenVPN will bind
+  to this address. If unspecified, OpenVPN will bind to all interfaces.
+  '*' can be used as hostname and means 'any host' (OpenVPN will listen on what
+  is returned by the OS). 
+  On a client, or in point-to-point mode, this can only be specified once (1 socket).
+>>>>>>> 53f2842d (allow user to specify 'local' multiple times in config files)
   On an OpenVPN setup running as ``--server``, this can be specified multiple times
   to open multiple listening sockets on different addresses and/or different ports.
   In order to specify multiple listen ports without specifying an address, use '*'
   to signal "use what the operating system gives you as default", for
   "all IPv4 addresses" use "0.0.0.0", for "all IPv6 addresses" use '::'.
   ``--local`` implies ``--bind``.
+<<<<<<< HEAD
+=======
+  
+
+  Implies --bind, 0.0.0.0 or :: can be used to specifically
+  open a socket.
+>>>>>>> 53f2842d (allow user to specify 'local' multiple times in config files)
 
 --lport port
   Set default TCP/UDP port number. Cannot be used together with
