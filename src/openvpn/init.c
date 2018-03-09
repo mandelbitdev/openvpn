@@ -440,11 +440,11 @@ next_connection_entry(struct context *c)
         {
             /* Check if there is another resolved address to try for
              * the current connection */
-            if (c->c1.link_socket_addr.current_remote
-                && c->c1.link_socket_addr.current_remote->ai_next)
+            if (c->c1.link_socket_addrs[0].current_remote
+                && c->c1.link_socket_addrs[0].current_remote->ai_next)
             {
-                c->c1.link_socket_addr.current_remote =
-                    c->c1.link_socket_addr.current_remote->ai_next;
+                c->c1.link_socket_addrs[0].current_remote =
+                    c->c1.link_socket_addrs[0].current_remote->ai_next;
             }
             else
             {
@@ -455,13 +455,13 @@ next_connection_entry(struct context *c)
                 if (!c->options.persist_remote_ip)
                 {
                     /* close_instance should have cleared the addrinfo objects */
-                    ASSERT(c->c1.link_socket_addr.current_remote == NULL);
-                    ASSERT(c->c1.link_socket_addr.remote_list == NULL);
+                    ASSERT(c->c1.link_socket_addrs[0].current_remote == NULL);
+                    ASSERT(c->c1.link_socket_addrs[0].remote_list == NULL);
                 }
                 else
                 {
-                    c->c1.link_socket_addr.current_remote =
-                        c->c1.link_socket_addr.remote_list;
+                    c->c1.link_socket_addrs[0].current_remote =
+                        c->c1.link_socket_addrs[0].remote_list;
                 }
 
                 /*
@@ -611,6 +611,13 @@ uninit_proxy(struct context *c)
     uninit_proxy_dowork(c);
 }
 
+static void
+do_link_socket_addr_new(struct context *c)
+{
+    ALLOC_ARRAY_CLEAR_GC(c->c1.link_socket_addrs, struct link_socket_addr,
+                         c->c1.link_sockets_num, &c->gc);
+}
+
 void
 context_init_1(struct context *c)
 {
@@ -619,6 +626,10 @@ context_init_1(struct context *c)
     packet_id_persist_init(&c->c1.pid_persist);
 
     init_connection_list(c);
+
+    c->c1.link_sockets_num = 1;
+
+    do_link_socket_addr_new(c);
 
 #if defined(ENABLE_PKCS11)
     if (c->first_time)
@@ -1531,7 +1542,7 @@ initialization_sequence_completed(struct context *c, const unsigned int flags)
         CLEAR(local);
         actual = &get_link_socket_info(c)->lsa->actual;
         remote = actual->dest;
-        getsockname(c->c2.link_socket->sd, &local.addr.sa, &sa_len);
+        getsockname(c->c2.link_sockets[0]->sd, &local.addr.sa, &sa_len);
 #if ENABLE_IP_PKTINFO
         if (!addr_defined(&local))
         {
@@ -1641,8 +1652,8 @@ do_init_tun(struct context *c)
                             c->options.ifconfig_ipv6_local,
                             c->options.ifconfig_ipv6_netbits,
                             c->options.ifconfig_ipv6_remote,
-                            c->c1.link_socket_addr.bind_local,
-                            c->c1.link_socket_addr.remote_list,
+                            c->c1.link_socket_addrs[0].bind_local,
+                            c->c1.link_socket_addrs[0].remote_list,
                             !c->options.ifconfig_nowarn,
                             c->c2.es);
 
@@ -1691,16 +1702,16 @@ do_open_tun(struct context *c)
     do_alloc_route_list(c);
 
     /* parse and resolve the route option list */
-    ASSERT(c->c2.link_socket);
+    ASSERT(c->c2.link_sockets);
     if (c->options.routes && c->c1.route_list)
     {
         do_init_route_list(&c->options, c->c1.route_list,
-                           &c->c2.link_socket->info, c->c2.es);
+                           &c->c2.link_sockets[0]->info, c->c2.es);
     }
     if (c->options.routes_ipv6 && c->c1.route_ipv6_list)
     {
         do_init_route_ipv6_list(&c->options, c->c1.route_ipv6_list,
-                                &c->c2.link_socket->info, c->c2.es);
+                                &c->c2.link_sockets[0]->info, c->c2.es);
     }
 
     /* do ifconfig */
@@ -2175,14 +2186,28 @@ do_deferred_options(struct context *c, const unsigned int found)
 
     if (found & OPT_P_SOCKBUF)
     {
+        int i;
+
         msg(D_PUSH, "OPTIONS IMPORT: --sndbuf/--rcvbuf options modified");
-        link_socket_update_buffer_sizes(c->c2.link_socket, c->options.rcvbuf, c->options.sndbuf);
+
+        for (i = 0; i < c->c1.link_sockets_num; i++)
+        {
+            link_socket_update_buffer_sizes(c->c2.link_sockets[i],
+                                            c->options.rcvbuf,
+                                            c->options.sndbuf);
+        }
     }
 
     if (found & OPT_P_SOCKFLAGS)
     {
+        int i;
+
         msg(D_PUSH, "OPTIONS IMPORT: --socket-flags option modified");
-        link_socket_update_flags(c->c2.link_socket, c->options.sockflags);
+        for (i = 0; i < c->c1.link_sockets_num; i++)
+        {
+            link_socket_update_flags(c->c2.link_sockets[i],
+                                     c->options.sockflags);
+        }
     }
 
     if (found & OPT_P_PERSIST)
@@ -3189,18 +3214,28 @@ do_init_fragment(struct context *c)
 static void
 do_link_socket_new(struct context *c)
 {
-    ASSERT(!c->c2.link_socket);
-    c->c2.link_socket = link_socket_new();
+    int i;
+
+    ASSERT(!c->c2.link_sockets);
+
+    ALLOC_ARRAY_GC(c->c2.link_sockets, struct link_socket *,
+                   c->c1.link_sockets_num, &c->c2.gc);
+
+    for (i = 0; i < c->c1.link_sockets_num; i++)
+    {
+        c->c2.link_sockets[i] = link_socket_new();
+    }
     c->c2.link_socket_owned = true;
 }
 
 /*
- * bind the TCP/UDP socket
+ * bind TCP/UDP sockets
  */
 static void
 do_init_socket_1(struct context *c, const int mode)
 {
     unsigned int sockflags = c->options.sockflags;
+    int i;
 
 #if PORT_SHARE
     if (c->options.port_share_host && c->options.port_share_port)
@@ -3209,45 +3244,53 @@ do_init_socket_1(struct context *c, const int mode)
     }
 #endif
 
-    link_socket_init_phase1(c->c2.link_socket,
-                            c->options.ce.local,
-                            c->options.ce.local_port,
-                            c->options.ce.remote,
-                            c->options.ce.remote_port,
-                            c->c1.dns_cache,
-                            c->options.ce.proto,
-                            c->options.ce.af,
-                            c->options.ce.bind_ipv6_only,
-                            mode,
-                            c->c2.accept_from,
-                            c->c1.http_proxy,
-                            c->c1.socks_proxy,
+    for (i = 0; i < c->c1.link_sockets_num; i++)
+    {
+        /* init each socket with its specific port */
+        link_socket_init_phase1(c->c2.link_sockets[i],
+                                c->options.ce.local,
+                                c->options.ce.local_port,
+                                c->options.ce.remote,
+                                c->options.ce.remote_port,
+                                c->c1.dns_cache,
+                                c->options.ce.proto,
+                                c->options.ce.af,
+                                c->options.ce.bind_ipv6_only,
+                                mode,
+                                c->c2.accept_from,
+                                c->c1.http_proxy,
+                                c->c1.socks_proxy,
 #ifdef ENABLE_DEBUG
-                            c->options.gremlin,
+                                c->options.gremlin,
 #endif
-                            c->options.ce.bind_local,
-                            c->options.ce.remote_float,
-                            c->options.inetd,
-                            &c->c1.link_socket_addr,
-                            c->options.ipchange,
-                            c->plugins,
-                            c->options.resolve_retry_seconds,
-                            c->options.ce.mtu_discover_type,
-                            c->options.rcvbuf,
-                            c->options.sndbuf,
-                            c->options.mark,
-                            &c->c2.server_poll_interval,
-                            sockflags);
+                                c->options.ce.bind_local,
+                                c->options.ce.remote_float,
+                                c->options.inetd,
+                                &c->c1.link_socket_addrs[i],
+                                c->options.ipchange,
+                                c->plugins,
+                                c->options.resolve_retry_seconds,
+                                c->options.ce.mtu_discover_type,
+                                c->options.rcvbuf,
+                                c->options.sndbuf,
+                                c->options.mark,
+                                &c->c2.server_poll_interval,
+                                sockflags);
+    }
 }
 
 /*
- * finalize the TCP/UDP socket
+ * finalize TCP/UDP sockets
  */
 static void
 do_init_socket_2(struct context *c)
 {
-    link_socket_init_phase2(c->c2.link_socket, &c->c2.frame,
-                            c->sig);
+    int i;
+
+    for (i = 0; i < c->c1.link_sockets_num; i++)
+    {
+        link_socket_init_phase2(c->c2.link_sockets[i], &c->c2.frame, c->sig);
+    }
 }
 
 /*
@@ -3410,10 +3453,15 @@ do_close_free_key_schedule(struct context *c, bool free_ssl_ctx)
 static void
 do_close_link_socket(struct context *c)
 {
-    if (c->c2.link_socket && c->c2.link_socket_owned)
+    if (c->c2.link_sockets && c->c2.link_socket_owned)
     {
-        link_socket_close(c->c2.link_socket);
-        c->c2.link_socket = NULL;
+        int i;
+
+        for (i = 0; i < c->c1.link_sockets_num; i++)
+        {
+            link_socket_close(c->c2.link_sockets[i]);
+        }
+        c->c2.link_sockets = NULL;
     }
 
 
@@ -3424,27 +3472,33 @@ do_close_link_socket(struct context *c)
           && ( (c->options.persist_remote_ip)
                ||
                ( c->sig->source != SIG_SOURCE_HARD
-                 && ((c->c1.link_socket_addr.current_remote && c->c1.link_socket_addr.current_remote->ai_next)
+                 && ((c->c1.link_socket_addrs[0].current_remote
+                      && c->c1.link_socket_addrs[0].current_remote->ai_next)
                      || c->options.no_advance))
                )))
     {
-        clear_remote_addrlist(&c->c1.link_socket_addr, !c->options.resolve_in_advance);
+        clear_remote_addrlist(&c->c1.link_socket_addrs[0],
+                              !c->options.resolve_in_advance);
     }
 
     /* Clear the remote actual address when persist_remote_ip is not in use */
     if (!(c->sig->signal_received == SIGUSR1 && c->options.persist_remote_ip))
     {
-        CLEAR(c->c1.link_socket_addr.actual);
+        CLEAR(c->c1.link_socket_addrs[0].actual);
     }
 
-    if (!(c->sig->signal_received == SIGUSR1 && c->options.persist_local_ip))
+    for (int i = 0; i < c->c1.link_sockets_num; i++)
     {
-        if (c->c1.link_socket_addr.bind_local && !c->options.resolve_in_advance)
+        if (!(c->sig->signal_received == SIGUSR1 && c->options.persist_local_ip))
         {
-            freeaddrinfo(c->c1.link_socket_addr.bind_local);
-        }
+            if (c->c1.link_socket_addrs[i].bind_local
+                && !c->options.resolve_in_advance)
+            {
+                freeaddrinfo(c->c1.link_socket_addrs[i].bind_local);
+            }
 
-        c->c1.link_socket_addr.bind_local = NULL;
+            c->c1.link_socket_addrs[i].bind_local = NULL;
+        }
     }
 }
 
@@ -4311,7 +4365,8 @@ close_instance(struct context *c)
 
 void
 inherit_context_child(struct context *dest,
-                      const struct context *src)
+                      const struct context *src,
+                      struct link_socket *ls)
 {
     CLEAR(*dest);
 
@@ -4324,6 +4379,8 @@ inherit_context_child(struct context *dest,
 
     /* c1 init */
     packet_id_persist_init(&dest->c1.pid_persist);
+    dest->c1.link_sockets_num = 1;
+    do_link_socket_addr_new(dest);
 
     dest->c1.ks.key_type = src->c1.ks.key_type;
     /* inherit SSL context */
@@ -4345,7 +4402,7 @@ inherit_context_child(struct context *dest,
          * The CM_TOP context does the socket listen(),
          * and the CM_CHILD_TCP context does the accept().
          */
-        dest->c2.accept_from = src->c2.link_socket;
+        dest->c2.accept_from = ls;
     }
 
 #ifdef ENABLE_PLUGIN
@@ -4366,18 +4423,26 @@ inherit_context_child(struct context *dest,
     /* UDP inherits some extra things which TCP does not */
     if (dest->mode == CM_CHILD_UDP)
     {
+        ASSERT(!dest->c2.link_sockets);
+
         /* inherit buffers */
         dest->c2.buffers = src->c2.buffers;
 
-        /* inherit parent link_socket and tuntap */
-        dest->c2.link_socket = src->c2.link_socket;
+        ALLOC_ARRAY_GC(dest->c2.link_sockets, struct link_socket *, 1,
+                       &dest->gc);
 
-        ALLOC_OBJ_GC(dest->c2.link_socket_info, struct link_socket_info, &dest->gc);
-        *dest->c2.link_socket_info = src->c2.link_socket->info;
+        /* inherit parent link_socket and tuntap */
+        dest->c2.link_sockets[0] = ls;
+
+        ALLOC_ARRAY_GC(dest->c2.link_socket_infos, struct link_socket_info *, 1,
+                       &dest->gc);
+        ALLOC_OBJ_GC(dest->c2.link_socket_infos[0], struct link_socket_info,
+                     &dest->gc);
+        *dest->c2.link_socket_infos[0] = ls->info;
 
         /* locally override some link_socket_info fields */
-        dest->c2.link_socket_info->lsa = &dest->c1.link_socket_addr;
-        dest->c2.link_socket_info->connection_established = false;
+        dest->c2.link_socket_infos[0]->lsa = &dest->c1.link_socket_addrs[0];
+        dest->c2.link_socket_infos[0]->connection_established = false;
     }
 }
 

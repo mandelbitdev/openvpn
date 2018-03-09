@@ -48,7 +48,8 @@
  */
 
 struct multi_instance *
-multi_get_create_instance_udp(struct multi_context *m, bool *floated)
+multi_get_create_instance_udp(struct multi_context *m, bool *floated,
+                              struct link_socket *ls)
 {
     struct gc_arena gc = gc_new();
     struct mroute_addr real;
@@ -102,7 +103,7 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated)
             {
                 if (frequency_limit_event_allowed(m->new_connection_limiter))
                 {
-                    mi = multi_create_instance(m, &real);
+                    mi = multi_create_instance(m, &real, ls);
                     if (mi)
                     {
                         int i;
@@ -227,10 +228,18 @@ multi_process_io_udp(struct multi_context *m)
     /* Incoming data on UDP port */
     else if (status & SOCKET_READ)
     {
-        read_incoming_link(&m->top, m->top.c2.link_socket);
-        if (!IS_SIG(&m->top))
+        int i;
+        for (i = 0; i < m->top.c1.link_sockets_num; i++)
         {
-            multi_process_incoming_link(m, NULL, mpp_flags);
+            if (!m->top.c2.link_sockets[i]->ev_arg.pending)
+                continue;
+
+            read_incoming_link(&m->top, m->top.c2.link_sockets[i]);
+            if (!IS_SIG(&m->top))
+            {
+                multi_process_incoming_link(m, NULL, mpp_flags,
+                                            m->top.c2.link_sockets[i]);
+            }
         }
     }
     /* Incoming data on TUN device */

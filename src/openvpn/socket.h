@@ -1220,11 +1220,7 @@ link_socket_set_tos(struct link_socket *ls)
  * Socket I/O wait functions
  */
 
-static inline bool
-socket_read_residual(const struct link_socket *s)
-{
-    return s && s->stream_buf.residual_fully_formed;
-}
+bool sockets_read_residual(const struct context *c);
 
 static inline event_t
 socket_event_handle(const struct link_socket *s)

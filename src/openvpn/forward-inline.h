@@ -55,7 +55,8 @@ check_tls_errors(struct context *c)
 
     if (c->c2.tls_multi && c->c2.tls_exit_signal)
     {
-        if (link_socket_connection_oriented(c->c2.link_socket))
+        /* all sockets are of the same type, so just check the first one */
+        if (link_socket_connection_oriented(c->c2.link_sockets[0]))
         {
             if (c->c2.tls_multi->n_soft_errors)
             {
@@ -254,16 +255,21 @@ context_reschedule_sec(struct context *c, int sec)
     }
 }
 
+/*
+ * This function is invoked only on single-link contexts
+ * (i.e. p2p or child contexts), therefore we can explicitly
+ * work on the first socket
+ */
 static inline struct link_socket_info *
 get_link_socket_info(struct context *c)
 {
-    if (c->c2.link_socket_info)
+    if (c->c2.link_socket_infos && c->c2.link_socket_infos[0])
     {
-        return c->c2.link_socket_info;
+        return c->c2.link_socket_infos[0];
     }
     else
     {
-        return &c->c2.link_socket->info;
+        return &c->c2.link_sockets[0]->info;
     }
 }
 
@@ -330,6 +336,7 @@ io_wait(struct context *c, const unsigned int flags)
     }
 }
 
+/* invoked only on single-link instances */
 #define CONNECTION_ESTABLISHED(c) (get_link_socket_info(c)->connection_established)
 
 #endif /* EVENT_INLINE_H */

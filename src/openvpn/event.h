@@ -100,6 +100,7 @@ typedef enum {
 struct event_arg
 {
     event_arg_t type;
+    bool pending; /* in UDP/P2P mode marks sockets waiting for processing */
     union {
         struct multi_instance *mi; /* if type = EVENT_ARG_MULTI_INSTANCE */
         struct link_socket *ls; /* if type = EVENT_ARG_LINK_SOCKET */

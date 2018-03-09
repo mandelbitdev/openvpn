@@ -54,6 +54,19 @@ const int proto_overhead[] = { /* indexed by PROTO_x */
     IPv6_TCP_HEADER_SIZE,
 };
 
+bool
+sockets_read_residual(const struct context *c)
+{
+    int i;
+
+    for (i = 0; i < c->c1.link_sockets_num; i++)
+    {
+        if (c->c2.link_sockets[i]->stream_buf.residual_fully_formed)
+            return true;
+    }
+    return false;
+}
+
 /*
  * Convert sockflags/getaddr_flags into getaddr_flags
  */
