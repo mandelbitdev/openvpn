@@ -745,7 +745,7 @@ context_init_1(struct context *c)
 
     init_connection_list(c);
 
-    c->c1.link_sockets_num = 1;
+    c->c1.link_sockets_num = c->options.ce.local_list->len;
 
     do_link_socket_addr_new(c);
 
@@ -3822,8 +3822,8 @@ do_init_socket_1(struct context *c)
 
         /* init each socket with its specific port */
         link_socket_init_phase1(c->c2.link_sockets[i],
-                                c->options.ce.local,
-                                c->options.ce.local_port,
+                                c->options.ce.local_list->array[i]->local,
+                                c->options.ce.local_list->array[i]->port,
                                 c->options.ce.remote,
                                 c->options.ce.remote_port,
                                 c->c1.dns_cache,
@@ -3837,7 +3837,7 @@ do_init_socket_1(struct context *c)
 #ifdef ENABLE_DEBUG
                                 c->options.gremlin,
 #endif
-                                c->options.ce.bind_local,
+                                c->options.ce.local_list->array[i]->bind_local,
                                 c->options.ce.remote_float,
                                 &c->c1.link_socket_addrs[i],
                                 c->options.ipchange,
@@ -4973,6 +4973,7 @@ inherit_context_child(struct context *dest,
     if (dest->mode == CM_CHILD_UDP)
     {
         ASSERT(!dest->c2.link_sockets);
+        ASSERT(dest->options.ce.local_list);
 
         /* inherit buffers */
         dest->c2.buffers = src->c2.buffers;
