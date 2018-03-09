@@ -42,6 +42,21 @@
 
 #include "memdbg.h"
 
+bool
+sockets_read_residual(const struct context *c)
+{
+    int i;
+
+    for (i = 0; i < c->c1.link_sockets_num; i++)
+    {
+        if (c->c2.link_sockets[i]->stream_buf.residual_fully_formed)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 /*
  * Convert sockflags/getaddr_flags into getaddr_flags
  */
@@ -999,7 +1014,6 @@ socket_descriptor_t
 create_socket_tcp(struct addrinfo *addrinfo)
 {
     socket_descriptor_t sd;
-
     ASSERT(addrinfo);
     ASSERT(addrinfo->ai_socktype == SOCK_STREAM);
 
@@ -1031,7 +1045,6 @@ static socket_descriptor_t
 create_socket_udp(struct addrinfo *addrinfo, const unsigned int flags)
 {
     socket_descriptor_t sd;
-
     ASSERT(addrinfo);
     ASSERT(addrinfo->ai_socktype == SOCK_DGRAM);
 
@@ -1441,7 +1454,6 @@ openvpn_connect(socket_descriptor_t sd,
 #ifdef TARGET_ANDROID
     protect_fd_nonlocal(sd, remote);
 #endif
-
     set_nonblock(sd);
     status = connect(sd, remote, af_addr_size(remote->sa_family));
     if (status)
@@ -1834,60 +1846,75 @@ link_socket_new(void)
 }
 
 void
-link_socket_init_phase1(struct context *c, int mode)
+link_socket_init_phase1(struct link_socket *sock,
+                        const char *local_host,
+                        const char *local_port,
+                        const char *remote_host,
+                        const char *remote_port,
+                        struct cached_dns_entry *dns_cache,
+                        int proto,
+                        sa_family_t af,
+                        bool bind_ipv6_only,
+                        int mode,
+                        const struct link_socket *accept_from,
+                        struct http_proxy_info *http_proxy,
+                        struct socks_proxy_info *socks_proxy,
+#ifdef ENABLE_DEBUG
+                        int gremlin,
+#endif
+                        bool bind_local,
+                        bool remote_float,
+                        struct link_socket_addr *lsa,
+                        const char *ipchange_command,
+                        const struct plugin_list *plugins,
+                        int resolve_retry_seconds,
+                        int mtu_discover_type,
+                        int rcvbuf,
+                        int sndbuf,
+                        int mark,
+                        struct event_timeout *server_poll_timeout,
+                        unsigned int sockflags)
 {
-    struct link_socket *sock = c->c2.link_socket;
-    struct options *o = &c->options;
     ASSERT(sock);
 
-    const char *remote_host = o->ce.remote;
-    const char *remote_port = o->ce.remote_port;
-
-    sock->local_host = o->ce.local;
-    sock->local_port = o->ce.local_port;
+    sock->local_host = local_host;
+    sock->local_port = local_port;
     sock->remote_host = remote_host;
     sock->remote_port = remote_port;
-    sock->dns_cache = c->c1.dns_cache;
-    sock->http_proxy = c->c1.http_proxy;
-    sock->socks_proxy = c->c1.socks_proxy;
-    sock->bind_local = o->ce.bind_local;
-    sock->resolve_retry_seconds = o->resolve_retry_seconds;
-    sock->mtu_discover_type = o->ce.mtu_discover_type;
+    sock->dns_cache = dns_cache;
+    sock->http_proxy = http_proxy;
+    sock->socks_proxy = socks_proxy;
+    sock->bind_local = bind_local;
+    sock->resolve_retry_seconds = resolve_retry_seconds;
+    sock->mtu_discover_type = mtu_discover_type;
 
 #ifdef ENABLE_DEBUG
-    sock->gremlin = o->gremlin;
+    sock->gremlin = gremlin;
 #endif
 
-    sock->socket_buffer_sizes.rcvbuf = o->rcvbuf;
-    sock->socket_buffer_sizes.sndbuf = o->sndbuf;
+    sock->socket_buffer_sizes.rcvbuf = rcvbuf;
+    sock->socket_buffer_sizes.sndbuf = sndbuf;
 
-    sock->sockflags = o->sockflags;
-#if PORT_SHARE
-    if (o->port_share_host && o->port_share_port)
-    {
-        sock->sockflags |= SF_PORT_SHARE;
-    }
-#endif
-    sock->mark = o->mark;
-    sock->bind_dev = o->bind_dev;
+    sock->sockflags = sockflags;
+    sock->mark = mark;
 
-    sock->info.proto = o->ce.proto;
-    sock->info.af = o->ce.af;
-    sock->info.remote_float = o->ce.remote_float;
-    sock->info.lsa = &c->c1.link_socket_addr;
-    sock->info.bind_ipv6_only = o->ce.bind_ipv6_only;
-    sock->info.ipchange_command = o->ipchange;
-    sock->info.plugins = c->plugins;
-    sock->server_poll_timeout = &c->c2.server_poll_interval;
+    sock->info.proto = proto;
+    sock->info.af = af;
+    sock->info.remote_float = remote_float;
+    sock->info.lsa = lsa;
+    sock->info.bind_ipv6_only = bind_ipv6_only;
+    sock->info.ipchange_command = ipchange_command;
+    sock->info.plugins = plugins;
+    sock->server_poll_timeout = server_poll_timeout;
 
     sock->mode = mode;
     if (mode == LS_MODE_TCP_ACCEPT_FROM)
     {
-        ASSERT(c->c2.accept_from);
+        ASSERT(accept_from);
         ASSERT(sock->info.proto == PROTO_TCP_SERVER);
-        sock->sd = c->c2.accept_from->sd;
+        sock->sd = accept_from->sd;
         /* inherit (possibly guessed) info AF from parent context */
-        sock->info.af = c->c2.accept_from->info.af;
+        sock->info.af = accept_from->info.af;
     }
 
     /* are we running in HTTP proxy mode? */
@@ -1896,8 +1923,8 @@ link_socket_init_phase1(struct context *c, int mode)
         ASSERT(sock->info.proto == PROTO_TCP_CLIENT);
 
         /* the proxy server */
-        sock->remote_host = c->c1.http_proxy->options.server;
-        sock->remote_port = c->c1.http_proxy->options.port;
+        sock->remote_host = http_proxy->options.server;
+        sock->remote_port = http_proxy->options.port;
 
         /* the OpenVPN server we will use the proxy to connect to */
         sock->proxy_dest_host = remote_host;
@@ -1906,9 +1933,10 @@ link_socket_init_phase1(struct context *c, int mode)
     /* or in Socks proxy mode? */
     else if (sock->socks_proxy)
     {
+
         /* the proxy server */
-        sock->remote_host = c->c1.socks_proxy->server;
-        sock->remote_port = c->c1.socks_proxy->port;
+        sock->remote_host = socks_proxy->server;
+        sock->remote_port = socks_proxy->port;
 
         /* the OpenVPN server we will use the proxy to connect to */
         sock->proxy_dest_host = remote_host;
@@ -2167,22 +2195,21 @@ create_socket_dco_win(struct context *c, struct link_socket *sock,
 
 /* finalize socket initialization */
 void
-link_socket_init_phase2(struct context *c)
+link_socket_init_phase2(struct context *c,
+                        struct link_socket *sock)
 {
-    struct link_socket *sock = c->c2.link_socket;
     const struct frame *frame = &c->c2.frame;
     struct signal_info *sig_info = c->sig;
-
     const char *remote_dynamic = NULL;
-    struct signal_info sig_save = {0};
+    int sig_save = 0;
 
     ASSERT(sock);
     ASSERT(sig_info);
 
     if (sig_info->signal_received)
     {
-        sig_save = *sig_info;
-        sig_save.signal_received = signal_reset(sig_info, 0);
+        sig_save = sig_info->signal_received;
+        sig_info->signal_received = 0;
     }
 
     /* initialize buffers */
@@ -2204,7 +2231,7 @@ link_socket_init_phase2(struct context *c)
     /* If a valid remote has been found, create the socket with its addrinfo */
     if (sock->info.lsa->current_remote)
     {
-#if defined(_WIN32)
+#if defined (_WIN32)
         if (dco_enabled(&c->options))
         {
             create_socket_dco_win(c, sock, sig_info);
@@ -2215,7 +2242,6 @@ link_socket_init_phase2(struct context *c)
         {
             create_socket(sock, sock->info.lsa->current_remote);
         }
-
     }
 
     /* If socket has not already been created create it now */
@@ -2234,7 +2260,6 @@ link_socket_init_phase2(struct context *c)
                     addr_family_name(sock->info.lsa->bind_local->ai_family));
                 sock->info.af = sock->info.lsa->bind_local->ai_family;
             }
-
             create_socket(sock, sock->info.lsa->bind_local);
         }
     }
@@ -2243,7 +2268,7 @@ link_socket_init_phase2(struct context *c)
     if (sock->sd == SOCKET_UNDEFINED)
     {
         msg(M_WARN, "Could not determine IPv4/IPv6 protocol");
-        register_signal(sig_info, SIGUSR1, "Could not determine IPv4/IPv6 protocol");
+        sig_info->signal_received = SIGUSR1;
         goto done;
     }
 
@@ -2254,7 +2279,8 @@ link_socket_init_phase2(struct context *c)
 
     if (sock->info.proto == PROTO_TCP_SERVER)
     {
-        phase2_tcp_server(sock, remote_dynamic, sig_info);
+        phase2_tcp_server(sock, remote_dynamic,
+                          sig_info);
     }
     else if (sock->info.proto == PROTO_TCP_CLIENT)
     {
@@ -2280,16 +2306,11 @@ link_socket_init_phase2(struct context *c)
     linksock_print_addr(sock);
 
 done:
-    if (sig_save.signal_received)
+    if (sig_save)
     {
-        /* Always restore the saved signal -- register/throw_signal will handle priority */
-        if (sig_save.source == SIG_SOURCE_HARD && sig_info == &siginfo_static)
+        if (!sig_info->signal_received)
         {
-            throw_signal(sig_save.signal_received);
-        }
-        else
-        {
-            register_signal(sig_info, sig_save.signal_received, sig_save.signal_text);
+            sig_info->signal_received = sig_save;
         }
     }
 }
