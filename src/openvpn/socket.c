@@ -42,6 +42,21 @@
 
 #include "memdbg.h"
 
+bool
+sockets_read_residual(const struct context *c)
+{
+    int i;
+
+    for (i = 0; i < c->c1.link_sockets_num; i++)
+    {
+        if (c->c2.link_sockets[i]->stream_buf.residual_fully_formed)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
 /*
  * Convert sockflags/getaddr_flags into getaddr_flags
  */
@@ -1002,7 +1017,6 @@ socket_descriptor_t
 create_socket_tcp(struct addrinfo *addrinfo)
 {
     socket_descriptor_t sd;
-
     ASSERT(addrinfo);
     ASSERT(addrinfo->ai_socktype == SOCK_STREAM);
 
@@ -1034,7 +1048,6 @@ static socket_descriptor_t
 create_socket_udp(struct addrinfo *addrinfo, const unsigned int flags)
 {
     socket_descriptor_t sd;
-
     ASSERT(addrinfo);
     ASSERT(addrinfo->ai_socktype == SOCK_DGRAM);
 
@@ -1444,7 +1457,6 @@ openvpn_connect(socket_descriptor_t sd,
 #ifdef TARGET_ANDROID
     protect_fd_nonlocal(sd, remote);
 #endif
-
     set_nonblock(sd);
     status = connect(sd, remote, af_addr_size(remote->sa_family));
     if (status)
@@ -1837,19 +1849,18 @@ link_socket_new(void)
 }
 
 void
-link_socket_init_phase1(struct context *c, int mode)
+link_socket_init_phase1(struct context *c,
+                        int sock_index,
+                        int mode)
 {
-    struct link_socket *sock = c->c2.link_socket;
+    struct link_socket *sock = c->c2.link_sockets[sock_index];
     struct options *o = &c->options;
     ASSERT(sock);
 
-    const char *remote_host = o->ce.remote;
-    const char *remote_port = o->ce.remote_port;
-
     sock->local_host = o->ce.local;
     sock->local_port = o->ce.local_port;
-    sock->remote_host = remote_host;
-    sock->remote_port = remote_port;
+    sock->remote_host = o->ce.remote;
+    sock->remote_port = o->ce.remote_port;
     sock->dns_cache = c->c1.dns_cache;
     sock->http_proxy = c->c1.http_proxy;
     sock->socks_proxy = c->c1.socks_proxy;
@@ -1865,19 +1876,20 @@ link_socket_init_phase1(struct context *c, int mode)
     sock->socket_buffer_sizes.sndbuf = o->sndbuf;
 
     sock->sockflags = o->sockflags;
+
 #if PORT_SHARE
     if (o->port_share_host && o->port_share_port)
     {
         sock->sockflags |= SF_PORT_SHARE;
     }
 #endif
+
     sock->mark = o->mark;
-    sock->bind_dev = o->bind_dev;
 
     sock->info.proto = o->ce.proto;
     sock->info.af = o->ce.af;
     sock->info.remote_float = o->ce.remote_float;
-    sock->info.lsa = &c->c1.link_socket_addr;
+    sock->info.lsa = &c->c1.link_socket_addrs[sock_index];
     sock->info.bind_ipv6_only = o->ce.bind_ipv6_only;
     sock->info.ipchange_command = o->ipchange;
     sock->info.plugins = c->plugins;
@@ -1903,24 +1915,25 @@ link_socket_init_phase1(struct context *c, int mode)
         sock->remote_port = c->c1.http_proxy->options.port;
 
         /* the OpenVPN server we will use the proxy to connect to */
-        sock->proxy_dest_host = remote_host;
-        sock->proxy_dest_port = remote_port;
+        sock->proxy_dest_host = o->ce.remote;
+        sock->proxy_dest_port = o->ce.remote_port;
     }
     /* or in Socks proxy mode? */
     else if (sock->socks_proxy)
     {
+
         /* the proxy server */
         sock->remote_host = c->c1.socks_proxy->server;
         sock->remote_port = c->c1.socks_proxy->port;
 
         /* the OpenVPN server we will use the proxy to connect to */
-        sock->proxy_dest_host = remote_host;
-        sock->proxy_dest_port = remote_port;
+        sock->proxy_dest_host = o->ce.remote;
+        sock->proxy_dest_port = o->ce.remote_port;
     }
     else
     {
-        sock->remote_host = remote_host;
-        sock->remote_port = remote_port;
+        sock->remote_host = o->ce.remote;
+        sock->remote_port = o->ce.remote_port;
     }
 
     /* bind behavior for TCP server vs. client */
@@ -2172,9 +2185,9 @@ create_socket_dco_win(struct context *c, struct link_socket *sock,
 
 /* finalize socket initialization */
 void
-link_socket_init_phase2(struct context *c)
+link_socket_init_phase2(struct context *c,
+                        struct link_socket *sock)
 {
-    struct link_socket *sock = c->c2.link_socket;
     const struct frame *frame = &c->c2.frame;
     struct signal_info *sig_info = c->sig;
 
@@ -2220,7 +2233,6 @@ link_socket_init_phase2(struct context *c)
         {
             create_socket(sock, sock->info.lsa->current_remote);
         }
-
     }
 
     /* If socket has not already been created create it now */
@@ -2239,7 +2251,6 @@ link_socket_init_phase2(struct context *c)
                     addr_family_name(sock->info.lsa->bind_local->ai_family));
                 sock->info.af = sock->info.lsa->bind_local->ai_family;
             }
-
             create_socket(sock, sock->info.lsa->bind_local);
         }
     }
@@ -2287,10 +2298,10 @@ link_socket_init_phase2(struct context *c)
 done:
     if (sig_save.signal_received)
     {
-        /* Always restore the saved signal -- register/throw_signal will handle priority */
+        /* Always restore the saved signal --register/throw_signal will handle priority */
         if (sig_save.source == SIG_SOURCE_HARD && sig_info == &siginfo_static)
         {
-            throw_signal(sig_save.signal_received);
+            throw_signal(sig_save.signal_received); 
         }
         else
         {
