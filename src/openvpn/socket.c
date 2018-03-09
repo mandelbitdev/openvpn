@@ -342,7 +342,6 @@ do_preresolve_host(struct context *c,
 void
 do_preresolve(struct context *c)
 {
-    int i;
     struct connection_list *l = c->options.connection_list;
     const unsigned int preresolve_flags = GETADDR_RESOLVE
                                           |GETADDR_UPDATE_MANAGEMENT_STATE
@@ -350,13 +349,13 @@ do_preresolve(struct context *c)
                                           |GETADDR_FATAL;
 
 
-    for (i = 0; i < l->len; ++i)
+    for (int i = 0; i < l->len; ++i)
     {
         int status;
         const char *remote;
         int flags = preresolve_flags;
 
-        struct connection_entry *ce = c->options.connection_list->array[i];
+        struct connection_entry *ce = l->array[i];
 
         if (proto_is_dgram(ce->proto))
         {
@@ -416,12 +415,19 @@ do_preresolve(struct context *c)
             }
         }
 
-        if (ce->bind_local)
+        flags |= GETADDR_PASSIVE;
+        flags &= ~GETADDR_RANDOMIZE;
+
+        for (int j = 0; j < ce->local_list->len; j++)
         {
-            flags |= GETADDR_PASSIVE;
-            flags &= ~GETADDR_RANDOMIZE;
-            status = do_preresolve_host(c, ce->local, ce->local_port,
-                                        ce->af, flags);
+            struct local_entry *le = ce->local_list->array[j];
+
+            if (!le->local)
+            {
+                continue;
+            }
+
+            status = do_preresolve_host(c, le->local, le->port, ce->af, flags);
             if (status != 0)
             {
                 goto err;
@@ -1865,14 +1871,14 @@ link_socket_init_phase1(struct context *c,
     struct options *o = &c->options;
     ASSERT(sock);
 
-    sock->local_host = o->ce.local;
-    sock->local_port = o->ce.local_port;
+    sock->local_host = o->ce.local_list->array[sock_index]->local;
+    sock->local_port = o->ce.local_list->array[sock_index]->port;
     sock->remote_host = o->ce.remote;
     sock->remote_port = o->ce.remote_port;
     sock->dns_cache = c->c1.dns_cache;
     sock->http_proxy = c->c1.http_proxy;
     sock->socks_proxy = c->c1.socks_proxy;
-    sock->bind_local = o->ce.bind_local;
+    sock->bind_local = o->ce.local_list->array[sock_index]->bind_local;
     sock->resolve_retry_seconds = o->resolve_retry_seconds;
     sock->mtu_discover_type = o->ce.mtu_discover_type;
 
