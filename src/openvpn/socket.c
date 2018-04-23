@@ -1149,9 +1149,17 @@ bind_local(struct link_socket *sock, const sa_family_t ai_family)
         }
         else
         {
+            bool v6only = sock->info.bind_ipv6_only;
+
+            /* force binding IPv6-only if an address was specified
+             * and it is a IPv6 */
+            if (sock->local_host && ai_family == AF_INET6)
+            {
+                v6only = true;
+            }
+
             socket_bind(sock->sd, sock->info.lsa->bind_local,
-                        ai_family,
-                        "TCP/UDP", sock->info.bind_ipv6_only);
+                        ai_family, "TCP/UDP", v6only);
         }
     }
 }
