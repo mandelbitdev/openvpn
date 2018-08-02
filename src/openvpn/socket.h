@@ -119,6 +119,7 @@ struct link_socket_info
     bool connection_established;
     const char *ipchange_command;
     const struct plugin_list *plugins;
+    const char **transport_plugin_argv;
     bool remote_float;
     int proto;                  /* Protocol (PROTO_x defined below) */
     sa_family_t af;                     /* Address family like AF_INET, AF_INET6 or AF_UNSPEC*/
@@ -329,6 +330,7 @@ link_socket_init_phase1(struct link_socket *sock,
                         struct link_socket_addr *lsa,
                         const char *ipchange_command,
                         const struct plugin_list *plugins,
+                        const char **transport_plugin_argv,
                         int resolve_retry_seconds,
                         int mtu_discover_type,
                         int rcvbuf,

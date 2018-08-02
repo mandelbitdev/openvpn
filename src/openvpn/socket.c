@@ -42,6 +42,7 @@
 #include "forward.h"
 
 #ifdef ENABLE_PLUGIN
+#include "transport.h"
 #include "openvpn-vsocket.h"
 #endif
 
@@ -990,41 +991,17 @@ bind_local(struct link_socket *sock, const sa_family_t ai_family)
 }
 
 #ifdef ENABLE_PLUGIN
-static struct openvpn_vsocket_vtab *
-find_indirect_vtab(struct link_socket *sock, openvpn_plugin_handle_t *handlep)
-{
-    int i, n;
-
-    n = sock->info.plugins->common->n;
-    for (i = 0; i < n; i++)
-    {
-        struct plugin *p = &sock->info.plugins->common->plugins[i];
-        if (p->plugin_type_mask & OPENVPN_PLUGIN_MASK(OPENVPN_PLUGIN_SOCKET_INTERCEPT))
-        {
-            size_t size;
-            struct openvpn_vsocket_vtab *vtab =
-                p->get_vtab ? p->get_vtab(OPENVPN_VTAB_SOCKET_INTERCEPT_SOCKET_V1, &size)
-                : NULL;
-            if (!vtab)
-                continue;
-            ASSERT(size == sizeof(struct openvpn_vsocket_vtab));
-            *handlep = p->plugin_handle;
-            return vtab;
-        }
-    }
-
-    return NULL;
-}
-
 static void
 create_socket_indirect(struct link_socket *sock, sa_family_t ai_family)
 {
     openvpn_plugin_handle_t handle;
-    const struct openvpn_vsocket_vtab *vtab = find_indirect_vtab(sock, &handle);
+    struct openvpn_vsocket_vtab *vtab;
     struct addrinfo *cur = NULL;
     struct openvpn_sockaddr zero;
 
-    if (!vtab)
+    if (!find_indirect_vtab(sock->info.plugins,
+                            sock->info.transport_plugin_argv,
+                            &vtab, &handle))
         msg(M_FATAL, "INDIRECT: Socket bind failed: no provider plugin");
 
     /* Partially replicates the functionality of socket_bind. No bind_ipv6_only,
@@ -1833,6 +1810,7 @@ link_socket_init_phase1(struct link_socket *sock,
                         struct link_socket_addr *lsa,
                         const char *ipchange_command,
                         const struct plugin_list *plugins,
+                        const char **transport_plugin_argv,
                         int resolve_retry_seconds,
                         int mtu_discover_type,
                         int rcvbuf,
@@ -1872,6 +1850,7 @@ link_socket_init_phase1(struct link_socket *sock,
     sock->info.bind_ipv6_only = bind_ipv6_only;
     sock->info.ipchange_command = ipchange_command;
     sock->info.plugins = plugins;
+    sock->info.transport_plugin_argv = transport_plugin_argv;
     sock->server_poll_timeout = server_poll_timeout;
 
     sock->mode = mode;
