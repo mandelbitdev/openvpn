@@ -5184,11 +5184,12 @@ add_option(struct options *options,
     {
         VERIFY_PERMISSION(OPT_P_PLUGIN|OPT_P_CONNECTION);
 
-        /* p[1] is the soname. p[2..] are connection-specific
-           transport parameters, which become argv[1..]. */
-        options->ce.transport_soname = p[1];
-        options->ce.transport_argv =
+        /* p[1] is the shared object name, which becomes
+           argv[0]. p[2..] are connection-specific transport
+           parameters, which become argv[1..]. */
+        options->ce.transport_plugin_argv =
             make_extended_arg_array(&p[1], &options->gc);
+        options->ce.proto = PROTO_INDIRECT;
     }
 #endif
     else if (streq(p[0], "mode") && p[1] && !p[2])

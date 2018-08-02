@@ -87,8 +87,7 @@ struct options_pre_pull
 
 struct connection_entry
 {
-    const char *transport_soname;
-    const char **transport_argv;
+    const char **transport_plugin_argv;
     int proto;
     sa_family_t af;
     const char *local_port;
