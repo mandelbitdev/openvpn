@@ -1041,7 +1041,8 @@ create_socket_indirect(struct link_socket *sock, sa_family_t ai_family)
 
     if (sock->indirect == NULL)
         msg(M_ERR, "INDIRECT: Socket bind failed");
-    vtab->freeargs(args);
+    if (vtab->freeargs)
+        vtab->freeargs(args);
 }
 #endif  /* ENABLE_PLUGIN */
 
