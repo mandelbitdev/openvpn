@@ -32,7 +32,10 @@ openvpn_plugin_open_v3(int version, struct openvpn_plugin_args_open_in const *ar
         return OPENVPN_PLUGIN_FUNC_ERROR;
 
     context->global_vtab = args->callbacks;
-    obfs_test_initialize_vtabs();
+    obfs_test_initialize_vtabs_platform();
+    obfs_test_bind_vtab.parseargs = obfs_test_parseargs;
+    obfs_test_bind_vtab.argerror = obfs_test_argerror;
+    obfs_test_bind_vtab.freeargs = obfs_test_freeargs;
 
     out->type_mask = OPENVPN_PLUGIN_MASK(OPENVPN_PLUGIN_TRANSPORT);
     out->handle = (openvpn_plugin_handle_t *) context;

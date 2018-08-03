@@ -92,6 +92,7 @@ resize_io_buf(struct io_slot *slot, size_t cap)
 struct obfs_test_socket_win32
 {
     struct openvpn_transport_socket handle;
+    struct obfs_test_args args;
     struct obfs_test_context *ctx;
     SOCKET socket;
 
@@ -161,6 +162,7 @@ obfs_test_win32_bind(void *plugin_handle, openvpn_transport_args_t args,
         goto error;
     sock->handle.vtab = &obfs_test_socket_vtab;
     sock->ctx = (struct obfs_test_context *) plugin_handle;
+    memcpy(&sock->args, args, sizeof(sock->args));
 
     /* Preemptively initialize the members of some Win32 types so error exits are okay later on.
        HANDLEs of NULL are considered invalid per above. */
@@ -416,7 +418,9 @@ obfs_test_win32_recvfrom(openvpn_transport_socket_t handle, void *buf, size_t le
 
     /* sock->slot_read now has valid data. */
     char *working_buf = sock->slot_read.buf;
-    ssize_t unmunged_len = obfs_test_unmunge_buf(working_buf, sock->slot_read.buf_len);
+    ssize_t unmunged_len =
+        obfs_test_unmunge_buf(&sock->args, working_buf,
+                              sock->slot_read.buf_len);
     if (unmunged_len < 0)
     {
         /* Act as though this read never happened. Assume one was queued before, so it should
@@ -474,7 +478,8 @@ obfs_test_win32_sendto(openvpn_transport_socket_t handle, const void *buf, size_
     if (addrlen > 0)
         obfs_test_munge_addr((struct sockaddr *)&sock->slot_write.addr, addrlen);
     resize_io_buf(&sock->slot_write, obfs_test_max_munged_buf_size(len));
-    sock->slot_write.buf_len = obfs_test_munge_buf(sock->slot_write.buf, buf, len);
+    sock->slot_write.buf_len =
+        obfs_test_munge_buf(&sock->args, sock->slot_write.buf, buf, len);
     queue_new_write(&sock->slot_write);
     switch (sock->slot_write.status)
     {
@@ -506,7 +511,7 @@ obfs_test_win32_close(openvpn_transport_socket_t handle)
 }
 
 void
-obfs_test_initialize_vtabs(void)
+obfs_test_initialize_vtabs_platform(void)
 {
     obfs_test_bind_vtab.bind = obfs_test_win32_bind;
     obfs_test_socket_vtab.request_event = obfs_test_win32_request_event;

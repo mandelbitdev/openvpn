@@ -52,7 +52,8 @@ obfs_test_max_munged_buf_size(size_t clear_size)
 }
 
 ssize_t
-obfs_test_unmunge_buf(char *buf, size_t len)
+obfs_test_unmunge_buf(struct obfs_test_args *how,
+                      char *buf, size_t len)
 {
     int i;
 
@@ -60,7 +61,7 @@ obfs_test_unmunge_buf(char *buf, size_t len)
         goto bad;
     for (i = 0; i < 6; i++)
     {
-        if (buf[i] != i)
+        if (buf[i] != i + how->offset)
             goto bad;
     }
 
@@ -93,13 +94,14 @@ bad:
 /* out must have space for len+MUNGE_OVERHEAD bytes. out and in must
    not overlap. */
 size_t
-obfs_test_munge_buf(char *out, const char *in, size_t len)
+obfs_test_munge_buf(struct obfs_test_args *how,
+                    char *out, const char *in, size_t len)
 {
     int i, n;
     size_t out_len = 6;
 
     for (i = 0; i < 6; i++)
-        out[i] = i;
+        out[i] = i + how->offset;
     n = len < 6 ? len : 6;
     for (i = 0; i < n; i++)
         out[6 + 2*i] = out[6 + 2*i + 1] = in[i];

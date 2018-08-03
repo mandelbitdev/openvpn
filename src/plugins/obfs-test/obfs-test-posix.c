@@ -11,6 +11,7 @@
 struct obfs_test_socket_posix
 {
     struct openvpn_transport_socket handle;
+    struct obfs_test_args args;
     struct obfs_test_context *ctx;
     int fd;
     unsigned last_rwflags;
@@ -44,6 +45,7 @@ obfs_test_posix_bind(void *plugin_handle, openvpn_transport_args_t args,
         goto error;
     sock->handle.vtab = &obfs_test_socket_vtab;
     sock->ctx = (struct obfs_test_context *) plugin_handle;
+    memcpy(&sock->args, args, sizeof(sock->args));
     /* Note that sock->fd isn't -1 yet. Set it explicitly if there are ever any
        error exits before the socket() call. */
 
@@ -110,7 +112,8 @@ again:
         obfs_test_munge_addr(addr, *addrlen);
     if (result > 0)
     {
-        result = obfs_test_unmunge_buf(buf, result);
+        struct obfs_test_args *how = &((struct obfs_test_socket_posix *) handle)->args;
+        result = obfs_test_unmunge_buf(how, buf, result);
         if (result < 0)
         {
             /* Pretend that read never happened. */
@@ -137,7 +140,8 @@ obfs_test_posix_sendto(openvpn_transport_socket_t handle, const void *buf, size_
 
     memcpy(addr_rev, addr, addrlen);
     obfs_test_munge_addr(addr_rev, addrlen);
-    len_munged = obfs_test_munge_buf(buf_munged, buf, len);
+    struct obfs_test_args *how = &((struct obfs_test_socket_posix *) handle)->args;
+    len_munged = obfs_test_munge_buf(how, buf_munged, buf, len);
     result = sendto(fd, buf_munged, len_munged, 0, addr_rev, addrlen);
     if (result < 0 && errno == EAGAIN)
         ((struct obfs_test_socket_posix *) handle)->last_rwflags &= ~OPENVPN_TRANSPORT_EVENT_WRITE;
@@ -163,7 +167,7 @@ obfs_test_posix_close(openvpn_transport_socket_t handle)
 }
 
 void
-obfs_test_initialize_vtabs(void)
+obfs_test_initialize_vtabs_platform(void)
 {
     obfs_test_bind_vtab.bind = obfs_test_posix_bind;
     obfs_test_socket_vtab.request_event = obfs_test_posix_request_event;

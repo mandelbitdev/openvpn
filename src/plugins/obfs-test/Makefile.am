@@ -12,6 +12,7 @@ endif
 openvpn_plugin_obfs_test_la_SOURCES = \
 	obfs-test.c \
 	obfs-test-munging.c \
+	obfs-test-args.c \
 	obfs-test.exports
 
 if WIN32
