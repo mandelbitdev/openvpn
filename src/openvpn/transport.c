@@ -6,55 +6,76 @@
 
 #include "syshead.h"
 
+#ifdef ENABLE_PLUGIN
+
 #include "error.h"
 #include "plugin.h"
 #include "transport.h"
-#include "openvpn-vsocket.h"
+#include "openvpn-transport.h"
 
-bool find_indirect_vtab(const struct plugin_list *plugins,
-                        const char **transport_plugin_argv,
-                        struct openvpn_vsocket_vtab **vtabp,
-                        openvpn_plugin_handle_t *handlep)
+bool transport_prepare(const struct plugin_list *plugins,
+                       const char **transport_plugin_argv,
+                       struct openvpn_transport_bind_vtab1 **vtabp,
+                       openvpn_plugin_handle_t *handlep,
+                       openvpn_transport_args_t *argsp)
 {
-    int i, n;
     const char *expected_so_pathname = transport_plugin_argv[0];
+    int argc = 0;
+    while (transport_plugin_argv[argc])
+        argc++;
 
-    n = plugins->common->n;
-    for (i = 0; i < n; i++)
+    for (int i = 0; i < plugins->common->n; i++)
     {
         struct plugin *p = &plugins->common->plugins[i];
         if (p->so_pathname && !strcmp(p->so_pathname, expected_so_pathname))
         {
             /* Pathname matches; this is the plugin requested. */
-            if (!(p->plugin_type_mask & OPENVPN_PLUGIN_MASK(OPENVPN_PLUGIN_SOCKET_INTERCEPT)))
+            if (!(p->plugin_type_mask & OPENVPN_PLUGIN_MASK(OPENVPN_PLUGIN_TRANSPORT)))
             {
-                msg(M_FATAL, "INDIRECT: plugin %s does not indicate SOCKET_INTERCEPT functionality",
+                msg(M_FATAL, "INDIRECT: plugin %s does not indicate TRANSPORT functionality",
                     p->so_pathname);
             }
 
-            /* TODO: add defensive magic number to beginning of struct? */
             size_t size;
-            struct openvpn_vsocket_vtab *vtab =
-                p->get_vtab ? p->get_vtab(OPENVPN_VTAB_SOCKET_INTERCEPT_SOCKET_V1, &size)
+            struct openvpn_transport_bind_vtab1 *vtab =
+                p->get_vtab ? p->get_vtab(OPENVPN_VTAB_TRANSPORT_BIND_V1, &size)
                 : NULL;
             if (!vtab)
             {
-                msg(M_FATAL, "INDIRECT: plugin %s has no SOCKET_INTERCEPT_SOCKET_V1 table",
+                msg(M_FATAL, "INDIRECT: plugin %s has no TRANSPORT_BIND_V1 table",
                     p->so_pathname);
             }
 
-            if (size != sizeof(struct openvpn_vsocket_vtab))
+            /* Sanity checks on the vtable. */
+            if (!(size == sizeof(*vtab)
+                  && vtab->bind
+                  && ((vtab->parseargs && vtab->argerror && vtab->freeargs)
+                      || (!vtab->parseargs && !vtab->argerror && !vtab->freeargs))))
             {
-                /* TODO: check for non-NULL function pointers as needed too */
-                msg(M_FATAL, "INDIRECT: plugin %s returned a faulty SOCKET_INTERCEPT_SOCKET_V1 table",
+                msg(M_FATAL, "INDIRECT: plugin %s returned a faulty TRANSPORT_BIND_V1 table",
                     p->so_pathname);
+            }
+
+            openvpn_transport_args_t args = NULL;
+            if (vtab->parseargs)
+            {
+                args = vtab->parseargs(p->plugin_handle, transport_plugin_argv, argc);
+                const char *argerror = vtab->argerror(args);
+                if (argerror)
+                {
+                    msg(M_FATAL, "INDIRECT: invalid arguments to transport-plugin %s: %s",
+                        p->so_pathname, argerror);
+                }
             }
 
             *vtabp = vtab;
             *handlep = p->plugin_handle;
+            *argsp = args;
             return true;
         }
     }
 
     return false;
 }
+
+#endif  /* ENABLE_PLUGIN */

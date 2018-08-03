@@ -36,7 +36,7 @@
 #include "misc.h"
 
 #ifdef ENABLE_PLUGIN
-#include "openvpn-vsocket.h"
+#include "openvpn-transport.h"
 #endif
 
 /*
@@ -182,7 +182,7 @@ struct link_socket
 
 #ifdef ENABLE_PLUGIN
     /* only valid when info.proto == PROTO_INDIRECT */
-    openvpn_vsocket_handle_t indirect;
+    openvpn_transport_socket_t indirect;
 #endif
 
     /* used for printing status info only */
@@ -1309,7 +1309,7 @@ socket_reset_listen_persistent(struct link_socket *s)
 #ifdef ENABLE_PLUGIN
 
 /* Mutates esr/esrlen to consume events. */
-unsigned socket_do_indirect_pump(openvpn_vsocket_handle_t vsocket,
+unsigned socket_do_indirect_pump(openvpn_transport_socket_t vsocket,
                                  struct event_set_return *esr, int *esrlen);
 
 static inline unsigned

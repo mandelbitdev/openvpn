@@ -43,7 +43,7 @@
 
 #ifdef ENABLE_PLUGIN
 #include "transport.h"
-#include "openvpn-vsocket.h"
+#include "openvpn-transport.h"
 #endif
 
 #include "memdbg.h"
@@ -995,14 +995,15 @@ static void
 create_socket_indirect(struct link_socket *sock, sa_family_t ai_family)
 {
     openvpn_plugin_handle_t handle;
-    struct openvpn_vsocket_vtab *vtab;
+    openvpn_transport_args_t args;
+    struct openvpn_transport_bind_vtab1 *vtab;
     struct addrinfo *cur = NULL;
     struct openvpn_sockaddr zero;
 
-    if (!find_indirect_vtab(sock->info.plugins,
-                            sock->info.transport_plugin_argv,
-                            &vtab, &handle))
-        msg(M_FATAL, "INDIRECT: Socket bind failed: no provider plugin");
+    if (!transport_prepare(sock->info.plugins,
+                           sock->info.transport_plugin_argv,
+                           &vtab, &handle, &args))
+        msg(M_FATAL, "INDIRECT: Socket bind failed: provider plugin not found");
 
     /* Partially replicates the functionality of socket_bind. No bind_ipv6_only,
        presently. */
@@ -1024,7 +1025,7 @@ create_socket_indirect(struct link_socket *sock, sa_family_t ai_family)
 
     if (cur)
     {
-        sock->indirect = vtab->bind(handle, cur->ai_addr, cur->ai_addrlen);
+        sock->indirect = vtab->bind(handle, args, cur->ai_addr, cur->ai_addrlen);
     }
     else if (ai_family == AF_UNSPEC)
     {
@@ -1035,11 +1036,12 @@ create_socket_indirect(struct link_socket *sock, sa_family_t ai_family)
         memset(&zero, 0, sizeof(zero));
         zero.addr.sa.sa_family = ai_family;
         addr_zero_host(&zero);
-        sock->indirect = vtab->bind(handle, &zero.addr.sa, af_addr_size(ai_family));
+        sock->indirect = vtab->bind(handle, args, &zero.addr.sa, af_addr_size(ai_family));
     }
 
     if (sock->indirect == NULL)
         msg(M_ERR, "INDIRECT: Socket bind failed");
+    vtab->freeargs(args);
 }
 #endif  /* ENABLE_PLUGIN */
 
@@ -3951,53 +3953,53 @@ socket_finalize(SOCKET s,
 
 struct encapsulated_event_set
 {
-    struct openvpn_vsocket_event_set_handle handle;
+    struct openvpn_transport_event_set_handle handle;
     struct event_set *real;
 };
 
-#if EVENT_READ == OPENVPN_VSOCKET_EVENT_READ && \
-    EVENT_WRITE == OPENVPN_VSOCKET_EVENT_WRITE
-#define VSOCKET_EVENT_BITS_IDENTICAL 1
+#if EVENT_READ == OPENVPN_TRANSPORT_EVENT_READ && \
+    EVENT_WRITE == OPENVPN_TRANSPORT_EVENT_WRITE
+#define TRANSPORT_EVENT_BITS_IDENTICAL 1
 #else
-#define VSOCKET_EVENT_BITS_IDENTICAL 0
+#define TRANSPORT_EVENT_BITS_IDENTICAL 0
 #endif
 
 static inline unsigned
-vsocket_translate_rwflags_in(unsigned vrwflags)
+transport_translate_rwflags_in(unsigned vrwflags)
 {
-#if VSOCKET_EVENT_BITS_IDENTICAL
+#if TRANSPORT_EVENT_BITS_IDENTICAL
     return vrwflags;
 #else
     unsigned rwflags = 0;
-    if (vrwflags & OPENVPN_VSOCKET_EVENT_READ)
+    if (vrwflags & OPENVPN_TRANSPORT_EVENT_READ)
         rwflags |= EVENT_READ;
-    if (vrwflags & OPENVPN_VSOCKET_EVENT_WRITE)
+    if (vrwflags & OPENVPN_TRANSPORT_EVENT_WRITE)
         rwflags |= EVENT_WRITE;
     return rwflags;
 #endif
 }
 
 static inline unsigned
-vsocket_translate_rwflags_out(unsigned rwflags)
+transport_translate_rwflags_out(unsigned rwflags)
 {
-#if VSOCKET_EVENT_BITS_IDENTICAL
+#if TRANSPORT_EVENT_BITS_IDENTICAL
     return rwflags;
 #else
     unsigned vrwflags = 0;
     if (rwflags & EVENT_READ)
-        vrwflags |= OPENVPN_VSOCKET_EVENT_READ;
+        vrwflags |= OPENVPN_TRANSPORT_EVENT_READ;
     if (rwflags & EVENT_WRITE)
-        vrwflags |= OPENVPN_VSOCKET_EVENT_WRITE;
+        vrwflags |= OPENVPN_TRANSPORT_EVENT_WRITE;
     return vrwflags;
 #endif
 }
 
 static void
-encapsulated_event_set_set_event(openvpn_vsocket_event_set_handle_t handle,
-                                 openvpn_vsocket_native_event_t vev, unsigned vrwflags,
+encapsulated_event_set_set_event(openvpn_transport_event_set_handle_t handle,
+                                 openvpn_transport_native_event_t vev, unsigned vrwflags,
                                  void *arg)
 {
-    unsigned rwflags = vsocket_translate_rwflags_in(vrwflags);
+    unsigned rwflags = transport_translate_rwflags_in(vrwflags);
     event_t ev;
 #ifdef _WIN32
     struct rw_handle rw;
@@ -4014,19 +4016,19 @@ encapsulated_event_set_set_event(openvpn_vsocket_event_set_handle_t handle,
         event_ctl(es, ev, rwflags, arg);
 }
 
-static const struct openvpn_vsocket_event_set_vtab encapsulated_event_set_vtab = {
+static const struct openvpn_transport_event_set_vtab encapsulated_event_set_vtab = {
     encapsulated_event_set_set_event
 };
 
 unsigned
-socket_do_indirect_pump(openvpn_vsocket_handle_t vsocket,
+socket_do_indirect_pump(openvpn_transport_socket_t indirect,
                         struct event_set_return *esr, int *esrlen)
 {
     int i = 0;
     while (i < *esrlen)
     {
-        unsigned vrwflags = vsocket_translate_rwflags_out(esr[i].rwflags);
-        if (vsocket->vtab->update_event(vsocket, esr[i].arg, vrwflags))
+        unsigned vrwflags = transport_translate_rwflags_out(esr[i].rwflags);
+        if (indirect->vtab->update_event(indirect, esr[i].arg, vrwflags))
         {
             /* Consume the event; move the last one in place of it. */
             if (i != *esrlen - 1)
@@ -4040,7 +4042,7 @@ socket_do_indirect_pump(openvpn_vsocket_handle_t vsocket,
         }
     }
 
-    return vsocket_translate_rwflags_in(vsocket->vtab->pump(vsocket));
+    return transport_translate_rwflags_in(indirect->vtab->pump(indirect));
 }
 
 #endif  /* ENABLE_PLUGIN */
@@ -4073,7 +4075,7 @@ socket_set(struct link_socket *s,
 #ifdef ENABLE_PLUGIN
             if (s->indirect)
             {
-                unsigned vrwflags = vsocket_translate_rwflags_out(rwflags);
+                unsigned vrwflags = transport_translate_rwflags_out(rwflags);
                 struct encapsulated_event_set encapsulated_es;
                 encapsulated_es.handle.vtab = &encapsulated_event_set_vtab;
                 encapsulated_es.real = es;
