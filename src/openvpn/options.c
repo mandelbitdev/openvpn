@@ -2042,6 +2042,15 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         msg(M_USAGE, "--proto tcp is ambiguous in this context.  Please specify --proto tcp-server or --proto tcp-client");
     }
 
+    /* 
+     * "proto indirect" may not be specified directly without a
+     * transport-plugin.
+     */
+    if (ce->proto == PROTO_INDIRECT && !ce->transport_plugin_argv)
+    {
+        msg(M_USAGE, "--proto indirect may not be used without a transport-plugin line");
+    }
+
     /*
      * Sanity check on daemon/inetd modes
      */
