@@ -10,6 +10,7 @@
 
 #include "error.h"
 #include "plugin.h"
+#include "socket.h"
 #include "transport.h"
 #include "openvpn-transport.h"
 
@@ -76,6 +77,65 @@ bool transport_prepare(const struct plugin_list *plugins,
     }
 
     return false;
+}
+
+openvpn_transport_socket_t
+transport_bind(const struct plugin_list *plugins,
+               const char **transport_plugin_argv,
+               sa_family_t ai_family,
+               struct addrinfo *bind_addresses)
+{
+    openvpn_plugin_handle_t handle;
+    openvpn_transport_args_t args;
+    openvpn_transport_socket_t indirect;
+    struct openvpn_transport_bind_vtab1 *vtab;
+    struct addrinfo *cur = NULL;
+    struct openvpn_sockaddr zero;
+
+    if (!transport_prepare(plugins, transport_plugin_argv,
+                           &vtab, &handle, &args))
+        msg(M_FATAL, "INDIRECT: Socket bind failed: provider plugin not found");
+
+    /* Partially replicates the functionality of socket_bind. No bind_ipv6_only
+       or other such options, presently. */
+    if (bind_addresses)
+    {
+        for (cur = bind_addresses; cur; cur = cur->ai_next)
+        {
+            if (cur->ai_family == ai_family)
+            {
+                break;
+            }
+        }
+
+        if (!cur)
+        {
+            msg(M_FATAL, "INDIRECT: Socket bind failed: Addr to bind has no %s record",
+                addr_family_name(ai_family));
+        }
+    }
+
+    if (cur)
+    {
+        indirect = vtab->bind(handle, args, cur->ai_addr, cur->ai_addrlen);
+    }
+    else if (ai_family == AF_UNSPEC)
+    {
+        msg(M_ERR, "INDIRECT: cannot bind with unspecified address family");
+    }
+    else
+    {
+        memset(&zero, 0, sizeof(zero));
+        zero.addr.sa.sa_family = ai_family;
+        addr_zero_host(&zero);
+        indirect = vtab->bind(handle, args, &zero.addr.sa, af_addr_size(ai_family));
+    }
+
+    if (!indirect)
+        msg(M_ERR, "INDIRECT: Socket bind failed");
+    if (vtab->freeargs)
+        vtab->freeargs(args);
+    return indirect;
 }
 
 #endif  /* ENABLE_PLUGIN */

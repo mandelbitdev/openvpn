@@ -24,6 +24,21 @@ bool transport_prepare(const struct plugin_list *plugins,
                        openvpn_plugin_handle_t *handlep,
                        openvpn_transport_args_t *argsp);
 
+/* Bind a virtual socket given an address family and list of potential
+ * bind addresses. bind_addresses may be NULL, in which case an
+ * unspecified address of the correct family is used. The virtual
+ * socket comes from a transport plugin in the list of plugins which
+ * matches transport_plugin_argv, which is used for any
+ * connection-specific parameters the plugin may require.
+ *
+ * Raises a fatal error if the socket cannot be bound.
+ */
+openvpn_transport_socket_t
+transport_bind(const struct plugin_list *plugins,
+               const char **transport_plugin_argv,
+               sa_family_t ai_family,
+               struct addrinfo *bind_addresses);
+
 #endif /* ENABLE_PLUGIN */
 
 #endif /* !OPENVPN_TRANSPORT_H */

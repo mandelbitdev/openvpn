@@ -994,55 +994,16 @@ bind_local(struct link_socket *sock, const sa_family_t ai_family)
 static void
 create_socket_indirect(struct link_socket *sock, sa_family_t ai_family)
 {
-    openvpn_plugin_handle_t handle;
-    openvpn_transport_args_t args;
-    struct openvpn_transport_bind_vtab1 *vtab;
-    struct addrinfo *cur = NULL;
-    struct openvpn_sockaddr zero;
-
-    if (!transport_prepare(sock->info.plugins,
-                           sock->info.transport_plugin_argv,
-                           &vtab, &handle, &args))
-        msg(M_FATAL, "INDIRECT: Socket bind failed: provider plugin not found");
-
-    /* Partially replicates the functionality of socket_bind. No bind_ipv6_only,
-       presently. */
-    if (sock->bind_local) {
-        for (cur = sock->info.lsa->bind_local; cur; cur = cur->ai_next)
-        {
-            if (cur->ai_family == ai_family)
-            {
-                break;
-            }
-        }
-
-        if (!cur)
-        {
-            msg(M_FATAL, "INDIRECT: Socket bind failed: Addr to bind has no %s record",
-                addr_family_name(ai_family));
-        }
-    }
-
-    if (cur)
+    struct addrinfo *bind_addresses = NULL;
+    if (sock->bind_local)
     {
-        sock->indirect = vtab->bind(handle, args, cur->ai_addr, cur->ai_addrlen);
-    }
-    else if (ai_family == AF_UNSPEC)
-    {
-        msg(M_ERR, "INDIRECT: cannot bind with unspecified address family");
-    }
-    else
-    {
-        memset(&zero, 0, sizeof(zero));
-        zero.addr.sa.sa_family = ai_family;
-        addr_zero_host(&zero);
-        sock->indirect = vtab->bind(handle, args, &zero.addr.sa, af_addr_size(ai_family));
+        bind_addresses = sock->info.lsa->bind_local;
     }
 
-    if (sock->indirect == NULL)
-        msg(M_ERR, "INDIRECT: Socket bind failed");
-    if (vtab->freeargs)
-        vtab->freeargs(args);
+    sock->indirect = transport_bind(sock->info.plugins,
+                                    sock->info.transport_plugin_argv,
+                                    ai_family,
+                                    bind_addresses);
 }
 #endif  /* ENABLE_PLUGIN */
 
