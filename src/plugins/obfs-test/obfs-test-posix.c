@@ -10,7 +10,7 @@
 
 struct obfs_test_socket_posix
 {
-    struct openvpn_vsocket_handle handle;
+    struct openvpn_transport_socket handle;
     struct obfs_test_context *ctx;
     int fd;
     unsigned last_rwflags;
@@ -26,8 +26,8 @@ free_socket(struct obfs_test_socket_posix *sock)
     free(sock);
 }
 
-static openvpn_vsocket_handle_t
-obfs_test_posix_bind(void *plugin_handle,
+static openvpn_transport_socket_t
+obfs_test_posix_bind(void *plugin_handle, openvpn_transport_args_t args,
                      const struct sockaddr *addr, socklen_t len)
 {
     struct obfs_test_socket_posix *sock = NULL;
@@ -65,8 +65,8 @@ error:
 }
 
 static void
-obfs_test_posix_request_event(openvpn_vsocket_handle_t handle,
-                              openvpn_vsocket_event_set_handle_t event_set, unsigned rwflags)
+obfs_test_posix_request_event(openvpn_transport_socket_t handle,
+                              openvpn_transport_event_set_handle_t event_set, unsigned rwflags)
 {
     obfs_test_log(((struct obfs_test_socket_posix *) handle)->ctx,
                   PLOG_DEBUG, "request-event: %d", rwflags);
@@ -77,7 +77,7 @@ obfs_test_posix_request_event(openvpn_vsocket_handle_t handle,
 }
 
 static bool
-obfs_test_posix_update_event(openvpn_vsocket_handle_t handle, void *arg, unsigned rwflags)
+obfs_test_posix_update_event(openvpn_transport_socket_t handle, void *arg, unsigned rwflags)
 {
     obfs_test_log(((struct obfs_test_socket_posix *) handle)->ctx,
                   PLOG_DEBUG, "update-event: %p, %p, %d", handle, arg, rwflags);
@@ -88,7 +88,7 @@ obfs_test_posix_update_event(openvpn_vsocket_handle_t handle, void *arg, unsigne
 }
 
 static unsigned
-obfs_test_posix_pump(openvpn_vsocket_handle_t handle)
+obfs_test_posix_pump(openvpn_transport_socket_t handle)
 {
     obfs_test_log(((struct obfs_test_socket_posix *) handle)->ctx,
                   PLOG_DEBUG, "pump -> %d", ((struct obfs_test_socket_posix *) handle)->last_rwflags);
@@ -96,7 +96,7 @@ obfs_test_posix_pump(openvpn_vsocket_handle_t handle)
 }
 
 static ssize_t
-obfs_test_posix_recvfrom(openvpn_vsocket_handle_t handle, void *buf, size_t len,
+obfs_test_posix_recvfrom(openvpn_transport_socket_t handle, void *buf, size_t len,
                          struct sockaddr *addr, socklen_t *addrlen)
 {
     int fd = ((struct obfs_test_socket_posix *) handle)->fd;
@@ -105,7 +105,7 @@ obfs_test_posix_recvfrom(openvpn_vsocket_handle_t handle, void *buf, size_t len,
 again:
     result = recvfrom(fd, buf, len, 0, addr, addrlen);
     if (result < 0 && errno == EAGAIN)
-        ((struct obfs_test_socket_posix *) handle)->last_rwflags &= ~OPENVPN_VSOCKET_EVENT_READ;
+        ((struct obfs_test_socket_posix *) handle)->last_rwflags &= ~OPENVPN_TRANSPORT_EVENT_READ;
     if (*addrlen > 0)
         obfs_test_munge_addr(addr, *addrlen);
     if (result > 0)
@@ -124,7 +124,7 @@ again:
 }
 
 static ssize_t
-obfs_test_posix_sendto(openvpn_vsocket_handle_t handle, const void *buf, size_t len,
+obfs_test_posix_sendto(openvpn_transport_socket_t handle, const void *buf, size_t len,
                        const struct sockaddr *addr, socklen_t addrlen)
 {
     int fd = ((struct obfs_test_socket_posix *) handle)->fd;
@@ -140,7 +140,7 @@ obfs_test_posix_sendto(openvpn_vsocket_handle_t handle, const void *buf, size_t 
     len_munged = obfs_test_munge_buf(buf_munged, buf, len);
     result = sendto(fd, buf_munged, len_munged, 0, addr_rev, addrlen);
     if (result < 0 && errno == EAGAIN)
-        ((struct obfs_test_socket_posix *) handle)->last_rwflags &= ~OPENVPN_VSOCKET_EVENT_WRITE;
+        ((struct obfs_test_socket_posix *) handle)->last_rwflags &= ~OPENVPN_TRANSPORT_EVENT_WRITE;
     /* TODO: not clear what to do here for partial transfers. */
     if (result > len)
         result = len;
@@ -157,15 +157,15 @@ error:
 }
 
 static void
-obfs_test_posix_close(openvpn_vsocket_handle_t handle)
+obfs_test_posix_close(openvpn_transport_socket_t handle)
 {
     free_socket((struct obfs_test_socket_posix *) handle);
 }
 
 void
-obfs_test_initialize_socket_vtab(void)
+obfs_test_initialize_vtabs(void)
 {
-    obfs_test_socket_vtab.bind = obfs_test_posix_bind;
+    obfs_test_bind_vtab.bind = obfs_test_posix_bind;
     obfs_test_socket_vtab.request_event = obfs_test_posix_request_event;
     obfs_test_socket_vtab.update_event = obfs_test_posix_update_event;
     obfs_test_socket_vtab.pump = obfs_test_posix_pump;

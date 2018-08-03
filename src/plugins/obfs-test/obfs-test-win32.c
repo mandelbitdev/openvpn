@@ -91,18 +91,16 @@ resize_io_buf(struct io_slot *slot, size_t cap)
 
 struct obfs_test_socket_win32
 {
-    struct openvpn_vsocket_handle handle;
+    struct openvpn_transport_socket handle;
     struct obfs_test_context *ctx;
     SOCKET socket;
 
     /* Write is ready when idle; read is not-ready when idle. Both level-triggered. */
-    struct openvpn_vsocket_win32_event_pair completion_events;
+    struct openvpn_transport_win32_event_pair completion_events;
     struct io_slot slot_read, slot_write;
 
     int last_rwflags;
 };
-
-struct openvpn_vsocket_vtab obfs_test_socket_vtab;
 
 static void
 free_socket(struct obfs_test_socket_win32 *sock)
@@ -144,9 +142,9 @@ free_socket(struct obfs_test_socket_win32 *sock)
     free(sock);
 }
 
-static openvpn_vsocket_handle_t
-obfs_test_win32_bind(void *plugin_handle,
-                     const struct sockaddr *addr, openvpn_vsocket_socklen_t len)
+static openvpn_transport_socket_t
+obfs_test_win32_bind(void *plugin_handle, openvpn_transport_args_t args,
+                     const struct sockaddr *addr, openvpn_transport_socklen_t len)
 {
     struct obfs_test_socket_win32 *sock = NULL;
     struct sockaddr *addr_rev = NULL;
@@ -357,21 +355,21 @@ complete_pending_write(struct obfs_test_socket_win32 *sock)
 }
 
 static void
-obfs_test_win32_request_event(openvpn_vsocket_handle_t handle,
-                              openvpn_vsocket_event_set_handle_t event_set, unsigned rwflags)
+obfs_test_win32_request_event(openvpn_transport_socket_t handle,
+                              openvpn_transport_event_set_handle_t event_set, unsigned rwflags)
 {
     struct obfs_test_socket_win32 *sock = (struct obfs_test_socket_win32 *)handle;
     obfs_test_log(sock->ctx, PLOG_DEBUG, "request-event: %d", rwflags);
     sock->last_rwflags = 0;
 
-    if (rwflags & OPENVPN_VSOCKET_EVENT_READ)
+    if (rwflags & OPENVPN_TRANSPORT_EVENT_READ)
         ensure_pending_read(sock);
     if (rwflags)
         event_set->vtab->set_event(event_set, &sock->completion_events, rwflags, handle);
 }
 
 static bool
-obfs_test_win32_update_event(openvpn_vsocket_handle_t handle, void *arg, unsigned rwflags)
+obfs_test_win32_update_event(openvpn_transport_socket_t handle, void *arg, unsigned rwflags)
 {
     obfs_test_log(((struct obfs_test_socket_win32 *) handle)->ctx, PLOG_DEBUG,
                   "update-event: %p, %p, %d", handle, arg, rwflags);
@@ -382,24 +380,24 @@ obfs_test_win32_update_event(openvpn_vsocket_handle_t handle, void *arg, unsigne
 }
 
 static unsigned
-obfs_test_win32_pump(openvpn_vsocket_handle_t handle)
+obfs_test_win32_pump(openvpn_transport_socket_t handle)
 {
     struct obfs_test_socket_win32 *sock = (struct obfs_test_socket_win32 *)handle;
     unsigned result = 0;
 
-    if ((sock->last_rwflags & OPENVPN_VSOCKET_EVENT_READ) && complete_pending_read(sock))
-        result |= OPENVPN_VSOCKET_EVENT_READ;
-    if ((sock->last_rwflags & OPENVPN_VSOCKET_EVENT_WRITE) &&
+    if ((sock->last_rwflags & OPENVPN_TRANSPORT_EVENT_READ) && complete_pending_read(sock))
+        result |= OPENVPN_TRANSPORT_EVENT_READ;
+    if ((sock->last_rwflags & OPENVPN_TRANSPORT_EVENT_WRITE) &&
         (sock->slot_write.status != IO_SLOT_PENDING || complete_pending_write(sock)))
-        result |= OPENVPN_VSOCKET_EVENT_WRITE;
+        result |= OPENVPN_TRANSPORT_EVENT_WRITE;
 
     obfs_test_log(sock->ctx, PLOG_DEBUG, "pump -> %d", result);
     return result;
 }
 
 static ssize_t
-obfs_test_win32_recvfrom(openvpn_vsocket_handle_t handle, void *buf, size_t len,
-                         struct sockaddr *addr, openvpn_vsocket_socklen_t *addrlen)
+obfs_test_win32_recvfrom(openvpn_transport_socket_t handle, void *buf, size_t len,
+                         struct sockaddr *addr, openvpn_transport_socklen_t *addrlen)
 {
     struct obfs_test_socket_win32 *sock = (struct obfs_test_socket_win32 *)handle;
     if (!complete_pending_read(sock))
@@ -436,7 +434,7 @@ obfs_test_win32_recvfrom(openvpn_vsocket_handle_t handle, void *buf, size_t len,
 
     /* TODO: shouldn't truncate, should signal error (but this shouldn't happen for any
        supported address families anyway). */
-    openvpn_vsocket_socklen_t addr_copy_len = *addrlen;
+    openvpn_transport_socklen_t addr_copy_len = *addrlen;
     if (sock->slot_read.addr_len < addr_copy_len)
         addr_copy_len = sock->slot_read.addr_len;
     memcpy(addr, &sock->slot_read.addr, addr_copy_len);
@@ -450,8 +448,8 @@ obfs_test_win32_recvfrom(openvpn_vsocket_handle_t handle, void *buf, size_t len,
 }
 
 static ssize_t
-obfs_test_win32_sendto(openvpn_vsocket_handle_t handle, const void *buf, size_t len,
-                       const struct sockaddr *addr, openvpn_vsocket_socklen_t addrlen)
+obfs_test_win32_sendto(openvpn_transport_socket_t handle, const void *buf, size_t len,
+                       const struct sockaddr *addr, openvpn_transport_socklen_t addrlen)
 {
     struct obfs_test_socket_win32 *sock = (struct obfs_test_socket_win32 *)handle;
     complete_pending_write(sock);
@@ -502,15 +500,15 @@ obfs_test_win32_sendto(openvpn_vsocket_handle_t handle, const void *buf, size_t 
 }
 
 static void
-obfs_test_win32_close(openvpn_vsocket_handle_t handle)
+obfs_test_win32_close(openvpn_transport_socket_t handle)
 {
     free_socket((struct obfs_test_socket_win32 *) handle);
 }
 
 void
-obfs_test_initialize_socket_vtab(void)
+obfs_test_initialize_vtabs(void)
 {
-    obfs_test_socket_vtab.bind = obfs_test_win32_bind;
+    obfs_test_bind_vtab.bind = obfs_test_win32_bind;
     obfs_test_socket_vtab.request_event = obfs_test_win32_request_event;
     obfs_test_socket_vtab.update_event = obfs_test_win32_update_event;
     obfs_test_socket_vtab.pump = obfs_test_win32_pump;

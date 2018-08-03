@@ -2,10 +2,11 @@
 #include <string.h>
 #include <stdbool.h>
 #include "openvpn-plugin.h"
-#include "openvpn-vsocket.h"
+#include "openvpn-transport.h"
 #include "obfs-test.h"
 
-struct openvpn_vsocket_vtab obfs_test_socket_vtab = { NULL };
+struct openvpn_transport_bind_vtab1 obfs_test_bind_vtab = { 0 };
+struct openvpn_transport_socket_vtab1 obfs_test_socket_vtab = { 0 };
 
 struct obfs_test_context
 {
@@ -31,9 +32,9 @@ openvpn_plugin_open_v3(int version, struct openvpn_plugin_args_open_in const *ar
         return OPENVPN_PLUGIN_FUNC_ERROR;
 
     context->global_vtab = args->callbacks;
-    obfs_test_initialize_socket_vtab();
+    obfs_test_initialize_vtabs();
 
-    out->type_mask = OPENVPN_PLUGIN_MASK(OPENVPN_PLUGIN_SOCKET_INTERCEPT);
+    out->type_mask = OPENVPN_PLUGIN_MASK(OPENVPN_PLUGIN_TRANSPORT);
     out->handle = (openvpn_plugin_handle_t *) context;
     return OPENVPN_PLUGIN_FUNC_SUCCESS;
 
@@ -62,10 +63,10 @@ openvpn_plugin_get_vtab_v1(int selector, size_t *size_out)
 {
     switch (selector)
     {
-        case OPENVPN_VTAB_SOCKET_INTERCEPT_SOCKET_V1:
-            if (obfs_test_socket_vtab.bind == NULL)
+        case OPENVPN_VTAB_TRANSPORT_BIND_V1:
+            if (obfs_test_bind_vtab.bind == NULL)
                 return NULL;
-            *size_out = sizeof(struct openvpn_vsocket_vtab);
+            *size_out = sizeof(struct openvpn_transport_bind_vtab1);
             return &obfs_test_socket_vtab;
 
         default:

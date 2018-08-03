@@ -2,7 +2,7 @@
 #include <errno.h>
 #include <stdbool.h>
 #include "obfs-test.h"
-#ifdef OPENVPN_VSOCKET_PLATFORM_POSIX
+#ifdef OPENVPN_TRANSPORT_PLATFORM_POSIX
 #include <sys/socket.h>
 #include <netinet/in.h>
 typedef in_port_t obfs_test_in_port_t;
@@ -20,7 +20,7 @@ munge_port(obfs_test_in_port_t port)
 
 /* Reversible. */
 void
-obfs_test_munge_addr(struct sockaddr *addr, openvpn_vsocket_socklen_t len)
+obfs_test_munge_addr(struct sockaddr *addr, openvpn_transport_socklen_t len)
 {
     struct sockaddr_in *inet;
     struct sockaddr_in6 *inet6;
