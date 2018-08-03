@@ -36,6 +36,7 @@
 #include "misc.h"
 
 #ifdef ENABLE_PLUGIN
+#include "transport.h"
 #include "openvpn-transport.h"
 #endif
 
@@ -1308,15 +1309,11 @@ socket_reset_listen_persistent(struct link_socket *s)
 
 #ifdef ENABLE_PLUGIN
 
-/* Mutates esr/esrlen to consume events. */
-unsigned socket_do_indirect_pump(openvpn_transport_socket_t vsocket,
-                                 struct event_set_return *esr, int *esrlen);
-
 static inline unsigned
 socket_indirect_pump(struct link_socket *s, struct event_set_return *esr, int *esrlen)
 {
     if (s->indirect)
-        return socket_do_indirect_pump(s->indirect, esr, esrlen);
+        return transport_pump(s->indirect, esr, esrlen);
     else
         return 0;
 }

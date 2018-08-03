@@ -39,6 +39,13 @@ transport_bind(const struct plugin_list *plugins,
                sa_family_t ai_family,
                struct addrinfo *bind_addresses);
 
+/* Mutates esr/esrlen to consume events. */
+unsigned transport_pump(openvpn_transport_socket_t vsocket,
+                        struct event_set_return *esr, int *esrlen);
+
+void transport_request_events(openvpn_transport_socket_t indirect,
+                              struct event_set *es, unsigned rwflags);
+
 #endif /* ENABLE_PLUGIN */
 
 #endif /* !OPENVPN_TRANSPORT_H */

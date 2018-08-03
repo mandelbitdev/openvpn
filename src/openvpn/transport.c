@@ -9,6 +9,7 @@
 #ifdef ENABLE_PLUGIN
 
 #include "error.h"
+#include "event.h"
 #include "plugin.h"
 #include "socket.h"
 #include "transport.h"
@@ -136,6 +137,111 @@ transport_bind(const struct plugin_list *plugins,
     if (vtab->freeargs)
         vtab->freeargs(args);
     return indirect;
+}
+
+struct encapsulated_event_set
+{
+    struct openvpn_transport_event_set_handle handle;
+    struct event_set *real;
+};
+
+#if EVENT_READ == OPENVPN_TRANSPORT_EVENT_READ && \
+    EVENT_WRITE == OPENVPN_TRANSPORT_EVENT_WRITE
+#define TRANSPORT_EVENT_BITS_IDENTICAL 1
+#else
+#define TRANSPORT_EVENT_BITS_IDENTICAL 0
+#endif
+
+static inline unsigned
+translate_rwflags_in(unsigned vrwflags)
+{
+#if TRANSPORT_EVENT_BITS_IDENTICAL
+    return vrwflags;
+#else
+    unsigned rwflags = 0;
+    if (vrwflags & OPENVPN_TRANSPORT_EVENT_READ)
+        rwflags |= EVENT_READ;
+    if (vrwflags & OPENVPN_TRANSPORT_EVENT_WRITE)
+        rwflags |= EVENT_WRITE;
+    return rwflags;
+#endif
+}
+
+static inline unsigned
+translate_rwflags_out(unsigned rwflags)
+{
+#if TRANSPORT_EVENT_BITS_IDENTICAL
+    return rwflags;
+#else
+    unsigned vrwflags = 0;
+    if (rwflags & EVENT_READ)
+        vrwflags |= OPENVPN_TRANSPORT_EVENT_READ;
+    if (rwflags & EVENT_WRITE)
+        vrwflags |= OPENVPN_TRANSPORT_EVENT_WRITE;
+    return vrwflags;
+#endif
+}
+
+static void
+encapsulated_event_set_set_event(openvpn_transport_event_set_handle_t handle,
+                                 openvpn_transport_native_event_t vev, unsigned vrwflags,
+                                 void *arg)
+{
+    unsigned rwflags = translate_rwflags_in(vrwflags);
+    event_t ev;
+#ifdef _WIN32
+    struct rw_handle rw;
+    rw.read = vev->read;
+    rw.write = vev->write;
+    ev = &rw;
+#else
+    ev = vev;
+#endif
+
+    struct event_set *es = ((struct encapsulated_event_set *) handle)->real;
+    /* If rwflags == 0, we do nothing, because this is always one-shot mode. */
+    if (rwflags != 0)
+        event_ctl(es, ev, rwflags, arg);
+}
+
+static const struct openvpn_transport_event_set_vtab encapsulated_event_set_vtab = {
+    encapsulated_event_set_set_event
+};
+
+unsigned
+transport_pump(openvpn_transport_socket_t indirect,
+               struct event_set_return *esr, int *esrlen)
+{
+    int i = 0;
+    while (i < *esrlen)
+    {
+        unsigned vrwflags = translate_rwflags_out(esr[i].rwflags);
+        if (indirect->vtab->update_event(indirect, esr[i].arg, vrwflags))
+        {
+            /* Consume the event; move the last one in place of it. */
+            if (i != *esrlen - 1)
+                memcpy(&esr[i], &esr[*esrlen-1], sizeof(struct event_set_return));
+            (*esrlen)--;
+        }
+        else
+        {
+            /* Don't consume the event; move to the next one. */
+            i++;
+        }
+    }
+
+    return translate_rwflags_in(indirect->vtab->pump(indirect));
+}
+
+void
+transport_request_events(openvpn_transport_socket_t indirect,
+                         struct event_set *es, unsigned rwflags)
+{
+    unsigned vrwflags = translate_rwflags_out(rwflags);
+    struct encapsulated_event_set encapsulated_es;
+    encapsulated_es.handle.vtab = &encapsulated_event_set_vtab;
+    encapsulated_es.real = es;
+    indirect->vtab->request_event(indirect, &encapsulated_es.handle, vrwflags);
 }
 
 #endif  /* ENABLE_PLUGIN */
