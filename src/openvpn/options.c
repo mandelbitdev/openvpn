@@ -2044,11 +2044,16 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
 
     /* 
      * "proto indirect" may not be specified directly without a
-     * transport-plugin.
+     * transport-plugin, and vice versa.
      */
     if (ce->proto == PROTO_INDIRECT && !ce->transport_plugin_argv)
     {
         msg(M_USAGE, "--proto indirect may not be used without a transport-plugin line");
+    }
+
+    if (ce->transport_plugin_argv && ce->proto != PROTO_INDIRECT)
+    {
+        msg(M_USAGE, "--transport-plugin must be used with --proto indirect");
     }
 
     /*
