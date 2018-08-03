@@ -67,7 +67,7 @@ openvpn_plugin_get_vtab_v1(int selector, size_t *size_out)
             if (obfs_test_bind_vtab.bind == NULL)
                 return NULL;
             *size_out = sizeof(struct openvpn_transport_bind_vtab1);
-            return &obfs_test_socket_vtab;
+            return &obfs_test_bind_vtab;
 
         default:
             return NULL;
