@@ -3311,19 +3311,18 @@ int link_socket_read_indirect(struct link_socket *sock,
                               struct buffer *buf,
                               struct link_socket_actual *from)
 {
+    ASSERT(sock->indirect);
     socklen_t fromlen = sizeof(from->dest.addr);
     socklen_t expectedlen = af_addr_size(sock->info.af);
     addr_zero_host(&from->dest);
-
-    ASSERT(sock->indirect);
-    buf->len = sock->indirect->vtab->recvfrom(
-        sock->indirect, BPTR(buf), buf_forward_capacity(buf),
-        &from->dest.addr.sa, &fromlen);
-    if (buf->len >= 0 && expectedlen && fromlen != expectedlen)
+    int len = transport_read(sock->indirect, buf,
+                             &from->dest.addr.sa, &fromlen);
+    if (len >= 0 && expectedlen && fromlen != expectedlen)
     {
         bad_address_length(fromlen, expectedlen);
     }
-    return buf->len;
+
+    return buf->len = len;
 }
 
 #ifndef _WIN32
@@ -3463,10 +3462,9 @@ int link_socket_write_indirect(struct link_socket *sock,
                                struct link_socket_actual *to)
 {
     ASSERT(sock->indirect);
-    return sock->indirect->vtab->sendto(
-        sock->indirect, BPTR(buf), BLEN(buf),
-        (struct sockaddr *) &to->dest.addr.sa,
-        (socklen_t) af_addr_size(to->dest.addr.sa.sa_family));
+    struct sockaddr *addr = (struct sockaddr *) &to->dest.addr.sa;
+    socklen_t addrlen = (socklen_t) af_addr_size(to->dest.addr.sa.sa_family);
+    return transport_write(sock->indirect, buf, addr, addrlen);
 }
 
 #if ENABLE_IP_PKTINFO

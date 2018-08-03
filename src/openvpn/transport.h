@@ -46,6 +46,32 @@ unsigned transport_pump(openvpn_transport_socket_t vsocket,
 void transport_request_events(openvpn_transport_socket_t indirect,
                               struct event_set *es, unsigned rwflags);
 
+/* NOTE: transport_write and transport_read implicitly downcast from a
+ * ssize_t to an int on return. Various link_socket_* functions
+ * already do this, under the assumption that the return values will
+ * always fit in an int, because the requested lengths always fit in
+ * an int, otherwise the buffer structure would already be corrupted.
+ */
+
+static inline int
+transport_write(openvpn_transport_socket_t indirect,
+                struct buffer *buf,
+                struct sockaddr *addr, socklen_t addrlen)
+{
+    return indirect->vtab->sendto(indirect, BPTR(buf), BLEN(buf),
+                                  addr, addrlen);
+}
+
+static inline int
+transport_read(openvpn_transport_socket_t indirect,
+               struct buffer *buf,
+               struct sockaddr *addr, socklen_t *addrlen)
+{
+    return indirect->vtab->recvfrom(indirect, BPTR(buf),
+                                    buf_forward_capacity(buf),
+                                    addr, addrlen);
+}
+
 #endif /* ENABLE_PLUGIN */
 
 #endif /* !OPENVPN_TRANSPORT_H */
