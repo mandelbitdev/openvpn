@@ -2794,7 +2794,13 @@ option should not normally be used and will usually result in
 an error, as the transport plugin takes over from the native
 transport protocol that would otherwise be specified. The
 rest of OpenVPN will operate in a manner similar to that of
-UDP mode, using the pseudo-protocol "indirect".
+UDP mode, using the pseudo-protocol "indirect". There is one
+remaining rare use for
+.B \-\-proto
+in this case, which is to force a specific address family for
+transport plugins for which this is still meaningful. This can
+be done by specifying "indirect4" or "indirect6" as the
+protocol.
 .\"*********************************************************
 .TP
 .B \-\-keying-material-exporter label len
