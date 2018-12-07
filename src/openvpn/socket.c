@@ -3240,6 +3240,7 @@ proto_remote(int proto, bool remote)
         return "TCPv4_CLIENT";
     }
 
+#ifdef ENABLE_PLUGIN
     if (proto == PROTO_INDIRECT)
     {
         /* FIXME: what is actually appropriate here? If this is used
@@ -3247,6 +3248,7 @@ proto_remote(int proto, bool remote)
            the exact plugin in use. */
         return "INDIRECT";
     }
+#endif
 
     ASSERT(0);
     return ""; /* Make the compiler happy */
@@ -3307,6 +3309,8 @@ link_socket_read_tcp(struct link_socket *sock,
     }
 }
 
+#ifdef ENABLE_PLUGIN
+
 int link_socket_read_indirect(struct link_socket *sock,
                               struct buffer *buf,
                               struct link_socket_actual *from)
@@ -3324,6 +3328,8 @@ int link_socket_read_indirect(struct link_socket *sock,
 
     return buf->len = len;
 }
+
+#endif  /* ENABLE_PLUGIN */
 
 #ifndef _WIN32
 
@@ -3457,6 +3463,8 @@ link_socket_write_tcp(struct link_socket *sock,
 #endif
 }
 
+#ifdef ENABLE_PLUGIN
+
 int link_socket_write_indirect(struct link_socket *sock,
                                struct buffer *buf,
                                struct link_socket_actual *to)
@@ -3466,6 +3474,8 @@ int link_socket_write_indirect(struct link_socket *sock,
     socklen_t addrlen = (socklen_t) af_addr_size(to->dest.addr.sa.sa_family);
     return transport_write(sock->indirect, buf, addr, addrlen);
 }
+
+#endif  /* ENABLE_PLUGIN */
 
 #if ENABLE_IP_PKTINFO
 
