@@ -400,6 +400,8 @@ static const char usage_message[] =
 #ifdef ENABLE_PLUGIN
     "--plugin m [str]: Load plug-in module m passing str as an argument\n"
     "                  to its initialization function.\n"
+    "--transport-plugin m [args]: Use plug-in module m to provide the transport\n"
+    "                             layer, with optional per-connection args.\n"
 #endif
 #if P2MP
 #if P2MP_SERVER
