@@ -1241,7 +1241,7 @@ link_socket_write(struct link_socket *sock,
     {
         return link_socket_write_indirect(sock, buf, to);
     }
-    
+
     if (proto_is_udp(sock->info.proto) || socket_is_dco_win(sock))
     {
         /* unified UDPv4, UDPv6 and DCO-WIN (driver adds length header) */
