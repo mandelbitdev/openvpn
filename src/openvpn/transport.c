@@ -289,10 +289,14 @@ transport_update_event(openvpn_transport_socket_t indirect,
     return translate_rwflags_in(indirect->vtab->pump(indirect));
 }
 
-int
-transport_get_sd(openvpn_transport_socket_t indirect)
+openvpn_transport_native_event_t
+transport_get_sock(openvpn_transport_socket_t indirect)
 {
+#ifdef _WIN32
+    return indirect->vtab->get_sock(indirect);
+#else
     return indirect->vtab->get_sd(indirect);
+#endif
 }
 
 void

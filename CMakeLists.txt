@@ -39,6 +39,7 @@ option(ENABLE_LZ4 "BUILD with lz4" ON)
 option(ENABLE_LZO "BUILD with lzo" ON)
 option(ENABLE_PKCS11 "BUILD with pkcs11-helper" ON)
 option(USE_WERROR "Treat compiler warnings as errors (-Werror)" ON)
+option(ENABLE_PLUGIN_OBFS_TEST "Build the obfs-test transport plugin" OFF)
 option(FAKE_ANDROID "Target Android but do not use actual cross compile/Android cmake to build for simple compile checks on Linux")
 option(ENABLE_DEBUG "Enable building with debug" OFF)
 
@@ -678,6 +679,36 @@ if (NOT WIN32)
         set(RESOLV_LIBRARIES resolv)
         target_link_libraries(openvpn PUBLIC ${RESOLV_LIBRARIES})
     endif ()
+endif ()
+
+if (ENABLE_PLUGIN_OBFS_TEST)
+    set(OBFS_TEST_SOURCES
+        src/plugins/obfs-test/obfs-test.c
+        src/plugins/obfs-test/obfs-test-args.c
+        src/plugins/obfs-test/obfs-test-munging.c
+        )
+    if (WIN32)
+        list(APPEND OBFS_TEST_SOURCES src/plugins/obfs-test/obfs-test-win32.c)
+    else ()
+        list(APPEND OBFS_TEST_SOURCES src/plugins/obfs-test/obfs-test-posix.c)
+    endif ()
+
+    add_library(openvpn-plugin-obfs-test MODULE ${OBFS_TEST_SOURCES})
+    set_target_properties(openvpn-plugin-obfs-test PROPERTIES PREFIX "")
+    target_include_directories(openvpn-plugin-obfs-test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_BINARY_DIR}
+        )
+    if (${MBED})
+        target_include_directories(openvpn-plugin-obfs-test PRIVATE ${MBED_INCLUDE_PATH})
+    elseif (TARGET OpenSSL::Crypto)
+        target_include_directories(openvpn-plugin-obfs-test PRIVATE
+            $<TARGET_PROPERTY:OpenSSL::Crypto,INTERFACE_INCLUDE_DIRECTORIES>)
+    endif ()
+    if (WIN32)
+        target_link_libraries(openvpn-plugin-obfs-test PRIVATE ws2_32)
+    endif ()
+    install(TARGETS openvpn-plugin-obfs-test DESTINATION ${PLUGIN_DIR})
 endif ()
 
 option(UT_ALLOW_BIG_ALLOC "Allow unit-tests to use > 1 GB of memory" ON)

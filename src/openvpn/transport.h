@@ -74,8 +74,7 @@ unsigned transport_update_event(openvpn_transport_socket_t vsocket,
 void transport_request_events(openvpn_transport_socket_t indirect,
                               struct event_set *es, unsigned rwflags);
 
-
-int transport_get_sd(openvpn_transport_socket_t indirect);
+openvpn_transport_native_event_t transport_get_sock(openvpn_transport_socket_t indirect);
 
 /* NOTE: transport_write and transport_read implicitly downcast from a
  * ssize_t to an int on return. Various link_socket_* functions

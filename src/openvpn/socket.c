@@ -39,7 +39,6 @@
 #include "openvpn.h"
 #include "forward.h"
 #include "resolve.h"
-#include "transport.h"
 
 #include "memdbg.h"
 
@@ -342,6 +341,11 @@ create_socket_indirect(struct link_socket *sock, sa_family_t ai_family)
                                     sock->info.transport_plugin_argv,
                                     ai_family,
                                     bind_addresses);
+#ifdef _WIN32
+    openvpn_transport_native_event_t ev = transport_get_sock(sock->indirect);
+    sock->rw_handle.read = ev->read;
+    sock->rw_handle.write = ev->write;
+#endif
 }
 
 unsigned
@@ -2737,6 +2741,7 @@ socket_set(struct link_socket *s, struct event_set *es, unsigned int rwflags, vo
             {
                 event_ctl(es, socket_event_handle(s), rwflags, arg);
             }
+
             if (persistent)
             {
                 *persistent = rwflags;

@@ -130,6 +130,11 @@ multi_io_set_global_rw_flags(struct multi_context *m, struct multi_instance *mi)
     }
 
     mi->socket_set_called = true;
+    if (proto_is_indirect(mi->context.c2.link_sockets[0]->info.proto))
+    {
+        return;
+    }
+
     if (proto_is_dgram(mi->context.c2.link_sockets[0]->info.proto))
     {
         socket_set(mi->context.c2.link_sockets[0], m->multi_io->es, EVENT_READ,
@@ -184,6 +189,30 @@ p2mp_iow_flags(const struct multi_context *m, const struct link_socket *sock)
     return flags;
 }
 
+/*
+ * Hand the events registered by transport plugins back to them and replace
+ * them with a single EVENT_ARG_LINK_SOCKET event per indirect socket that
+ * the plugin reports as ready.
+ */
+static int
+multi_io_pump_indirect(struct multi_context *m, int status)
+{
+    for (int i = 0; i < m->top.c1.link_sockets_num; i++)
+    {
+        struct link_socket *sock = m->top.c2.link_sockets[i];
+        unsigned int rwflags = socket_indirect_pump(sock, m->multi_io->esr, &status)
+                               & (EVENT_READ | EVENT_WRITE);
+
+        if (rwflags)
+        {
+            struct event_set_return *e = &m->multi_io->esr[status++];
+            e->rwflags = rwflags;
+            e->arg = &sock->ev_arg;
+        }
+    }
+    return status;
+}
+
 int
 multi_io_wait(struct multi_context *m)
 {
@@ -232,8 +261,13 @@ multi_io_wait(struct multi_context *m)
     event_ctl(m->multi_io->es, m->top.c2.inotify_fd, EVENT_READ, MULTI_IO_FILE_CLOSE_WRITE);
 #endif
 
-    status =
-        event_wait(m->multi_io->es, &m->top.c2.timeval, m->multi_io->esr, m->multi_io->maxevents);
+    /* keep one esr slot per link socket for multi_io_pump_indirect() */
+    status = event_wait(m->multi_io->es, &m->top.c2.timeval, m->multi_io->esr,
+                        m->multi_io->maxevents - m->top.c1.link_sockets_num);
+    if (status >= 0)
+    {
+        status = multi_io_pump_indirect(m, status);
+    }
     update_time();
     m->multi_io->n_esr = 0;
     if (status > 0)
