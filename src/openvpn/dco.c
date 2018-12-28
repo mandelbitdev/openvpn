@@ -270,6 +270,12 @@ dco_check_option_ce(const struct connection_entry *ce, msglvl_t msglevel, int mo
         return false;
     }
 
+    if (ce->transport_plugin_argv)
+    {
+        msg(msglevel, "Note: --transport-plugin disables data channel offload.");
+        return false;
+    }
+
 #if defined(TARGET_FREEBSD)
     if (ce->local_list)
     {
