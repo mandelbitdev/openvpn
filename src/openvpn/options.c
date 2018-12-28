@@ -2657,7 +2657,8 @@ options_postprocess_verify_ce(const struct options *options,
         {
             msg(M_WARN, "--pull-filter ignored for --mode server");
         }
-        if (!(proto_is_udp(ce->proto) || ce->proto == PROTO_TCP_SERVER))
+        if (!(proto_is_udp(ce->proto) || proto_is_indirect(ce->proto)
+              || ce->proto == PROTO_TCP_SERVER))
         {
             msg(M_USAGE, USAGE_VALID_SERVER_PROTOS);
         }
@@ -2693,7 +2694,8 @@ options_postprocess_verify_ce(const struct options *options,
                 "--ipchange cannot be used with --mode server (use "
                 "--client-connect instead)");
         }
-        if (!(proto_is_dgram(ce->proto) || ce->proto == PROTO_TCP_SERVER))
+        if (!(proto_is_dgram(ce->proto) || proto_is_indirect(ce->proto)
+              || ce->proto == PROTO_TCP_SERVER))
         {
             msg(M_USAGE, USAGE_VALID_SERVER_PROTOS);
         }
