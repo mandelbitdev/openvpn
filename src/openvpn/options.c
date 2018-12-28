@@ -417,6 +417,9 @@ static const char usage_message[] =
 #ifdef ENABLE_PLUGIN
     "--plugin m [str]: Load plug-in module m passing str as an argument\n"
     "                  to its initialization function.\n"
+    "--transport-plugin m [args]: Use plug-in module m to provide the transport\n"
+    "                             layer, with optional per-connection args. The\n"
+    "                             module must already be loaded with --plugin.\n"
 #endif
     "--vlan-tagging  : Enable 802.1Q-based VLAN tagging.\n"
     "--vlan-accept tagged|untagged|all : Set VLAN tagging mode. Default is 'all'.\n"
@@ -2443,6 +2446,22 @@ options_postprocess_verify_ce(const struct options *options,
     {
         msg(M_USAGE, "multiple --local statements only allowed in --server mode");
     }
+
+#ifdef ENABLE_PLUGIN
+    /*
+     * "proto indirect" may not be specified directly without a
+     * transport-plugin, and vice versa.
+     */
+    if (ce->proto == PROTO_INDIRECT && !ce->transport_plugin_argv)
+    {
+        msg(M_USAGE, "--proto indirect may not be used without a transport-plugin line");
+    }
+
+    if (ce->transport_plugin_argv && ce->proto != PROTO_INDIRECT)
+    {
+        msg(M_USAGE, "--transport-plugin must be used with --proto indirect");
+    }
+#endif
 
     if (options->lladdr && dev != DEV_TYPE_TAP)
     {
@@ -5979,7 +5998,18 @@ add_option(struct options *options,
             goto err;
         }
     }
-#endif
+    else if (streq(p[0], "transport-plugin") && p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_PLUGIN|OPT_P_CONNECTION);
+
+        /* p[1] is the shared object name, which becomes
+         * argv[0]. p[2..] are connection-specific transport
+         * parameters, which become argv[1..].
+         */
+        options->ce.transport_plugin_argv = make_extended_arg_array(&p[1], true, &options->gc);
+        options->ce.proto = PROTO_INDIRECT;
+    }
+#endif /* ifdef ENABLE_PLUGIN */
     else if (streq(p[0], "mode") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);

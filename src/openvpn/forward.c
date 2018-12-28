@@ -2336,7 +2336,7 @@ io_wait_dowork(struct context *c, const unsigned int flags)
                 c->c2.event_set_status = 0;
 #ifdef ENABLE_PLUGIN
                 c->c2.event_set_status |=
-                    (socket_indirect_pump(c->c2.link_socket, esr, &status) & 3)
+                    (socket_indirect_pump(c->c2.link_sockets[0], esr, &status) & 3)
                         << socket_shift;
 #endif
                 for (i = 0; i < status; ++i)

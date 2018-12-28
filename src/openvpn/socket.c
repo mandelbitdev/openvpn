@@ -1999,6 +1999,7 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
     sock->info.bind_ipv6_only = o->ce.bind_ipv6_only;
     sock->info.ipchange_command = o->ipchange;
     sock->info.plugins = c->plugins;
+    sock->info.transport_plugin_argv = o->ce.transport_plugin_argv;
     sock->server_poll_timeout = &c->c2.server_poll_interval;
 
     sock->mode = mode;
