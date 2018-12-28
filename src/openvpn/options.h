@@ -108,6 +108,7 @@ struct connection_entry
     sa_family_t af;
     const char *local_port;
     bool local_port_defined;
+    const char **transport_plugin_argv;
     const char *remote_port;
     const char *remote;
     bool remote_float;
