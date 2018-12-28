@@ -458,7 +458,7 @@ multi_io_process_io(struct multi_context *m)
                         break;
                     }
                     /* new incoming TCP client attempting to connect? */
-                    if (!proto_is_dgram(ev_arg->u.sock->info.proto))
+                    if (proto_is_tcp(ev_arg->u.sock->info.proto))
                     {
                         socket_reset_listen_persistent(ev_arg->u.sock);
                         mi = multi_create_instance_tcp(m, ev_arg->u.sock);

@@ -35,6 +35,7 @@
 #include "misc.h"
 #include "tun.h"
 #include "socket_util.h"
+#include "transport.h"
 
 /*
  * OpenVPN's default port number as assigned by IANA.
@@ -88,6 +89,7 @@ struct link_socket_info
     bool connection_established;
     const char *ipchange_command;
     const struct plugin_list *plugins;
+    const char **transport_plugin_argv;
     bool remote_float;
     uint8_t proto;   /* Protocol (PROTO_x defined below) */
     sa_family_t af;  /* Address family like AF_INET, AF_INET6 or AF_UNSPEC*/
@@ -161,6 +163,11 @@ struct link_socket
     struct overlapped_io writes;
     struct rw_handle rw_handle;
     struct rw_handle listen_handle; /* For listening on TCP socket in server mode */
+#endif
+
+#ifdef ENABLE_PLUGIN
+    /* only valid when info.proto == PROTO_INDIRECT */
+    openvpn_transport_socket_t indirect;
 #endif
 
     /* used for printing status info only */
@@ -583,10 +590,54 @@ int link_socket_read_udp_posix(struct link_socket *sock, struct buffer *buf,
 
 #endif /* ifdef _WIN32 */
 
+#ifdef ENABLE_PLUGIN
+
+int link_socket_read_indirect(struct link_socket *sock,
+                              struct buffer *buf,
+                              struct link_socket_actual *from);
+
+int link_socket_write_indirect(struct link_socket *sock,
+                               struct buffer *buf,
+                               struct link_socket_actual *from);
+
+bool proto_is_indirect(int proto);
+
+unsigned
+socket_indirect_pump(struct link_socket *s, struct event_set_return *esr, int *esrlen);
+
+#else  /* ifdef ENABLE_PLUGIN */
+
+static int
+link_socket_read_indirect(struct link_socket *sock,
+                          struct buffer *buf, struct link_socket_actual *from)
+{
+    return -1;
+}
+
+static int
+link_socket_write_indirect(struct link_socket *sock,
+                           struct buffer *buf, struct link_socket_actual *from)
+{
+    return -1;
+}
+
+static inline bool
+proto_is_indirect(int proto)
+{
+    return false;
+}
+
+#endif /* ENABLE_PLUGIN */
+
 /* read a TCP or UDP packet from link */
 static inline int
 link_socket_read(struct link_socket *sock, struct buffer *buf, struct link_socket_actual *from)
 {
+    if (proto_is_indirect(sock->info.proto))
+    {
+        return link_socket_read_indirect(sock, buf, from);
+    }
+
     if (proto_is_udp(sock->info.proto) || socket_is_dco_win(sock))
     /* unified UDPv4 and UDPv6, for DCO-WIN the kernel
      * will strip the length header */
@@ -706,6 +757,11 @@ link_socket_write_udp(struct link_socket *sock, struct buffer *buf, struct link_
 static inline ssize_t
 link_socket_write(struct link_socket *sock, struct buffer *buf, struct link_socket_actual *to)
 {
+    if (proto_is_indirect(sock->info.proto))
+    {
+        return link_socket_write_indirect(sock, buf, to);
+    }
+
     if (proto_is_udp(sock->info.proto) || socket_is_dco_win(sock))
     {
         /* unified UDPv4, UDPv6 and DCO-WIN (driver adds length header) */
@@ -782,7 +838,7 @@ unsigned int socket_set(struct link_socket *sock, struct event_set *es, unsigned
 static inline void
 socket_set_listen_persistent(struct link_socket *sock, struct event_set *es, void *arg)
 {
-    if (sock && !sock->listen_persistent_queued)
+    if (sock && !sock->listen_persistent_queued && !sock->indirect)
     {
         event_ctl(es, socket_listen_event_handle(sock), EVENT_READ, arg);
         sock->listen_persistent_queued = true;
