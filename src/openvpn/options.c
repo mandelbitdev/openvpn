@@ -5859,7 +5859,7 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     }
     else if (streq(p[0], "transport-plugin") && p[1])
     {
-        VERIFY_PERMISSION(OPT_P_PLUGIN|OPT_P_CONNECTION);
+        VERIFY_PERMISSION(OPT_P_PLUGIN | OPT_P_CONNECTION);
 
         /* p[1] is the shared object name, which becomes
          * argv[0]. p[2..] are connection-specific transport
@@ -9336,7 +9336,8 @@ has_udp_in_local_list(const struct options *options)
     {
         for (int i = 0; i < options->ce.local_list->len; i++)
         {
-            if (proto_is_dgram(options->ce.local_list->array[i]->proto))
+            if (proto_is_dgram(options->ce.local_list->array[i]->proto)
+                || proto_is_indirect(options->ce.local_list->array[i]->proto))
             {
                 return true;
             }

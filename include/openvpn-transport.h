@@ -187,8 +187,12 @@ struct openvpn_transport_socket_vtab1
      * extended functions in the future. */
     unsigned features;
 
+#ifdef _WIN32
+    struct rw_handle *(*get_sock)(openvpn_transport_socket_t handle);
+#else
     /* Given a virtual indirect socket returns the descriptor associated */
     int (*get_sd)(openvpn_transport_socket_t handle);
+#endif
 
     /* Given the bitmask rwflags, request that event_set be provided with all
      * native events that should be waited on such that whenever this virtual

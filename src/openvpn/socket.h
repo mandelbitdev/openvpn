@@ -823,6 +823,16 @@ bool sockets_read_residual(const struct context *c);
 static inline event_t
 socket_event_handle(const struct link_socket *sock)
 {
+#ifdef ENABLE_PLUGIN
+    if (sock->indirect)
+    {
+#ifdef _WIN32
+        return transport_get_sock(sock->indirect);
+#else
+        return transport_get_sock(sock->indirect);
+#endif
+    }
+#endif
 #ifdef _WIN32
     return &sock->rw_handle;
 #else
@@ -838,7 +848,11 @@ unsigned int socket_set(struct link_socket *sock, struct event_set *es, unsigned
 static inline void
 socket_set_listen_persistent(struct link_socket *sock, struct event_set *es, void *arg)
 {
-    if (sock && !sock->listen_persistent_queued && !sock->indirect)
+    if (sock && !sock->listen_persistent_queued
+#ifdef ENABLE_PLUGIN
+        && !sock->indirect
+#endif
+    )
     {
         event_ctl(es, socket_listen_event_handle(sock), EVENT_READ, arg);
         sock->listen_persistent_queued = true;
