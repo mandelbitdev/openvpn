@@ -141,6 +141,7 @@ openvpn_SOURCES = \
 	status.c status.h \
 	syshead.h \
 	tls_crypt.c tls_crypt.h \
+	transport.c transport.h \
 	tun.c tun.h \
 	tun_afunix.c tun_afunix.h \
 	vlan.c vlan.h \
