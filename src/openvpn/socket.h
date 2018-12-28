@@ -630,12 +630,6 @@ link_socket_write_indirect(struct link_socket *sock,
     return -1;
 }
 
-static inline bool
-proto_is_indirect(int proto)
-{
-    return false;
-}
-
 #endif /* ENABLE_PLUGIN */
 
 /* read a TCP or UDP packet from link */
@@ -832,6 +826,12 @@ bool sockets_read_residual(const struct context *c);
 static inline event_t
 socket_event_handle(const struct link_socket *sock)
 {
+#ifdef ENABLE_PLUGIN
+    if (sock->indirect)
+    {
+        return transport_get_sock(sock->indirect);
+    }
+#endif
 #ifdef _WIN32
     return &sock->rw_handle;
 #else
@@ -847,7 +847,11 @@ unsigned int socket_set(struct link_socket *sock, struct event_set *es, unsigned
 static inline void
 socket_set_listen_persistent(struct link_socket *sock, struct event_set *es, void *arg)
 {
-    if (sock && !sock->listen_persistent_queued && !sock->indirect)
+    if (sock && !sock->listen_persistent_queued
+#ifdef ENABLE_PLUGIN
+        && !sock->indirect
+#endif
+    )
     {
         event_ctl(es, socket_listen_event_handle(sock), EVENT_READ, arg);
         sock->listen_persistent_queued = true;

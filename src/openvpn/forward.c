@@ -2123,7 +2123,7 @@ multi_io_process_flags(struct context *c, struct event_set *es, const unsigned i
      */
     for (int i = 0; i < c->c1.link_sockets_num; i++)
     {
-        if ((c->options.mode != MODE_SERVER) || (proto_is_dgram(c->c2.link_sockets[i]->info.proto)))
+        if ((c->options.mode != MODE_SERVER) || (proto_is_dgram(c->c2.link_sockets[i]->info.proto)) || proto_is_indirect(c->c2.link_sockets[i]->info.proto))
         {
             socket_set(c->c2.link_sockets[i], es, socket, &c->c2.link_sockets[i]->ev_arg, NULL);
         }
