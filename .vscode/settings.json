@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "manage.h": "c",
+        "run_command.h": "c"
+    }
+}
