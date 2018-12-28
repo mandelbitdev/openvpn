@@ -569,6 +569,9 @@ enum proto_num {
     PROTO_TCP,
     PROTO_TCP_SERVER,
     PROTO_TCP_CLIENT,
+#ifdef ENABLE_PLUGIN
+    PROTO_INDIRECT,
+#endif
     PROTO_N
 };
 
