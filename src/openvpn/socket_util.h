@@ -26,6 +26,7 @@
 #include "buffer.h"
 #include "env_set.h"
 #include "sig.h"
+#include "transport.h"
 
 #define PS_SHOW_PORT_IF_DEFINED (1 << 0)
 #define PS_SHOW_PORT            (1 << 1)
@@ -163,6 +164,16 @@ proto_is_udp(int proto)
     return proto == PROTO_UDP;
 }
 
+static inline bool
+proto_is_indirect(int proto)
+{
+#ifdef ENABLE_PLUGIN
+    return proto == PROTO_INDIRECT;
+#else
+    return false;
+#endif
+}
+
 /**
  * @brief Return if the protocol is datagram (UDP)
  *
@@ -170,7 +181,7 @@ proto_is_udp(int proto)
 static inline bool
 proto_is_dgram(int proto)
 {
-    return proto_is_udp(proto);
+    return proto_is_udp(proto) || proto_is_indirect(proto);
 }
 
 /**

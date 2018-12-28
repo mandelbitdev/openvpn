@@ -367,16 +367,25 @@ static const struct proto_names proto_names[] = {
     { "tcp-server", "TCP_SERVER", AF_UNSPEC, PROTO_TCP_SERVER },
     { "tcp-client", "TCP_CLIENT", AF_UNSPEC, PROTO_TCP_CLIENT },
     { "tcp", "TCP", AF_UNSPEC, PROTO_TCP },
+#ifdef ENABLE_PLUGIN
+    { "indirect", "INDIRECT", AF_UNSPEC, PROTO_INDIRECT },
+#endif
     /* force IPv4 */
     { "udp4", "UDPv4", AF_INET, PROTO_UDP },
     { "tcp4-server", "TCPv4_SERVER", AF_INET, PROTO_TCP_SERVER },
     { "tcp4-client", "TCPv4_CLIENT", AF_INET, PROTO_TCP_CLIENT },
     { "tcp4", "TCPv4", AF_INET, PROTO_TCP },
+#ifdef ENABLE_PLUGIN
+    { "indirect4", "INDIRECT_IPv4", AF_INET, PROTO_INDIRECT },
+#endif
     /* force IPv6 */
     { "udp6", "UDPv6", AF_INET6, PROTO_UDP },
     { "tcp6-server", "TCPv6_SERVER", AF_INET6, PROTO_TCP_SERVER },
     { "tcp6-client", "TCPv6_CLIENT", AF_INET6, PROTO_TCP_CLIENT },
     { "tcp6", "TCPv6", AF_INET6, PROTO_TCP },
+#ifdef ENABLE_PLUGIN
+    { "indirect6", "INDIRECT_IPv6", AF_INET6, PROTO_INDIRECT },
+#endif
 };
 
 int
@@ -485,6 +494,18 @@ proto_remote(int proto, bool remote)
     {
         return "TCPv4_CLIENT";
     }
+
+#ifdef ENABLE_PLUGIN
+    if (proto == PROTO_INDIRECT)
+    {
+        /* FIXME: the string reported here should match the actual transport
+         * protocol being used, however in this function we have no knowledge of
+         * what protocol is exactly being used by the transport-plugin.
+         * Therefore we simply return INDIRECT for now.
+         */
+        return "INDIRECT";
+    }
+#endif
 
     ASSERT(0);
     return ""; /* Make the compiler happy */

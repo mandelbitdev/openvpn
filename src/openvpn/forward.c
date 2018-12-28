@@ -2217,6 +2217,11 @@ io_wait(struct context *c, const unsigned int flags)
             {
                 int i;
                 c->c2.event_set_status = 0;
+                c->c2.event_set_status |=
+                    (socket_indirect_pump(c->c2.link_sockets[0], esr, &status)
+                     & (EVENT_READ | EVENT_WRITE))
+                    << socket_shift;
+
                 for (i = 0; i < status; ++i)
                 {
                     const struct event_set_return *e = &esr[i];
