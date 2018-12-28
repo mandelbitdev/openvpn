@@ -26,6 +26,7 @@
 #include "buffer.h"
 #include "env_set.h"
 #include "sig.h"
+#include "transport.h"
 
 #define PS_SHOW_PORT_IF_DEFINED (1 << 0)
 #define PS_SHOW_PORT            (1 << 1)

@@ -4823,7 +4823,9 @@ inherit_context_child(struct context *dest, const struct context *src, struct li
     CLEAR(*dest);
 
     /* proto_is_dgram will ASSERT(0) if proto is invalid */
-    dest->mode = proto_is_dgram(sock->info.proto) ? CM_CHILD_UDP : CM_CHILD_TCP;
+    dest->mode = proto_is_dgram(sock->info.proto) || proto_is_indirect(sock->info.proto)
+                     ? CM_CHILD_UDP
+                     : CM_CHILD_TCP;
 
     dest->gc = gc_new();
 

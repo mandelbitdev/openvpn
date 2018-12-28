@@ -209,7 +209,7 @@ multi_io_wait(struct multi_context *m)
         {
             struct link_socket *sock = m->top.c2.link_sockets[i];
 
-            if ((m->top.options.mode == MODE_SERVER) && proto_is_dgram(sock->info.proto))
+            if (((m->top.options.mode == MODE_SERVER) && proto_is_dgram(sock->info.proto)) || proto_is_indirect(sock->info.proto))
             {
                 unsigned int flags = p2mp_iow_flags(m, sock);
 
@@ -494,7 +494,7 @@ multi_io_process_io(struct multi_context *m)
                         break;
                     }
                     /* new incoming TCP client attempting to connect? */
-                    if (!proto_is_dgram(ev_arg->u.sock->info.proto))
+                    if (proto_is_tcp(ev_arg->u.sock->info.proto))
                     {
                         socket_reset_listen_persistent(ev_arg->u.sock);
                         mi = multi_create_instance_tcp(m, ev_arg->u.sock);
