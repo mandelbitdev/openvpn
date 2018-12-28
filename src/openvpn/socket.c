@@ -4192,11 +4192,9 @@ socket_set(struct link_socket *s,
             {
                 transport_request_events(s->indirect, es, rwflags);
             }
-            else
 #endif
-            {
-                event_ctl(es, socket_event_handle(s), rwflags, arg);
-            }
+            event_ctl(es, socket_event_handle(s), rwflags, arg);
+
             if (persistent)
             {
                 *persistent = rwflags;

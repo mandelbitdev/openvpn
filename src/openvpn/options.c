@@ -9598,7 +9598,8 @@ has_udp_in_local_list(const struct options *options)
     {
         for (int i = 0; i < options->ce.local_list->len; i++)
         {
-            if (proto_is_dgram(options->ce.local_list->array[i]->proto))
+            if (proto_is_dgram(options->ce.local_list->array[i]->proto)
+                || proto_is_indirect(options->ce.local_list->array[i]->proto))
             {
                 return true;
             }

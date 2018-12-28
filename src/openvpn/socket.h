@@ -1317,6 +1317,9 @@ bool sockets_read_residual(const struct context *c);
 static inline event_t
 socket_event_handle(const struct link_socket *sock)
 {
+#ifdef ENABLE_PLUGIN
+    return transport_get_sd(sock->indirect);
+#endif
 #ifdef _WIN32
     return &sock->rw_handle;
 #else
