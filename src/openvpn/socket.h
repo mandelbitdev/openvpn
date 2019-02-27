@@ -1347,6 +1347,4 @@ socket_indirect_pump(struct link_socket *s, struct event_set_return *esr, int *e
 
 #endif  /* ENABLE_PLUGIN */
 
-const char *socket_stat(const struct link_socket *s, unsigned int rwflags, struct gc_arena *gc);
-
 #endif /* SOCKET_H */
