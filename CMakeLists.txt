@@ -547,6 +547,8 @@ set(SOURCE_FILES
     src/openvpn/status.h
     src/openvpn/syshead.h
     src/openvpn/tls_crypt.c
+    src/openvpn/transport.c
+    src/openvpn/transport.h
     src/openvpn/tun.c
     src/openvpn/tun.h
     src/openvpn/tun_afunix.c

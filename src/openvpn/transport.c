@@ -263,8 +263,8 @@ static const struct openvpn_transport_event_set_vtab encapsulated_event_set_vtab
 };
 
 unsigned
-transport_pump(openvpn_transport_socket_t indirect,
-               struct event_set_return *esr, int *esrlen)
+transport_update_event(openvpn_transport_socket_t indirect,
+                       struct event_set_return *esr, int *esrlen)
 {
     int i = 0;
     while (i < *esrlen)
