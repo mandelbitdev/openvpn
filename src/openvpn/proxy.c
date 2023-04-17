@@ -257,40 +257,41 @@ clear_user_pass_http(void)
 }
 
 static void
-get_user_pass_http(struct http_proxy_info *p, const bool force)
+get_user_pass_http(struct http_proxy_info *p)
 {
-    /*
-     * in case of forced (re)load, make sure the static storage is set as
-     * undefined, otherwise get_user_pass() won't try to load any credential
-     */
-    if (force)
+    static bool is_first_time = true;
+    unsigned int flags = GET_USER_PASS_MANAGEMENT;
+
+    if (p->queried_creds && !p->options.nocache)
     {
-        clear_user_pass_http();
+        flags |= GET_USER_PASS_PREVIOUS_CREDS_FAILED;
     }
 
-    if (!static_proxy_user_pass.defined)
+    if (p->options.inline_creds)
     {
-        unsigned int flags = GET_USER_PASS_MANAGEMENT;
-        const char *auth_file = p->options.auth_file;
-        if (p->options.auth_file_up)
-        {
-            auth_file = p->options.auth_file_up;
-        }
-        if (p->queried_creds)
-        {
-            flags |= GET_USER_PASS_PREVIOUS_CREDS_FAILED;
-        }
-        if (p->options.inline_creds)
-        {
-            flags |= GET_USER_PASS_INLINE_CREDS;
-        }
+        flags |= GET_USER_PASS_INLINE_CREDS;
+    }
+
+    if (!static_proxy_user_pass.defined || (is_first_time && !p->options.nocache) )
+    {
         get_user_pass(&static_proxy_user_pass,
-                      auth_file,
+                      p->options.auth_file,
                       UP_TYPE_PROXY,
                       flags);
-        p->queried_creds = true;
-        p->up = static_proxy_user_pass;
+        is_first_time = false;
     }
+
+    else
+    {
+        get_user_pass(&static_proxy_user_pass,
+                      p->options.auth_file,
+                      UP_TYPE_PROXY,
+                      flags);
+        static_proxy_user_pass.defined = !p->options.nocache;
+    }
+
+    p->queried_creds = true;
+    p->up = static_proxy_user_pass;
 }
 
 #if 0
@@ -542,7 +543,7 @@ http_proxy_new(const struct http_proxy_options *o)
      * we know whether we need any. */
     if (p->auth_method == HTTP_AUTH_BASIC || p->auth_method == HTTP_AUTH_NTLM2)
     {
-        get_user_pass_http(p, true);
+        get_user_pass_http(p);
     }
 
 #if !NTLM
@@ -655,7 +656,7 @@ establish_http_proxy_passthru(struct http_proxy_info *p,
         || p->auth_method == HTTP_AUTH_DIGEST
         || p->auth_method == HTTP_AUTH_NTLM2)
     {
-        get_user_pass_http(p, false);
+        get_user_pass_http(p);
     }
 
     /* are we being called again after getting the digest server nonce in the previous transaction? */

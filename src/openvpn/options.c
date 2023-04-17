@@ -1858,6 +1858,7 @@ show_settings(const struct options *o)
     SHOW_BOOL(persist_local_ip);
     SHOW_BOOL(persist_remote_ip);
     SHOW_BOOL(persist_key);
+    SHOW_BOOL(ce.http_proxy_options->nocache);
 
 #if PASSTOS_CAPABILITY
     SHOW_BOOL(passtos);
@@ -8978,6 +8979,7 @@ add_option(struct options *options,
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
         ssl_set_auth_nocache();
+        options->ce.http_proxy_options->nocache = true;
     }
     else if (streq(p[0], "auth-token") && p[1] && !p[2])
     {
