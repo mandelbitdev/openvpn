@@ -3791,6 +3791,24 @@ do_init_socket_1(struct context *c)
     unsigned int sockflags = c->options.sockflags;
     int i;
 
+    int mode = LS_MODE_DEFAULT;
+    /* mode allows CM_CHILD_TCP
+     * instances to inherit acceptable fds
+     * from a top-level parent */
+    if (c->options.mode == MODE_SERVER)
+    {
+        /* initializing listening socket */
+        if (c->mode == CM_TOP)
+        {
+            mode = LS_MODE_TCP_LISTEN;
+        }
+        /* initializing socket to client */
+        else if (c->mode == CM_CHILD_TCP)
+        {
+            mode = LS_MODE_TCP_ACCEPT_FROM;
+        }
+    }
+
 #if PORT_SHARE
     if (c->options.port_share_host && c->options.port_share_port)
     {
@@ -3800,33 +3818,37 @@ do_init_socket_1(struct context *c)
 
     for (i = 0; i < c->c1.link_sockets_num; i++)
     {
-        int mode = LS_MODE_DEFAULT;
+        const char *host = c->options.ce.local_list->array[i]->local;
+        const char *port = c->options.ce.local_list->array[i]->port;
+        int proto = c->options.ce.local_list->array[i]->proto;
+        bool bind_local = c->options.ce.local_list->array[i]->bind_local;
 
-        /* mode allows CM_CHILD_TCP
-         * instances to inherit acceptable fds
-         * from a top-level parent */
-        if (c->options.mode == MODE_SERVER)
+        if (c->mode == CM_CHILD_TCP || c->mode == CM_CHILD_UDP)
         {
-            /* initializing listening socket */
-            if (c->mode == CM_TOP)
+            const struct link_socket *ls = NULL;
+            if (c->mode == CM_CHILD_TCP)
             {
-                mode = LS_MODE_TCP_LISTEN;
+                ls = c->c2.accept_from;
             }
-            /* initializing socket to client */
-            else if (c->mode == CM_CHILD_TCP)
+            else if (c->mode == CM_CHILD_UDP)
             {
-                mode = LS_MODE_TCP_ACCEPT_FROM;
+                ls = c->c2.link_sockets[0];
             }
+
+            host = ls->local_host;
+            port = ls->local_port;
+            proto = ls->info.proto;
+            bind_local = ls->bind_local;
         }
 
         /* init each socket with its specific port */
         link_socket_init_phase1(c->c2.link_sockets[i],
-                                c->options.ce.local_list->array[i]->local,
-                                c->options.ce.local_list->array[i]->port,
+                                host,
+                                port,
                                 c->options.ce.remote,
                                 c->options.ce.remote_port,
                                 c->c1.dns_cache,
-                                c->options.ce.proto,
+                                proto,
                                 c->options.ce.af,
                                 c->options.ce.bind_ipv6_only,
                                 mode,
@@ -3836,7 +3858,7 @@ do_init_socket_1(struct context *c)
 #ifdef ENABLE_DEBUG
                                 c->options.gremlin,
 #endif
-                                c->options.ce.local_list->array[i]->bind_local,
+                                bind_local,
                                 c->options.ce.remote_float,
                                 &c->c1.link_socket_addrs[i],
                                 c->options.ipchange,
@@ -4655,7 +4677,7 @@ init_instance(struct context *c, const struct env_set *env, const unsigned int f
     }
 
     /* our wait-for-i/o objects, different for posix vs. win32 */
-    if (c->mode == CM_P2P)
+    if (c->mode == CM_P2P || c->mode == CM_TOP)
     {
         do_event_set_init(c, SHAPER_DEFINED(&c->options));
     }
@@ -4919,7 +4941,7 @@ inherit_context_child(struct context *dest,
     CLEAR(*dest);
 
     /* proto_is_dgram will ASSERT(0) if proto is invalid */
-    dest->mode = proto_is_dgram(src->options.ce.proto) ? CM_CHILD_UDP : CM_CHILD_TCP;
+    dest->mode = proto_is_dgram(ls->info.proto) ? CM_CHILD_UDP : CM_CHILD_TCP;
 
     dest->gc = gc_new();
 
@@ -4946,6 +4968,8 @@ inherit_context_child(struct context *dest,
     /* options */
     dest->options = src->options;
     options_detach(&dest->options);
+
+    dest->c2.event_set = src->c2.event_set;
 
     if (dest->mode == CM_CHILD_TCP)
     {

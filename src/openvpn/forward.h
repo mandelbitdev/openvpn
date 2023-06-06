@@ -50,6 +50,7 @@
 #include "openvpn.h"
 #include "occ.h"
 #include "ping.h"
+#include "mtcp.h"
 
 #define IOW_TO_TUN          (1<<0)
 #define IOW_TO_LINK         (1<<1)
@@ -67,6 +68,10 @@
 extern counter_type link_read_bytes_global;
 
 extern counter_type link_write_bytes_global;
+
+void get_io_flags_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int flags);
+
+void get_io_flags_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int flags);
 
 void io_wait_dowork(struct context *c, const unsigned int flags);
 

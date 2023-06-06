@@ -192,10 +192,12 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
     struct mroute_addr real;
     struct multi_instance *mi = NULL;
     struct hash *hash = m->hash;
+    real.proto = ls->info.proto;
 
     if (mroute_extract_openvpn_sockaddr(&real, &m->top.c2.from.dest, true)
         && m->top.c2.buf.len > 0)
     {
+        /*real.proto = ls->info.proto; */
         struct hash_element *he;
         const uint32_t hv = hash_value(hash, &real);
         struct hash_bucket *bucket = hash_bucket(hash, hv);
@@ -318,18 +320,66 @@ multi_process_outgoing_link(struct multi_context *m, const unsigned int mpp_flag
         msg_set_prefix("Connection Attempt");
         m->top.c2.to_link = m->hmac_reply;
         m->top.c2.to_link_addr = m->hmac_reply_dest;
-        process_outgoing_link(&m->top, m->top.c2.link_sockets[0]);
+        for (int i = 0; i < m->top.c1.link_sockets_num; i++)
+        {
+            if (!proto_is_dgram(m->top.c2.link_sockets[i]->info.proto))
+            {
+                continue;
+            }
+
+            process_outgoing_link(&m->top, m->top.c2.link_sockets[i]);
+        }
         m->hmac_reply_dest = NULL;
     }
 }
 
 /*
+ * Return the io_wait() flags appropriate for
+ * a point-to-multipoint tunnel.
+ */
+unsigned int
+p2mp_iow_flags(const struct multi_context *m)
+{
+    unsigned int flags = IOW_WAIT_SIGNAL;
+    if (m->pending)
+    {
+        if (TUN_OUT(&m->pending->context))
+        {
+            flags |= IOW_TO_TUN;
+        }
+        if (LINK_OUT(&m->pending->context))
+        {
+            flags |= IOW_TO_LINK;
+        }
+    }
+    else if (mbuf_defined(m->mbuf))
+    {
+        flags |= IOW_MBUF;
+    }
+    else if (m->hmac_reply_dest)
+    {
+        flags |= IOW_TO_LINK;
+    }
+    else
+    {
+        flags |= IOW_READ;
+    }
+#ifdef _WIN32
+    if (tuntap_ring_empty(m->top.c1.tuntap))
+    {
+        flags &= ~IOW_READ_TUN;
+    }
+#endif
+    return flags;
+}
+
+/*
  * Process an I/O event.
  */
-static void
+void
 multi_process_io_udp(struct multi_context *m)
 {
-    const unsigned int status = m->top.c2.event_set_status;
+    const unsigned int status = m->mtcp->udp_flags;
     const unsigned int mpp_flags = m->top.c2.fast_io
                                    ? (MPP_CONDITIONAL_PRE_SELECT | MPP_CLOSE_ON_SIGNAL)
                                    : (MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
@@ -428,47 +478,6 @@ multi_process_io_udp(struct multi_context *m)
 #endif
 }
 
-/*
- * Return the io_wait() flags appropriate for
- * a point-to-multipoint tunnel.
- */
-static inline unsigned int
-p2mp_iow_flags(const struct multi_context *m)
-{
-    unsigned int flags = IOW_WAIT_SIGNAL;
-    if (m->pending)
-    {
-        if (TUN_OUT(&m->pending->context))
-        {
-            flags |= IOW_TO_TUN;
-        }
-        if (LINK_OUT(&m->pending->context))
-        {
-            flags |= IOW_TO_LINK;
-        }
-    }
-    else if (mbuf_defined(m->mbuf))
-    {
-        flags |= IOW_MBUF;
-    }
-    else if (m->hmac_reply_dest)
-    {
-        flags |= IOW_TO_LINK;
-    }
-    else
-    {
-        flags |= IOW_READ;
-    }
-#ifdef _WIN32
-    if (tuntap_ring_empty(m->top.c1.tuntap))
-    {
-        flags &= ~IOW_READ_TUN;
-    }
-#endif
-    return flags;
-}
-
-
 void
 tunnel_server_udp(struct context *top)
 {
@@ -485,7 +494,7 @@ tunnel_server_udp(struct context *top)
     }
 
     /* initialize global multi_context object */
-    multi_init(&multi, top, false);
+    multi_init(&multi, top);
 
     /* initialize our cloned top object */
     multi_top_init(&multi, top);
@@ -511,7 +520,7 @@ tunnel_server_udp(struct context *top)
 
         /* set up and do the io_wait() */
         multi_get_timeout(&multi, &multi.top.c2.timeval);
-        io_wait(&multi.top, p2mp_iow_flags(&multi));
+        /*io_wait(&multi.top, p2mp_iow_flags(&multi)); */
         MULTI_CHECK_SIG(&multi);
 
         /* check on status of coarse timers */
@@ -525,7 +534,7 @@ tunnel_server_udp(struct context *top)
         else
         {
             /* process I/O */
-            multi_process_io_udp(&multi);
+            /*multi_process_io_udp(&multi); */
             MULTI_CHECK_SIG(&multi);
         }
 

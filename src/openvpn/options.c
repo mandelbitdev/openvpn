@@ -2188,6 +2188,7 @@ alloc_local_entry(struct connection_entry *ce, const int msglevel,
     }
 
     ALLOC_OBJ_CLEAR_GC(e, struct local_entry, gc);
+    e->proto = PROTO_NONE;
     l->array[l->len++] = e;
 
     return e;
@@ -3154,14 +3155,30 @@ options_postprocess_mutate_ce(struct options *o, struct connection_entry *ce)
         if (ce->proto == PROTO_TCP)
         {
             ce->proto = PROTO_TCP_SERVER;
+            o->ce.proto = ce->proto;
+        }
+        if (ce->local_list)
+        {
+            for (int i = 0; i < ce->local_list->len; i++)
+            {
+                if (ce->local_list->array[i]->proto == PROTO_TCP)
+                {
+                    ce->local_list->array[i]->proto = PROTO_TCP_SERVER;
+                }
+                else if (ce->local_list->array[i]->proto == PROTO_NONE)
+                {
+                    ce->local_list->array[i]->proto = ce->proto;
+                }
+            }
         }
     }
 
-    if (o->client)
+    if (o->mode != MODE_SERVER)
     {
         if (ce->proto == PROTO_TCP)
         {
             ce->proto = PROTO_TCP_CLIENT;
+            o->ce.proto = ce->proto;
         }
     }
 
@@ -3311,6 +3328,10 @@ options_postprocess_mutate_le(struct options *o, struct local_entry *le)
     if (!le->port)
     {
         le->port = o->ce.local_port;
+    }
+    if (!le->proto)
+    {
+        le->proto = o->ce.proto;
     }
 }
 
@@ -3775,6 +3796,7 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
         ASSERT(e);
         e->port = o->ce.local_port;
         e->bind_local = o->ce.bind_local;
+        e->proto = o->ce.proto;
     }
 
     /* use the same listen list for every outgoing connection */
@@ -6164,7 +6186,7 @@ add_option(struct options *options,
         VERIFY_PERMISSION(OPT_P_UP);
         options->ifconfig_nowarn = true;
     }
-    else if (streq(p[0], "local") && p[1] && !p[3])
+    else if (streq(p[0], "local") && p[1] && !p[4])
     {
         struct local_entry *e;
 
@@ -6185,7 +6207,12 @@ add_option(struct options *options,
         if (p[2])
         {
             e->port = p[2];
-            e->bind_local = true;
+            /*e->bind_local = true; */
+        }
+
+        if (p[3])
+        {
+            e->proto = ascii2proto(p[3]);
         }
     }
     else if (streq(p[0], "remote-random") && !p[1])
