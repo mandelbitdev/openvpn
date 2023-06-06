@@ -31,6 +31,8 @@
 struct context;
 struct multi_context;
 
+unsigned int
+p2mp_iow_flags(const struct multi_context *m);
 
 /**
  * Main event loop for OpenVPN in UDP server mode.
@@ -40,9 +42,11 @@ struct multi_context;
  *
  * @param top - Top-level context structure.
  */
+
+
 void tunnel_server_udp(struct context *top);
 
-
+void multi_process_io_udp(struct multi_context *m);
 /**************************************************************************/
 /**
  * Get, and if necessary create, the multi_instance associated with a
