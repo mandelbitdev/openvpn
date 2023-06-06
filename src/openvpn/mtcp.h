@@ -50,17 +50,6 @@ struct multi_instance *multi_create_instance_tcp(struct multi_context *m, struct
 
 void multi_tcp_link_out_deferred(struct multi_context *m, struct multi_instance *mi);
 
-
-/**************************************************************************/
-/**
- * Main event loop for OpenVPN in TCP server mode.
- * @ingroup eventloop
- *
- * @param top - Top-level context structure.
- */
-void tunnel_server_tcp(struct context *top);
-
-
 void multi_tcp_delete_event(struct multi_protocol *multi_io, event_t event);
 
 #endif /* ifndef MTCP_H */
