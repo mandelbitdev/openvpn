@@ -107,6 +107,7 @@ the local and the remote host.
   instead.
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 --local host|* [port] [protocol]
   Local host name or IP address and port for bind. If specified, OpenVPN will bind
   to this address. If unspecified, OpenVPN will bind to all interfaces.
@@ -116,6 +117,9 @@ the local and the remote host.
 
 =======
 --local host|* [port]
+=======
+--local host|* [port] [protocol]
+>>>>>>> 747ac83b (Bind to multiple ipv4/ipv6 addresses)
   Local host name or IP address and port for bind. If specified, OpenVPN will bind
   to this address. If unspecified, OpenVPN will bind to all interfaces.
   '*' can be used as hostname and means 'any host' (OpenVPN will listen on what

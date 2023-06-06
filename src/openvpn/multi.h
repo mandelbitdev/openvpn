@@ -659,9 +659,12 @@ static inline bool
 multi_process_outgoing_tun(struct multi_context *m, const unsigned int mpp_flags)
 {
     struct multi_instance *mi = m->pending;
+    if (!mi)
+    {
+        return false;
+    }
     bool ret = true;
 
-    ASSERT(mi);
 #ifdef MULTI_DEBUG_EVENT_LOOP
     printf("%s -> TUN len=%d\n",
            id(mi),
