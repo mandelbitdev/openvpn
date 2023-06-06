@@ -289,7 +289,7 @@ int_compare_function(const void *key1, const void *key2)
  * Main initialization function, init multi_context object.
  */
 void
-multi_init(struct multi_context *m, struct context *t, bool tcp_mode)
+multi_init(struct multi_context *m, struct context *t)
 {
     int dev = DEV_TYPE_UNDEF;
 
@@ -435,13 +435,12 @@ multi_init(struct multi_context *m, struct context *t, bool tcp_mode)
 
     m->instances = calloc(m->max_clients, sizeof(struct multi_instance *));
 
+    m->top.c2.event_set = t->c2.event_set;
+
     /*
-     * Initialize multi-socket TCP I/O wait object
+     * Initialize multi-socket I/O wait object
      */
-    if (tcp_mode)
-    {
-        m->multi_io = multi_protocol_init(t->options.max_clients, &m->max_clients);
-    }
+    m->multi_io = multi_protocol_init(t->options.max_clients, &m->max_clients);
     m->tcp_queue_limit = t->options.tcp_queue_limit;
 
     /*
@@ -607,6 +606,7 @@ multi_close_instance(struct multi_context *m,
 
     ASSERT(!mi->halt);
     mi->halt = true;
+    bool is_dgram = proto_is_dgram(mi->context.c2.link_sockets[0]->info.proto);
 
     dmsg(D_MULTI_DEBUG, "MULTI: multi_close_instance called");
 
@@ -665,7 +665,7 @@ multi_close_instance(struct multi_context *m,
             mi->did_iroutes = false;
         }
 
-        if (m->multi_io)
+        if (!is_dgram)
         {
             multi_tcp_dereference_instance(m->multi_io, mi);
         }
@@ -776,7 +776,6 @@ multi_create_instance(struct multi_context *m, const struct mroute_addr *real,
         mi->real = *real;
         generate_prefix(mi);
     }
-
     mi->did_open_context = true;
     inherit_context_child(&mi->context, &m->top, sock);
     if (IS_SIG(&mi->context))
@@ -798,6 +797,7 @@ multi_create_instance(struct multi_context *m, const struct mroute_addr *real,
         {
             goto err;
         }
+        mi->real.proto = sock->info.proto;
         generate_prefix(mi);
     }
 
@@ -3401,7 +3401,7 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
             /* decrypt in instance context */
 
             perf_push(PERF_PROC_IN_LINK);
-            lsi = get_link_socket_info(c);
+            lsi = &sock->info;
             orig_buf = c->c2.buf.data;
             if (process_incoming_link_part1(c, lsi, floated))
             {
@@ -3852,7 +3852,7 @@ multi_push_restart_schedule_exit(struct multi_context *m, bool next_server)
     while ((he = hash_iterator_next(&hi)))
     {
         struct multi_instance *mi = (struct multi_instance *) he->value;
-        if (!mi->halt)
+        if (!mi->halt && proto_is_dgram(mi->context.options.ce.proto))
         {
             send_control_channel_string(&mi->context, next_server ? "RESTART,[N]" : "RESTART", D_PUSH);
             multi_schedule_context_wakeup(m, mi);
@@ -3890,13 +3890,15 @@ multi_process_signal(struct multi_context *m)
         status_close(so);
         return false;
     }
-    else if (proto_is_dgram(m->top.options.ce.proto)
-             && is_exit_restart(m->top.sig->signal_received)
-             && (m->deferred_shutdown_signal.signal_received == 0)
-             && m->top.options.ce.explicit_exit_notification != 0)
+    else if (has_udp_in_local_list(&m->top.options))
     {
-        multi_push_restart_schedule_exit(m, m->top.options.ce.explicit_exit_notification == 2);
-        return false;
+        if (is_exit_restart(m->top.sig->signal_received)
+            && (m->deferred_shutdown_signal.signal_received == 0)
+            && m->top.options.ce.explicit_exit_notification != 0)
+        {
+            multi_push_restart_schedule_exit(m, m->top.options.ce.explicit_exit_notification == 2);
+            return false;
+        }
     }
     return true;
 }
@@ -4169,6 +4171,98 @@ multi_assign_peer_id(struct multi_context *m, struct multi_instance *mi)
     ASSERT(mi->context.c2.tls_multi->peer_id < m->max_clients);
 }
 
+/**************************************************************************/
+/**
+ * Main event loop for OpenVPN in multi-protocol server mode.
+ * @ingroup eventloop
+ *
+ * @param top - Top-level context structure.
+ */
+void
+tunnel_server_loop(struct multi_context *multi)
+{
+    int status;
+
+    while (true)
+    {
+        perf_push(PERF_EVENT_LOOP);
+
+        /* wait on tun/socket list */
+        multi_get_timeout(multi, &multi->top.c2.timeval);
+        status = multi_protocol_io_wait(multi);
+        MULTI_CHECK_SIG(multi);
+
+        /* check on status of coarse timers */
+        multi_process_per_second_timers(multi);
+
+        /* timeout? */
+        if (status > 0)
+        {
+            /* process the I/O which triggered select */
+            multi_protocol_process_io(multi);
+            MULTI_CHECK_SIG(multi);
+        }
+        else if (status == 0)
+        {
+            multi_protocol_action(multi, NULL, TA_TIMEOUT, false);
+        }
+
+        perf_pop();
+    }
+}
+
+void
+tunnel_server_init(struct context *top)
+{
+    struct multi_context multi;
+
+    top->mode = CM_TOP;
+    context_clear_2(top);
+
+    /* initialize top-tunnel instance */
+    init_instance_handle_signals(top, top->es, CC_HARD_USR1_TO_HUP);
+    if (IS_SIG(top))
+    {
+        return;
+    }
+
+    /* initialize global multi_context object */
+    multi_init(&multi, top);
+
+    /* initialize our cloned top object */
+    multi_top_init(&multi, top);
+
+    /* initialize management interface */
+    init_management_callback_multi(&multi);
+
+    /* finished with initialization */
+    initialization_sequence_completed(top, ISC_SERVER); /* --mode server --proto tcp-server */
+
+#ifdef ENABLE_ASYNC_PUSH
+    multi.top.c2.inotify_fd = inotify_init();
+    if (multi.top.c2.inotify_fd < 0)
+    {
+        msg(D_MULTI_ERRORS | M_ERRNO, "MULTI: inotify_init error");
+    }
+#endif
+
+    tunnel_server_loop(&multi);
+
+    #ifdef ENABLE_ASYNC_PUSH
+    close(top->c2.inotify_fd);
+#endif
+
+    /* shut down management interface */
+    uninit_management_callback();
+
+    /* save ifconfig-pool */
+    multi_ifconfig_pool_persist(&multi, true);
+
+    /* tear down tunnel instance (unless --persist-tun) */
+    multi_uninit(&multi);
+    multi_top_free(&multi);
+    close_instance(top);
+}
 
 /*
  * Top level event loop.
@@ -4178,12 +4272,6 @@ tunnel_server(struct context *top)
 {
     ASSERT(top->options.mode == MODE_SERVER);
 
-    if (proto_is_dgram(top->options.ce.proto))
-    {
-        tunnel_server_udp(top);
-    }
-    else
-    {
-        tunnel_server_tcp(top);
-    }
+    tunnel_server_init(top);
+
 }
