@@ -201,6 +201,10 @@ mroute_addr_equal(const struct mroute_addr *a1, const struct mroute_addr *a2)
     {
         return false;
     }
+    if (a1->proto != a2->proto)
+    {
+        return false;
+    }
     if (a1->netbits != a2->netbits)
     {
         return false;
@@ -222,7 +226,7 @@ mroute_addr_hash_ptr(const struct mroute_addr *a)
 static inline uint32_t
 mroute_addr_hash_len(const struct mroute_addr *a)
 {
-    return (uint32_t) a->len + 2;
+    return (uint32_t) a->len + 3;
 }
 
 static inline void

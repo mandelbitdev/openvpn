@@ -142,6 +142,11 @@ multi_protocol_io_wait(struct multi_context *m)
                                      &m->top.c2.link_sockets[i]->ev_arg);
     }
 
+    if (has_udp_in_local_list(&m->top.options))
+    {
+        get_io_flags_udp(&m->top, m->multi_io, p2mp_iow_flags(m));
+    }
+
 #ifdef _WIN32
     if (tuntap_is_wintun(m->top.c1.tuntap))
     {
@@ -396,6 +401,10 @@ void
 multi_protocol_process_io(struct multi_context *m)
 {
     struct multi_protocol *multi_io = m->multi_io;
+    const unsigned int udp_status = multi_io->udp_flags;
+    const unsigned int mpp_flags = m->top.c2.fast_io
+                                   ? (MPP_CONDITIONAL_PRE_SELECT | MPP_CLOSE_ON_SIGNAL)
+                                   : (MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
     int i;
 
     for (i = 0; i < multi_io->n_esr; ++i)
@@ -444,6 +453,39 @@ multi_protocol_process_io(struct multi_context *m)
                         if (mi)
                         {
                             multi_protocol_action(m, mi, TA_INITIAL, false);
+                        }
+                        break;
+                    }
+                    else
+                    {
+                        if (e->arg >= MULTI_N)
+                        {
+                            struct event_arg *ev_arg = (struct event_arg *)e->arg;
+                            if (ev_arg->type != EVENT_ARG_LINK_SOCKET)
+                            {
+                                multi_io->udp_flags = ES_ERROR;
+                                msg(D_LINK_ERRORS,
+                                    "MULTI PROTOCOL: io_work: non socket event delivered");
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            ev_arg->pending = true;
+                        }
+
+                        if (udp_status & SOCKET_READ)
+                        {
+                            read_incoming_link(&m->top, ev_arg->u.sock);
+                            if (!IS_SIG(&m->top))
+                            {
+                                multi_process_incoming_link(m, NULL, mpp_flags,
+                                                            ev_arg->u.sock);
+                            }
+                        }
+                        else
+                        {
+                            multi_process_io_udp(m);
                         }
                         break;
                     }
