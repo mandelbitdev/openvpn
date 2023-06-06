@@ -142,6 +142,11 @@ multi_protocol_io_wait(struct multi_context *m)
                                      &m->top.c2.link_sockets[i]->ev_arg);
     }
 
+    if (has_udp_in_local_list(&m->top.options))
+    {
+        get_io_flags_udp(&m->top, m->multi_io, p2mp_iow_flags(m));
+    }
+
 #ifdef _WIN32
     if (tuntap_is_wintun(m->top.c1.tuntap))
     {
@@ -429,14 +434,13 @@ multi_protocol_process_io(struct multi_context *m)
                     }
                     break;
 
-                /* new incoming TCP client attempting to connect? */
                 case EVENT_ARG_LINK_SOCKET:
                     if (!ev_arg->u.sock)
                     {
                         msg(D_MULTI_ERRORS, "MULTI PROTOCOL: multi_proto_proc_io: null socket");
                         break;
                     }
-
+                    /* new incoming TCP client attempting to connect? */
                     if (!proto_is_dgram(ev_arg->u.sock->info.proto))
                     {
                         socket_reset_listen_persistent(ev_arg->u.sock);
@@ -445,6 +449,11 @@ multi_protocol_process_io(struct multi_context *m)
                         {
                             multi_protocol_action(m, mi, TA_INITIAL, false);
                         }
+                        break;
+                    }
+                    else
+                    {
+                        multi_process_io_udp(m, ev_arg->u.sock);
                         break;
                     }
             }
