@@ -1888,6 +1888,40 @@ link_socket_init_phase1(struct context *c,
     sock->bind_local = o->ce.local_list->array[sock_index]->bind_local;
     sock->resolve_retry_seconds = o->resolve_retry_seconds;
     sock->mtu_discover_type = o->ce.mtu_discover_type;
+    
+    const char *host = o->ce.local_list->array[sock_index]->local;
+    const char *port = o->ce.local_list->array[sock_index]->port;
+    int proto = o->ce.local_list->array[sock_index]->proto;
+    bool bind_local = o->ce.local_list->array[sock_index]->bind_local;
+
+    if (c->mode == CM_CHILD_TCP || c->mode == CM_CHILD_UDP)
+    {
+        struct link_socket *tmp_sock = NULL;
+        if (c->mode == CM_CHILD_TCP)
+        {
+            tmp_sock = (struct link_socket *)c->c2.accept_from;
+        }
+        else if (c->mode == CM_CHILD_UDP)
+        {
+            tmp_sock = c->c2.link_sockets[0];
+        }
+
+        host = tmp_sock->local_host;
+        port = tmp_sock->local_port;
+        proto = tmp_sock->info.proto;
+        bind_local = tmp_sock->bind_local;
+    }
+
+    sock->local_host = host;
+    sock->local_port = port;
+    sock->remote_host = o->ce.remote;
+    sock->remote_port = o->ce.remote_port;
+    sock->dns_cache = c->c1.dns_cache;
+    sock->http_proxy = c->c1.http_proxy;
+    sock->socks_proxy = c->c1.socks_proxy;
+    sock->bind_local = bind_local;
+    sock->resolve_retry_seconds = o->resolve_retry_seconds;
+    sock->mtu_discover_type = o->ce.mtu_discover_type;
 
 #ifdef ENABLE_DEBUG
     sock->gremlin = o->gremlin;
@@ -1907,7 +1941,7 @@ link_socket_init_phase1(struct context *c,
 
     sock->mark = o->mark;
 
-    sock->info.proto = o->ce.proto;
+    sock->info.proto = proto;
     sock->info.af = o->ce.af;
     sock->info.remote_float = o->ce.remote_float;
     sock->info.lsa = &c->c1.link_socket_addrs[sock_index];

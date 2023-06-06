@@ -142,6 +142,11 @@ multi_protocol_io_wait(struct multi_context *m)
                                      &m->top.c2.link_sockets[i]->ev_arg);
     }
 
+    if (has_udp_in_local_list(&m->top.options))
+    {
+        get_io_flags_udp(&m->top, m->multi_io, p2mp_iow_flags(m));
+    }
+
 #ifdef _WIN32
     if (tuntap_is_wintun(m->top.c1.tuntap))
     {
@@ -446,6 +451,23 @@ multi_protocol_process_io(struct multi_context *m)
                             multi_protocol_action(m, mi, TA_INITIAL, false);
                         }
                         break;
+                    }
+                    else
+                    {
+                        struct event_arg *ev_arg = (struct event_arg *)e->arg;
+                        if (ev_arg->type != EVENT_ARG_LINK_SOCKET)
+                        {
+                            multi_io->udp_flags = ES_ERROR;
+                            msg(D_LINK_ERRORS,
+                                "MULTI PROTOCOL: io_work: non socket event delivered");
+                            break;
+                        }
+                        else
+                        {
+                            ev_arg->pending = true;
+                            multi_process_io_udp(m);
+                            break;
+                        }
                     }
             }
         }
