@@ -997,10 +997,6 @@ setenv_connection_entry(struct env_set *es,
                         const struct connection_entry *e,
                         const int i)
 {
-    setenv_str_i(es, "proto", proto2ascii(e->proto, e->af, false), i);
-    /* expected to be for single socket contexts only */
-    setenv_str_i(es, "local", e->local_list->array[0]->local, i);
-    setenv_str_i(es, "local_port", e->local_list->array[0]->port, i);
     setenv_str_i(es, "remote", e->remote, i);
     setenv_str_i(es, "remote_port", e->remote_port, i);
 
@@ -1014,6 +1010,16 @@ setenv_connection_entry(struct env_set *es,
         setenv_str_i(es, "socks_proxy_server", e->socks_proxy_server, i);
         setenv_str_i(es, "socks_proxy_port", e->socks_proxy_port, i);
     }
+}
+
+static void
+setenv_local_entry(struct env_set *es,
+                   const struct local_entry *e,
+                   const int i)
+{
+    setenv_str_i(es, "proto", proto2ascii(e->proto, AF_UNSPEC, false), i+1);
+    setenv_str_i(es, "local", e->local, i+1);
+    setenv_str_i(es, "local_port", e->port, i+1);
 }
 
 void
@@ -1037,6 +1043,14 @@ setenv_settings(struct env_set *es, const struct options *o)
     else
     {
         setenv_connection_entry(es, &o->ce, 1);
+    }
+
+    if (o->ce.local_list)
+    {
+        for (int i = 0; i < o->ce.local_list->len; i++)
+        {
+            setenv_local_entry(es, o->ce.local_list->array[i], i+1);
+        }
     }
 
     if (!o->pull)
@@ -2203,6 +2217,7 @@ alloc_local_entry(struct connection_entry *ce, const int msglevel,
     }
 
     ALLOC_OBJ_CLEAR_GC(e, struct local_entry, gc);
+    e->proto = PROTO_NONE;
     l->array[l->len++] = e;
 
     return e;
@@ -2469,7 +2484,7 @@ options_postprocess_verify_ce(const struct options *options,
     {
         struct local_entry *le = ce->local_list->array[i];
 
-        if (proto_is_net(ce->proto)
+        if (proto_is_net(le->proto)
             && string_defined_equal(le->local, ce->remote)
             && string_defined_equal(le->port, ce->remote_port))
         {
@@ -3174,14 +3189,30 @@ options_postprocess_mutate_ce(struct options *o, struct connection_entry *ce)
         if (ce->proto == PROTO_TCP)
         {
             ce->proto = PROTO_TCP_SERVER;
+            o->ce.proto = ce->proto;
+        }
+        if (ce->local_list)
+        {
+            for (int i = 0; i < ce->local_list->len; i++)
+            {
+                if (ce->local_list->array[i]->proto == PROTO_TCP)
+                {
+                    ce->local_list->array[i]->proto = PROTO_TCP_SERVER;
+                }
+                else if (ce->local_list->array[i]->proto == PROTO_NONE)
+                {
+                    ce->local_list->array[i]->proto = ce->proto;
+                }
+            }
         }
     }
 
-    if (o->client)
+    if (o->mode != MODE_SERVER)
     {
         if (ce->proto == PROTO_TCP)
         {
             ce->proto = PROTO_TCP_CLIENT;
+            o->ce.proto = ce->proto;
         }
     }
 
@@ -3330,6 +3361,11 @@ options_postprocess_mutate_le(struct connection_entry ce, struct local_entry *le
     {
         le->port = ce.local_port;
     }
+    if (!le->proto)
+    {
+        le->proto = ce.proto;
+    }
+
 }
 
 #ifdef _WIN32
@@ -3787,12 +3823,19 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
         struct local_entry *e = alloc_local_entry(&o->ce, M_USAGE, &o->gc);
         ASSERT(e);
         e->port = o->ce.local_port;
+        e->proto = o->ce.proto;
     }
 
     /* use the same listen list for every outgoing connection */
     for (i = 0; i < o->connection_list->len; ++i)
     {
         o->connection_list->array[i]->local_list = o->ce.local_list;
+    }
+
+    if (has_tcp_in_local_list(o))
+    {
+        o->fast_io = false;
+        msg(M_INFO, "NOTE: --fast-io is disabled while using multi-socket");
     }
 
     if (o->tls_server)
@@ -6190,7 +6233,7 @@ add_option(struct options *options,
         VERIFY_PERMISSION(OPT_P_UP);
         options->ifconfig_nowarn = true;
     }
-    else if (streq(p[0], "local") && p[1] && !p[3])
+    else if (streq(p[0], "local") && p[1] && !p[4])
     {
         struct local_entry *e;
 
@@ -6210,6 +6253,11 @@ add_option(struct options *options,
         if (p[2])
         {
             e->port = p[2];
+        }
+
+        if (p[3])
+        {
+            e->proto = ascii2proto(p[3]);
         }
     }
     else if (streq(p[0], "remote-random") && !p[1])
@@ -9644,4 +9692,38 @@ add_option(struct options *options,
     }
 err:
     gc_free(&gc);
+}
+
+bool
+has_udp_in_local_list(const struct options *options)
+{
+    if (options->ce.local_list)
+    {
+        for (int i = 0; i < options->ce.local_list->len; i++)
+        {
+            if (proto_is_dgram(options->ce.local_list->array[i]->proto))
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+bool
+has_tcp_in_local_list(const struct options *options)
+{
+    if (options->ce.local_list)
+    {
+        for (int i = 0; i < options->ce.local_list->len; i++)
+        {
+            if (!proto_is_dgram(options->ce.local_list->array[i]->proto))
+            {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
