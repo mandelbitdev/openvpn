@@ -433,6 +433,7 @@ mroute_addr_print_ex(const struct mroute_addr *ma,
                 {
                     buf_printf(&out, ":%d", ntohs(maddr.v4.port));
                 }
+                buf_printf(&out, ":%d", maddr.proto);
             }
             break;
 

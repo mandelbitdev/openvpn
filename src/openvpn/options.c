@@ -1001,10 +1001,6 @@ setenv_connection_entry(struct env_set *es,
                         const struct connection_entry *e,
                         const int i)
 {
-    setenv_str_i(es, "proto", proto2ascii(e->proto, e->af, false), i);
-    /* expected to be for single socket contexts only */
-    setenv_str_i(es, "local", e->local_list->array[0]->local, i);
-    setenv_str_i(es, "local_port", e->local_list->array[0]->port, i);
     setenv_str_i(es, "remote", e->remote, i);
     setenv_str_i(es, "remote_port", e->remote_port, i);
 
@@ -3711,6 +3707,12 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
     for (i = 0; i < o->connection_list->len; ++i)
     {
         o->connection_list->array[i]->local_list = o->ce.local_list;
+    }
+
+    if (has_tcp_in_local_list(o))
+    {
+        o->fast_io = false;
+        msg(M_INFO, "NOTE: --fast-io is disabled while using multi-socket");
     }
 
     if (o->tls_server)

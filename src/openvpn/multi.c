@@ -799,6 +799,7 @@ multi_create_instance(struct multi_context *m, const struct mroute_addr *real,
         {
             goto err;
         }
+        mi->real.proto = sock->info.proto;
         generate_prefix(mi);
     }
 
@@ -3968,8 +3969,13 @@ multi_process_signal(struct multi_context *m)
              && (m->deferred_shutdown_signal.signal_received == 0)
              && m->top.options.ce.explicit_exit_notification != 0)
     {
-        multi_push_restart_schedule_exit(m, m->top.options.ce.explicit_exit_notification == 2);
-        return false;
+        if (is_exit_restart(m->top.sig->signal_received)
+            && (m->deferred_shutdown_signal.signal_received == 0)
+            && m->top.options.ce.explicit_exit_notification != 0)
+        {
+            multi_push_restart_schedule_exit(m, m->top.options.ce.explicit_exit_notification == 2);
+            return false;
+        }
     }
     return true;
 }

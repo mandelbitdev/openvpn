@@ -225,7 +225,7 @@ management_callback_proxy_cmd(void *arg, const char **p)
         if (streq(p[1], "HTTP"))
         {
             struct http_proxy_options *ho;
-            if (ce->proto != PROTO_TCP && ce->proto != PROTO_TCP_CLIENT)
+            if (ce->proto != PROTO_TCP && c->mode != CM_CHILD_TCP)
             {
                 msg(M_WARN, "HTTP proxy support only works for TCP based connections");
                 return false;
@@ -3855,7 +3855,6 @@ do_init_socket_phase1(struct context *c)
     for (int i = 0; i < c->c1.link_sockets_num; i++)
     {
         int mode = LS_MODE_DEFAULT;
-
         /* mode allows CM_CHILD_TCP
          * instances to inherit acceptable fds
          * from a top-level parent */
@@ -3872,7 +3871,6 @@ do_init_socket_phase1(struct context *c)
                 mode = LS_MODE_TCP_ACCEPT_FROM;
             }
         }
-
         /* init each socket with its specific args */
         link_socket_init_phase1(c, i, mode);
     }

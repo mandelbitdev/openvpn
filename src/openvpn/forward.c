@@ -2386,6 +2386,7 @@ io_wait_dowork(struct context *c, const unsigned int flags)
     dmsg(D_EVENT_WAIT, "I/O WAIT status=0x%04x", c->c2.event_set_status);
 }
 
+
 void
 process_io(struct context *c, struct link_socket *sock)
 {
