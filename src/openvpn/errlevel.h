@@ -159,12 +159,12 @@
 #define D_SCHEDULER          LOGLEV(8, 70, M_DEBUG)  /* show scheduler debugging info */
 #define D_GREMLIN_VERBOSE    LOGLEV(8, 70, M_DEBUG)  /* show verbose info from gremlin module */
 #define D_REL_DEBUG          LOGLEV(8, 70, M_DEBUG)  /* show detailed info from reliable routines */
-#define D_EVENT_WAIT         LOGLEV(8, 70, M_DEBUG)  /* show detailed info from event waits */
+#define D_EVENT_WAIT         LOGLEV(3, 70, M_DEBUG)  /* show detailed info from event waits */
 #define D_MULTI_TCP          LOGLEV(8, 70, M_DEBUG)  /* show debug info from mtcp.c */
 
 #define D_TLS_DEBUG          LOGLEV(9, 70, M_DEBUG)  /* show detailed info from TLS routines */
 #define D_COMP               LOGLEV(9, 70, M_DEBUG)  /* show compression info */
-#define D_READ_WRITE         LOGLEV(9, 70, M_DEBUG)  /* show all tun/tcp/udp reads/writes/opens */
+#define D_READ_WRITE         LOGLEV(3, 70, M_DEBUG)  /* show all tun/tcp/udp reads/writes/opens */
 #define D_PACKET_CONTENT     LOGLEV(9, 70, M_DEBUG)  /* show before/after encryption packet content */
 #define D_TLS_NO_SEND_KEY    LOGLEV(9, 70, M_DEBUG)  /* show when no data channel send-key exists */
 #define D_PID_PERSIST_DEBUG  LOGLEV(9, 70, M_DEBUG)  /* show packet-id persist debugging info */
