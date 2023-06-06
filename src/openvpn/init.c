@@ -3807,7 +3807,7 @@ static void
 do_init_socket_1(struct context *c)
 {
     unsigned int sockflags = c->options.sockflags;
-    int i;
+    int i, proto = c->options.ce.proto;
 
 #if PORT_SHARE
     if (c->options.port_share_host && c->options.port_share_port)
@@ -3819,7 +3819,6 @@ do_init_socket_1(struct context *c)
     for (i = 0; i < c->c1.link_sockets_num; i++)
     {
         int mode = LS_MODE_DEFAULT;
-
         /* mode allows CM_CHILD_TCP
          * instances to inherit acceptable fds
          * from a top-level parent */
@@ -3837,6 +3836,11 @@ do_init_socket_1(struct context *c)
             }
         }
 
+        if (c->options.ce.local_list)
+        {
+            proto = c->options.ce.local_list->array[i]->proto;
+        }
+
         /* init each socket with its specific port */
         link_socket_init_phase1(c->c2.link_sockets[i],
                                 c->options.ce.local_list->array[i]->local,
@@ -3844,7 +3848,7 @@ do_init_socket_1(struct context *c)
                                 c->options.ce.remote,
                                 c->options.ce.remote_port,
                                 c->c1.dns_cache,
-                                c->options.ce.proto,
+                                proto,
                                 c->options.ce.af,
                                 c->options.ce.bind_ipv6_only,
                                 mode,

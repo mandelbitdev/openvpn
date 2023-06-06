@@ -1754,7 +1754,7 @@ process_outgoing_link(struct context *c, struct link_socket *ls)
             if (c->options.shaper)
             {
                 int overhead = datagram_overhead(c->c2.to_link_addr->dest.addr.sa.sa_family,
-                                                 c->options.ce.proto);
+                                                 ls->info.proto);
                 shaper_wrote_bytes(&c->c2.shaper,
                                    BLEN(&c->c2.to_link) + overhead);
             }

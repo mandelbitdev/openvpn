@@ -320,7 +320,13 @@ multi_process_outgoing_link(struct multi_context *m, const unsigned int mpp_flag
         msg_set_prefix("Connection Attempt");
         m->top.c2.to_link = m->hmac_reply;
         m->top.c2.to_link_addr = m->hmac_reply_dest;
-        process_outgoing_link(&m->top, m->top.c2.link_sockets[0]);
+        for(int i = 0; i < m->top.c1.link_sockets_num; i++)
+        {
+            if (!proto_is_dgram(m->top.c2.link_sockets[i]->info.proto))
+                continue;
+
+            process_outgoing_link(&m->top, m->top.c2.link_sockets[i]);
+        }
         m->hmac_reply_dest = NULL;
     }
 }
