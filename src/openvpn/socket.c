@@ -1874,16 +1874,39 @@ link_socket_init_phase1(struct context *c,
                         int sock_index,
                         int mode)
 {
+    const char *host = c->options.ce.local_list->array[sock_index]->local;
+    const char *port = c->options.ce.local_list->array[sock_index]->port;
+    int proto = c->options.ce.local_list->array[sock_index]->proto;
+    bool bind_local = c->options.ce.local_list->array[sock_index]->bind_local;
+
+    if (c->mode == CM_CHILD_TCP || c->mode == CM_CHILD_UDP)
+    {
+        struct link_socket *tmp_sock = NULL;
+        if (c->mode == CM_CHILD_TCP)
+        {
+            tmp_sock = (struct link_socket *)c->c2.accept_from;
+        }
+        else if (c->mode == CM_CHILD_UDP)
+        {
+            tmp_sock = c->c2.link_sockets[0];
+        }
+
+        host = tmp_sock->local_host;
+        port = tmp_sock->local_port;
+        proto = tmp_sock->info.proto;
+        bind_local = tmp_sock->bind_local;
+    }
+
     ASSERT(c->c2.link_sockets[sock_index]);
 
-    c->c2.link_sockets[sock_index]->local_host = c->options.ce.local_list->array[sock_index]->local;
-    c->c2.link_sockets[sock_index]->local_port = c->options.ce.local_list->array[sock_index]->port;
+    c->c2.link_sockets[sock_index]->local_host = host;
+    c->c2.link_sockets[sock_index]->local_port = port;
     c->c2.link_sockets[sock_index]->remote_host = c->options.ce.remote;
     c->c2.link_sockets[sock_index]->remote_port = c->options.ce.remote_port;
     c->c2.link_sockets[sock_index]->dns_cache = c->c1.dns_cache;
     c->c2.link_sockets[sock_index]->http_proxy = c->c1.http_proxy;
     c->c2.link_sockets[sock_index]->socks_proxy = c->c1.socks_proxy;
-    c->c2.link_sockets[sock_index]->bind_local = c->options.ce.local_list->array[sock_index]->bind_local;
+    c->c2.link_sockets[sock_index]->bind_local = bind_local;
     c->c2.link_sockets[sock_index]->resolve_retry_seconds = c->options.resolve_retry_seconds;
     c->c2.link_sockets[sock_index]->mtu_discover_type = c->options.ce.mtu_discover_type;
 
@@ -1905,7 +1928,7 @@ link_socket_init_phase1(struct context *c,
 
     c->c2.link_sockets[sock_index]->mark = c->options.mark;
 
-    c->c2.link_sockets[sock_index]->info.proto = c->options.ce.proto;
+    c->c2.link_sockets[sock_index]->info.proto = proto;
     c->c2.link_sockets[sock_index]->info.af = c->options.ce.af;
     c->c2.link_sockets[sock_index]->info.remote_float = c->options.ce.remote_float;
     c->c2.link_sockets[sock_index]->info.lsa = &c->c1.link_socket_addrs[sock_index];
