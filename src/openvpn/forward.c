@@ -1754,7 +1754,7 @@ process_outgoing_link(struct context *c, struct link_socket *ls)
             if (c->options.shaper)
             {
                 int overhead = datagram_overhead(c->c2.to_link_addr->dest.addr.sa.sa_family,
-                                                 c->options.ce.proto);
+                                                 ls->info.proto);
                 shaper_wrote_bytes(&c->c2.shaper,
                                    BLEN(&c->c2.to_link) + overhead);
             }
@@ -2044,6 +2044,250 @@ pre_select(struct context *c)
  */
 
 void
+io_wait_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int flags)
+{
+    unsigned int socket = 0;
+    unsigned int tuntap = 0;
+    struct event_set_return esr[4];
+
+    /* These shifts all depend on EVENT_READ and EVENT_WRITE */
+    static uintptr_t socket_shift = 0;   /* depends on SOCKET_READ and SOCKET_WRITE */
+    static uintptr_t tun_shift = 2;      /* depends on TUN_READ and TUN_WRITE */
+    static uintptr_t err_shift = 4;      /* depends on ES_ERROR */
+#ifdef ENABLE_MANAGEMENT
+    static uintptr_t management_shift = 6; /* depends on MANAGEMENT_READ and MANAGEMENT_WRITE */
+#endif
+#ifdef ENABLE_ASYNC_PUSH
+    static int file_shift = FILE_SHIFT;
+#endif
+#if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
+    static int dco_shift = DCO_SHIFT;    /* Event from DCO linux kernel module */
+#endif
+    int i;
+
+    /*
+     * Decide what kind of events we want to wait for.
+     */
+    /*c->c2.event_set = mtcp->es; */
+    /*event_reset(mtcp->es); */
+    /*event_reset(c->c2.event_set); */
+
+    /*
+     * On win32 we use the keyboard or an event object as a source
+     * of asynchronous signals.
+     */
+    if (flags & IOW_WAIT_SIGNAL)
+    {
+        wait_signal(mtcp->es, (void *)err_shift);
+    }
+
+    /*
+     * If outgoing data (for TCP/UDP port) pending, wait for ready-to-send
+     * status from TCP/UDP port. Otherwise, wait for incoming data on
+     * TUN/TAP device.
+     */
+    if (flags & IOW_TO_LINK)
+    {
+        if (flags & IOW_SHAPER)
+        {
+            /*
+             * If sending this packet would put us over our traffic shaping
+             * quota, don't send -- instead compute the delay we must wait
+             * until it will be OK to send the packet.
+             */
+            int delay = 0;
+
+            /* set traffic shaping delay in microseconds */
+            if (c->options.shaper)
+            {
+                delay = max_int(delay, shaper_delay(&c->c2.shaper));
+            }
+
+            if (delay < 1000)
+            {
+                socket |= EVENT_WRITE;
+            }
+            else
+            {
+                shaper_soonest_event(&c->c2.timeval, delay);
+            }
+        }
+        else
+        {
+            socket |= EVENT_WRITE;
+        }
+    }
+    else if (!((flags & IOW_FRAG) && TO_LINK_FRAG(c)))
+    {
+        if (flags & IOW_READ_TUN)
+        {
+            tuntap |= EVENT_READ;
+        }
+    }
+
+    /*
+     * If outgoing data (for TUN/TAP device) pending, wait for ready-to-send status
+     * from device.  Otherwise, wait for incoming data on TCP/UDP port.
+     */
+    if (flags & IOW_TO_TUN)
+    {
+        tuntap |= EVENT_WRITE;
+    }
+    else
+    {
+        if (flags & IOW_READ_LINK)
+        {
+            socket |= EVENT_READ;
+        }
+    }
+
+    /*
+     * outgoing bcast buffer waiting to be sent?
+     */
+    if (flags & IOW_MBUF)
+    {
+        socket |= EVENT_WRITE;
+    }
+
+    /*
+     * Force wait on TUN input, even if also waiting on TCP/UDP output
+     */
+    if (flags & IOW_READ_TUN_FORCE)
+    {
+        tuntap |= EVENT_READ;
+    }
+
+#ifdef _WIN32
+    if (tuntap_is_wintun(c->c1.tuntap))
+    {
+        /*
+         * With wintun we are only interested in read event. Ring buffer is
+         * always ready for write, so we don't do wait.
+         */
+        tuntap = EVENT_READ;
+    }
+#endif
+
+    /*
+     * Configure event wait based on socket, tuntap flags.
+     */
+    for (i = 0; i < c->c1.link_sockets_num; i++)
+    {
+        socket_set(c->c2.link_sockets[i], mtcp->es, socket,
+                   &c->c2.link_sockets[i]->ev_arg, NULL);
+    }
+    tun_set(c->c1.tuntap, c->c2.event_set, tuntap, (void *)tun_shift, NULL);
+#if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
+    if (socket & EVENT_READ && c->c2.did_open_tun)
+    {
+        dco_event_set(&c->c1.tuntap->dco, mtcp->es, (void *)&dco_shift);
+    }
+#endif
+
+#ifdef ENABLE_MANAGEMENT
+    if (management)
+    {
+        management_socket_set(management, mtcp->es, (void *)management_shift, NULL);
+    }
+#endif
+
+#ifdef ENABLE_ASYNC_PUSH
+    /* arm inotify watcher */
+    if (c->options.mode == MODE_SERVER)
+    {
+        event_ctl(mtcp->es, c->c2.inotify_fd, EVENT_READ, (void *)&file_shift);
+    }
+#endif
+
+    /*
+     * Possible scenarios:
+     *  (1) tcp/udp port has data available to read
+     *  (2) tcp/udp port is ready to accept more data to write
+     *  (3) tun dev has data available to read
+     *  (4) tun dev is ready to accept more data to write
+     *  (5) we received a signal (handler sets signal_received)
+     *  (6) timeout (tv) expired
+     */
+
+    mtcp->event_set_status = ES_ERROR;
+
+    if (!c->sig->signal_received)
+    {
+        if (!(flags & IOW_CHECK_RESIDUAL) || !sockets_read_residual(c))
+        {
+            int status;
+
+#ifdef ENABLE_DEBUG
+            if (check_debug_level(D_EVENT_WAIT))
+            {
+                show_wait_status(c);
+            }
+#endif
+
+            /*
+             * Wait for something to happen.
+             */
+            status = event_wait(mtcp->es, &c->c2.timeval, esr, SIZE(esr));
+
+            check_status(status, "event_wait", NULL, NULL);
+
+            if (status > 0)
+            {
+                int i;
+                mtcp->event_set_status = 0;
+                for (i = 0; i < status; ++i)
+                {
+                    const struct event_set_return *e = &esr[i];
+                    uintptr_t shift;
+
+                    if (e->arg >= MULTI_N)
+                    {
+                        struct event_arg *ev_arg = (struct event_arg *)e->arg;
+                        if (ev_arg->type != EVENT_ARG_LINK_SOCKET)
+                        {
+                            mtcp->event_set_status = ES_ERROR;
+                            msg(D_LINK_ERRORS,
+                                "io_work: non socket event delivered");
+                            return;
+                        }
+
+                        shift = socket_shift;
+                        /* mark socket so that the multi code knows where we
+                         * have pending i/o */
+                        ev_arg->pending = true;
+                    }
+                    else
+                    {
+                        shift = (uintptr_t)e->arg;
+                    }
+
+                    mtcp->event_set_status |= ((e->rwflags & 3) << shift);
+                }
+            }
+            else if (status == 0)
+            {
+                mtcp->event_set_status = ES_TIMEOUT;
+            }
+        }
+        else
+        {
+            mtcp->event_set_status = SOCKET_READ;
+        }
+    }
+
+    /* 'now' should always be a reasonably up-to-date timestamp */
+    update_time();
+
+    /* set signal_received if a signal was received */
+    if (mtcp->event_set_status & ES_ERROR)
+    {
+        get_signal(&c->sig->signal_received);
+    }
+
+    dmsg(D_EVENT_WAIT, "I/O WAIT status=0x%04x", mtcp->event_set_status);
+}
+
+void
 io_wait_dowork(struct context *c, const unsigned int flags)
 {
     unsigned int socket = 0;
@@ -2284,6 +2528,7 @@ io_wait_dowork(struct context *c, const unsigned int flags)
 
     dmsg(D_EVENT_WAIT, "I/O WAIT status=0x%04x", c->c2.event_set_status);
 }
+
 
 void
 process_io(struct context *c, struct link_socket *ls)
