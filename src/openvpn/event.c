@@ -545,7 +545,8 @@ ep_free(struct event_set *es)
 static void
 ep_reset(struct event_set *es)
 {
-    const struct ep_set *eps = (struct ep_set *) es;
+    struct ep_set *eps = (struct ep_set *) es;
+    eps->fast = true;
     ASSERT(eps->fast);
 }
 

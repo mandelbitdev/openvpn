@@ -3807,18 +3807,9 @@ static void
 do_init_socket_1(struct context *c)
 {
     unsigned int sockflags = c->options.sockflags;
-    int i, proto = c->options.ce.proto;
+    int i;
 
-#if PORT_SHARE
-    if (c->options.port_share_host && c->options.port_share_port)
-    {
-        sockflags |= SF_PORT_SHARE;
-    }
-#endif
-
-    for (i = 0; i < c->c1.link_sockets_num; i++)
-    {
-        int mode = LS_MODE_DEFAULT;
+    int mode = LS_MODE_DEFAULT;
         /* mode allows CM_CHILD_TCP
          * instances to inherit acceptable fds
          * from a top-level parent */
@@ -3836,15 +3827,42 @@ do_init_socket_1(struct context *c)
             }
         }
 
-        if (c->options.ce.local_list)
+#if PORT_SHARE
+    if (c->options.port_share_host && c->options.port_share_port)
+    {
+        sockflags |= SF_PORT_SHARE;
+    }
+#endif
+
+    for (i = 0; i < c->c1.link_sockets_num; i++)
+    {
+        const char *host = c->options.ce.local_list->array[i]->local;
+        const char *port = c->options.ce.local_list->array[i]->port;
+        int proto = c->options.ce.local_list->array[i]->proto;
+        bool bind_local = c->options.ce.local_list->array[i]->bind_local;
+
+        if (c->mode == CM_CHILD_TCP || c->mode == CM_CHILD_UDP)
         {
-            proto = c->options.ce.local_list->array[i]->proto;
+            struct link_socket *ls = NULL;
+            if (c->mode == CM_CHILD_TCP)
+            {
+                ls = c->c2.accept_from;
+            }
+            else if (c->mode == CM_CHILD_UDP)
+            {
+                ls = c->c2.link_sockets[0];
+            }
+
+            host = ls->local_host;
+            port = ls->local_port;
+            proto = ls->info.proto;
+            bind_local = ls->bind_local;
         }
 
         /* init each socket with its specific port */
         link_socket_init_phase1(c->c2.link_sockets[i],
-                                c->options.ce.local_list->array[i]->local,
-                                c->options.ce.local_list->array[i]->port,
+                                host,
+                                port,
                                 c->options.ce.remote,
                                 c->options.ce.remote_port,
                                 c->c1.dns_cache,
@@ -3858,7 +3876,7 @@ do_init_socket_1(struct context *c)
 #ifdef ENABLE_DEBUG
                                 c->options.gremlin,
 #endif
-                                c->options.ce.local_list->array[i]->bind_local,
+                                bind_local,
                                 c->options.ce.remote_float,
                                 &c->c1.link_socket_addrs[i],
                                 c->options.ipchange,
@@ -4672,7 +4690,7 @@ init_instance(struct context *c, const struct env_set *env, const unsigned int f
     }
 
     /* our wait-for-i/o objects, different for posix vs. win32 */
-    if (c->mode == CM_P2P)
+    if (c->mode == CM_P2P || c->mode == CM_TOP)
     {
         do_event_set_init(c, SHAPER_DEFINED(&c->options));
     }
@@ -4938,7 +4956,7 @@ inherit_context_child(struct context *dest,
     CLEAR(*dest);
 
     /* proto_is_dgram will ASSERT(0) if proto is invalid */
-    dest->mode = proto_is_dgram(src->options.ce.proto) ? CM_CHILD_UDP : CM_CHILD_TCP;
+    dest->mode = proto_is_dgram(ls->info.proto) ? CM_CHILD_UDP : CM_CHILD_TCP;
 
     dest->gc = gc_new();
 
@@ -4966,6 +4984,8 @@ inherit_context_child(struct context *dest,
     dest->options = src->options;
     options_detach(&dest->options);
 
+    dest->c2.event_set = src->c2.event_set;
+    
     if (dest->mode == CM_CHILD_TCP)
     {
         /*

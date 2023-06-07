@@ -39,21 +39,6 @@
 #endif
 
 /*
- * TCP States
- */
-#define TA_UNDEF                 0
-#define TA_SOCKET_READ           1
-#define TA_SOCKET_READ_RESIDUAL  2
-#define TA_SOCKET_WRITE          3
-#define TA_SOCKET_WRITE_READY    4
-#define TA_SOCKET_WRITE_DEFERRED 5
-#define TA_TUN_READ              6
-#define TA_TUN_WRITE             7
-#define TA_INITIAL               8
-#define TA_TIMEOUT               9
-#define TA_TUN_WRITE_TIMEOUT     10
-
-/*
  * Special tags passed to event.[ch] functions
  */
 #define MTCP_SOCKET      ((void *)1)
@@ -261,8 +246,8 @@ multi_tcp_set_global_rw_flags(struct multi_context *m, struct multi_instance *mi
     }
 }
 
-static inline int
-multi_tcp_wait(const struct context *c,
+int
+multi_tcp_wait(struct context *c,
                struct multi_tcp *mtcp)
 {
     int status, i;
@@ -605,7 +590,7 @@ multi_tcp_post(struct multi_context *m, struct multi_instance *mi, const int act
     return newaction;
 }
 
-static void
+void
 multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action, bool poll)
 {
     bool tun_input_pending = false;
@@ -693,11 +678,12 @@ multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action,
     } while (action != TA_UNDEF);
 }
 
-static void
-multi_tcp_process_io(struct multi_context *m)
+void
+multi_tcp_process_io(struct multi_context *m, bool is_dgram)
 {
     struct multi_tcp *mtcp = m->mtcp;
     int i;
+    bool floated = false;
 
     for (i = 0; i < mtcp->n_esr; ++i)
     {
@@ -736,14 +722,44 @@ multi_tcp_process_io(struct multi_context *m)
                         msg(D_MULTI_ERRORS, "MULTI: mtcp_proc_io: null socket");
                         break;
                     }
-
                     socket_reset_listen_persistent(ev_arg->u.ls);
-                    mi = multi_create_instance_tcp(m, ev_arg->u.ls);
-                    if (mi)
+                    if (!proto_is_dgram(ev_arg->u.ls->info.proto))
                     {
-                        multi_tcp_action(m, mi, TA_INITIAL, false);
+                        is_dgram = false;
+                        mi = multi_create_instance_tcp(m, ev_arg->u.ls);
+                        if (mi)
+                        {
+                            multi_tcp_action(m, mi, TA_INITIAL, false);
+                        }
+                        break;
                     }
-                    break;
+                    else
+                    {
+                        is_dgram = true;
+                        ev_arg->pending = true;
+                        read_incoming_link(&m->top, ev_arg->u.ls);
+                        
+                            multi_get_timeout(m, &m->top.c2.timeval);
+                            io_wait_udp(&m->top, m->mtcp, p2mp_iow_flags(m));
+                            multi_set_pending(m, multi_get_create_instance_udp(m, &floated, ev_arg->u.ls));
+                            MULTI_CHECK_SIG(m);
+
+                            multi_process_per_second_timers(m);
+
+                            if (m->mtcp->event_set_status == ES_TIMEOUT)
+                            {
+                                multi_process_timeout(m, MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
+                                ev_arg->pending = false;
+                                is_dgram = false;
+                            }
+                            else
+                            {
+                                multi_process_io_udp(m);
+                                MULTI_CHECK_SIG(m);
+                            }
+                            
+                        break;
+                    }
             }
         }
         else
@@ -769,7 +785,7 @@ multi_tcp_process_io(struct multi_context *m)
                 }
             }
             /* new incoming TCP client attempting to connect? */
-            else if (e->arg == MTCP_SOCKET)
+            /*else if (e->arg == MTCP_SOCKET)
             {
                 struct multi_instance *mi;
                 ASSERT(m->top.c2.link_sockets[0]);
@@ -779,7 +795,7 @@ multi_tcp_process_io(struct multi_context *m)
                 {
                     multi_tcp_action(m, mi, TA_INITIAL, false);
                 }
-            }
+            }*/
 #if defined(ENABLE_DCO) && (defined(TARGET_LINUX) || defined(TARGET_FREEBSD))
             /* incoming data on DCO? */
             else if (e->arg == MTCP_DCO)
@@ -839,7 +855,7 @@ tunnel_server_tcp(struct context *top)
     }
 
     /* initialize global multi_context object */
-    multi_init(&multi, top, true);
+    multi_init(&multi, top);
 
     /* initialize our cloned top object */
     multi_top_init(&multi, top);
@@ -875,7 +891,7 @@ tunnel_server_tcp(struct context *top)
         if (status > 0)
         {
             /* process the I/O which triggered select */
-            multi_tcp_process_io(&multi);
+            //multi_tcp_process_io(&multi);
             MULTI_CHECK_SIG(&multi);
         }
         else if (status == 0)
