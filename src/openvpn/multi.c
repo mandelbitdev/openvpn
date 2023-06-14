@@ -778,7 +778,7 @@ multi_create_instance(struct multi_context *m, const struct mroute_addr *real,
         mi->real = *real;
         generate_prefix(mi);
     }
-
+    mi->real.proto = ls->info.proto;
     mi->did_open_context = true;
     inherit_context_child(&mi->context, &m->top, ls);
     if (IS_SIG(&mi->context))
@@ -800,6 +800,7 @@ multi_create_instance(struct multi_context *m, const struct mroute_addr *real,
         {
             goto err;
         }
+        mi->real.proto = ls->info.proto;
         generate_prefix(mi);
     }
 
