@@ -206,6 +206,8 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
         bool v2 = (op == P_DATA_V2) && (m->top.c2.buf.len >= (1 + 3));
         bool peer_id_disabled = false;
 
+        printf("\nGoing to add: %s\n", mroute_addr_print(&real, &gc));
+
         /* make sure buffer has enough length to read opcode (1 byte) and peer-id (3 bytes) */
         if (v2)
         {
@@ -285,6 +287,21 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
                 }
             }
             free_tls_pre_decrypt_state(&state);
+        }
+
+        struct hash_iterator hi;
+        struct hash_element *he2;
+
+        hash_iterator_init_range(hash, &hi, 0, hash_n_buckets(hash));
+
+        printf("\nnum clients: %d\n", hash_n_elements(hash));
+
+        while ((he2 = hash_iterator_next(&hi)) != NULL)
+        {
+            int counter = 0;
+            struct multi_route *r = (struct multi_route *) he2->value;
+            printf("\nClient: %s num: %d\n", mroute_addr_print(&r->addr, &gc), counter);
+            counter++;
         }
 
 #ifdef ENABLE_DEBUG

@@ -631,6 +631,21 @@ multi_close_instance(struct multi_context *m,
     {
         if (mi->did_real_hash)
         {
+            printf("\nTrying to remove: %s\n", mroute_addr_print(&mi->real, &mi->gc));
+
+            struct hash_iterator hi;
+            struct hash_element *he2;
+
+            hash_iterator_init_range(m->hash, &hi, 0, hash_n_buckets(m->hash));
+
+            while ((he2 = hash_iterator_next(&hi)) != NULL)
+            {
+                int counter = 0;
+                struct mroute_addr *r = (struct mroute_addr *) he2->value;
+                printf("\nClient: %s num: %d\n", mroute_addr_print(r, &m->top.c2.gc), counter);
+                counter++;
+            }
+
             ASSERT(hash_remove(m->hash, &mi->real));
         }
         if (mi->did_iter)
@@ -4161,7 +4176,7 @@ multi_assign_peer_id(struct multi_context *m, struct multi_instance *mi)
 void tunnel_server_loop(struct multi_context *multi)
 {
     int status;
-    bool is_dgram = false;
+    bool is_dgram;
 
     while (true)
     {
@@ -4184,7 +4199,7 @@ void tunnel_server_loop(struct multi_context *multi)
         }
         else if (status == 0 && !is_dgram)
         {
-            multi_tcp_action(multi, NULL, TA_TIMEOUT, false);
+            multi_tcp_action(multi, NULL, TA_TIMEOUT, false, is_dgram);
         }
 
         perf_pop();

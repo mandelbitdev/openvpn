@@ -591,7 +591,7 @@ multi_tcp_post(struct multi_context *m, struct multi_instance *mi, const int act
 }
 
 void
-multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action, bool poll)
+multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action, bool poll, bool is_dgram)
 {
     bool tun_input_pending = false;
 
@@ -675,7 +675,7 @@ multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action,
             poll = true;
         }
 
-    } while (action != TA_UNDEF);
+    } while (action != TA_UNDEF && !is_dgram);
 }
 
 void
@@ -683,7 +683,6 @@ multi_tcp_process_io(struct multi_context *m, bool is_dgram)
 {
     struct multi_tcp *mtcp = m->mtcp;
     int i;
-    bool floated = false;
 
     for (i = 0; i < mtcp->n_esr; ++i)
     {
@@ -708,11 +707,11 @@ multi_tcp_process_io(struct multi_context *m, bool is_dgram)
                     mi = ev_arg->u.mi;
                     if (e->rwflags & EVENT_WRITE)
                     {
-                        multi_tcp_action(m, mi, TA_SOCKET_WRITE_READY, false);
+                        multi_tcp_action(m, mi, TA_SOCKET_WRITE_READY, false, is_dgram);
                     }
                     else if (e->rwflags & EVENT_READ)
                     {
-                        multi_tcp_action(m, mi, TA_SOCKET_READ, false);
+                        multi_tcp_action(m, mi, TA_SOCKET_READ, false, is_dgram);
                     }
                     break;
                 /* new incoming TCP client attempting to connect? */
@@ -729,19 +728,17 @@ multi_tcp_process_io(struct multi_context *m, bool is_dgram)
                         mi = multi_create_instance_tcp(m, ev_arg->u.ls);
                         if (mi)
                         {
-                            multi_tcp_action(m, mi, TA_INITIAL, false);
+                            multi_tcp_action(m, mi, TA_INITIAL, false, is_dgram);
                         }
                         break;
                     }
                     else
                     {
                         is_dgram = true;
-                        ev_arg->pending = true;
                         read_incoming_link(&m->top, ev_arg->u.ls);
                         
                             multi_get_timeout(m, &m->top.c2.timeval);
                             io_wait_udp(&m->top, m->mtcp, p2mp_iow_flags(m));
-                            multi_set_pending(m, multi_get_create_instance_udp(m, &floated, ev_arg->u.ls));
                             MULTI_CHECK_SIG(m);
 
                             multi_process_per_second_timers(m);
@@ -749,8 +746,6 @@ multi_tcp_process_io(struct multi_context *m, bool is_dgram)
                             if (m->mtcp->event_set_status == ES_TIMEOUT)
                             {
                                 multi_process_timeout(m, MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
-                                ev_arg->pending = false;
-                                is_dgram = false;
                             }
                             else
                             {
@@ -777,11 +772,11 @@ multi_tcp_process_io(struct multi_context *m, bool is_dgram)
             {
                 if (e->rwflags & EVENT_WRITE)
                 {
-                    multi_tcp_action(m, NULL, TA_TUN_WRITE, false);
+                    multi_tcp_action(m, NULL, TA_TUN_WRITE, false, is_dgram);
                 }
                 else if (e->rwflags & EVENT_READ)
                 {
-                    multi_tcp_action(m, NULL, TA_TUN_READ, false);
+                    multi_tcp_action(m, NULL, TA_TUN_READ, false, is_dgram);
                 }
             }
             /* new incoming TCP client attempting to connect? */
@@ -829,7 +824,7 @@ multi_tcp_process_io(struct multi_context *m, bool is_dgram)
         struct multi_instance *mi;
         while (!IS_SIG(&m->top) && (mi = mbuf_peek(m->mbuf)) != NULL)
         {
-            multi_tcp_action(m, mi, TA_SOCKET_WRITE, true);
+            multi_tcp_action(m, mi, TA_SOCKET_WRITE, true, is_dgram);
         }
     }
 }
@@ -896,7 +891,7 @@ tunnel_server_tcp(struct context *top)
         }
         else if (status == 0)
         {
-            multi_tcp_action(&multi, NULL, TA_TIMEOUT, false);
+            //multi_tcp_action(&multi, NULL, TA_TIMEOUT, false);
         }
 
         perf_pop();

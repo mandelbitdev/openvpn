@@ -78,7 +78,7 @@ int multi_tcp_wait(struct context *c, struct multi_tcp *mtcp);
 
 void multi_tcp_process_io(struct multi_context *m, bool is_dgram);
 
-void multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action, bool poll);
+void multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action, bool poll, bool is_dgram);
 
 
 void multi_tcp_link_out_deferred(struct multi_context *m, struct multi_instance *mi);
