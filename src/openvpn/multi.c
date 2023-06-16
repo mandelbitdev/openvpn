@@ -641,8 +641,8 @@ multi_close_instance(struct multi_context *m,
             while ((he2 = hash_iterator_next(&hi)) != NULL)
             {
                 int counter = 0;
-                struct mroute_addr *r = (struct mroute_addr *) he2->value;
-                printf("\nClient: %s num: %d\n", mroute_addr_print(r, &m->top.c2.gc), counter);
+                struct multi_instance *mi = (struct multi_instance *) he2->value;
+                printf("\nClient: %s num: %d\n", mroute_addr_print(&mi->real, &m->top.c2.gc), counter);
                 counter++;
             }
 
@@ -793,7 +793,6 @@ multi_create_instance(struct multi_context *m, const struct mroute_addr *real,
         mi->real = *real;
         generate_prefix(mi);
     }
-    mi->real.proto = ls->info.proto;
     mi->did_open_context = true;
     inherit_context_child(&mi->context, &m->top, ls);
     if (IS_SIG(&mi->context))

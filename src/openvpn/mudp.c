@@ -194,10 +194,13 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
     struct mroute_addr real;
     struct multi_instance *mi = NULL;
     struct hash *hash = m->hash;
+    real.proto = ls->info.proto;
 
     if (mroute_extract_openvpn_sockaddr(&real, &m->top.c2.from.dest, true)
         && m->top.c2.buf.len > 0)
     {
+        printf("\nUDP add!\n");
+        //real.proto = ls->info.proto;
         struct hash_element *he;
         const uint32_t hv = hash_value(hash, &real);
         struct hash_bucket *bucket = hash_bucket(hash, hv);
@@ -205,8 +208,6 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
         uint8_t op = ptr[0] >> P_OPCODE_SHIFT;
         bool v2 = (op == P_DATA_V2) && (m->top.c2.buf.len >= (1 + 3));
         bool peer_id_disabled = false;
-
-        printf("\nGoing to add: %s\n", mroute_addr_print(&real, &gc));
 
         /* make sure buffer has enough length to read opcode (1 byte) and peer-id (3 bytes) */
         if (v2)
@@ -241,6 +242,7 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
         /* we have no existing multi instance for this connection */
         if (!mi)
         {
+            printf("\nGoing to add: %s\n", mroute_addr_print(&real, &gc));
             struct tls_pre_decrypt_state state = {0};
             if (m->deferred_shutdown_signal.signal_received)
             {
@@ -299,8 +301,8 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
         while ((he2 = hash_iterator_next(&hi)) != NULL)
         {
             int counter = 0;
-            struct multi_route *r = (struct multi_route *) he2->value;
-            printf("\nClient: %s num: %d\n", mroute_addr_print(&r->addr, &gc), counter);
+            struct multi_instance *r = (struct multi_instance *) he2->value;
+            printf("\nClient: %s num: %d\n", mroute_addr_print(&r->real, &gc), counter);
             counter++;
         }
 

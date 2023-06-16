@@ -109,8 +109,9 @@ multi_create_instance_tcp(struct multi_context *m, struct link_socket *ls)
     struct hash *hash = m->hash;
 
     mi = multi_create_instance(m, NULL, ls);
-    if (mi)
+    if (mi && !proto_is_dgram(ls->info.proto))
     {
+        printf("\nTCP add\n");
         struct hash_element *he;
         const uint32_t hv = hash_value(hash, &mi->real);
         struct hash_bucket *bucket = hash_bucket(hash, hv);
@@ -681,7 +682,11 @@ multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action,
 void
 multi_tcp_process_io(struct multi_context *m, bool is_dgram)
 {
+    const unsigned int mpp_flags = m->top.c2.fast_io
+                                   ? (MPP_CONDITIONAL_PRE_SELECT | MPP_CLOSE_ON_SIGNAL)
+                                   : (MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
     struct multi_tcp *mtcp = m->mtcp;
+    const unsigned int status = mtcp->event_set_status;
     int i;
 
     for (i = 0; i < mtcp->n_esr; ++i)
@@ -735,7 +740,13 @@ multi_tcp_process_io(struct multi_context *m, bool is_dgram)
                     else
                     {
                         is_dgram = true;
+                        
                         read_incoming_link(&m->top, ev_arg->u.ls);
+                        if (!IS_SIG(&m->top))
+                        {
+                            multi_process_incoming_link(m, NULL, mpp_flags,
+                                                        ev_arg->u.ls);
+                        }
                         
                             multi_get_timeout(m, &m->top.c2.timeval);
                             io_wait_udp(&m->top, m->mtcp, p2mp_iow_flags(m));
