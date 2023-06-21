@@ -74,11 +74,11 @@ bool multi_tcp_instance_specific_init(struct multi_context *m, struct multi_inst
 
 void multi_tcp_instance_specific_free(struct multi_instance *mi);
 
-int multi_tcp_wait(struct context *c, struct multi_tcp *mtcp);
+int multi_tcp_wait(struct context *c, struct multi_tcp *mtcp, const unsigned int flags, int proto);
 
-void multi_tcp_process_io(struct multi_context *m, bool is_dgram);
+void multi_tcp_process_io(struct multi_context *m);
 
-void multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action, bool poll, bool is_dgram);
+void multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action, bool poll);
 
 
 void multi_tcp_link_out_deferred(struct multi_context *m, struct multi_instance *mi);

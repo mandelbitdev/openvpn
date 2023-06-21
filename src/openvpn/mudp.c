@@ -339,13 +339,16 @@ multi_process_outgoing_link(struct multi_context *m, const unsigned int mpp_flag
         msg_set_prefix("Connection Attempt");
         m->top.c2.to_link = m->hmac_reply;
         m->top.c2.to_link_addr = m->hmac_reply_dest;
-        for(int i = 0; i < m->top.c1.link_sockets_num; i++)
-        {
-            if (!proto_is_dgram(m->top.c2.link_sockets[i]->info.proto))
-                continue;
+        
+        process_outgoing_link(&m->top, m->top.c2.link_sockets[0]);
+        
+        //for(int i = 0; i < m->top.c1.link_sockets_num; i++)
+        //{
+            //if (!proto_is_dgram(m->top.c2.link_sockets[i]->info.proto))
+                //continue;
 
-            process_outgoing_link(&m->top, m->top.c2.link_sockets[i]);
-        }
+            //process_outgoing_link(&m->top, m->top.c2.link_sockets[0]);
+        //}
         m->hmac_reply_dest = NULL;
     }
 }
@@ -397,8 +400,6 @@ void
 multi_process_io_udp(struct multi_context *m)
 {
     const unsigned int status = m->mtcp->event_set_status;
-    //p2mp_iow_flags(m);
-    //m->top.c2.event_set_status;
     const unsigned int mpp_flags = m->top.c2.fast_io
                                    ? (MPP_CONDITIONAL_PRE_SELECT | MPP_CLOSE_ON_SIGNAL)
                                    : (MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
@@ -463,6 +464,14 @@ multi_process_io_udp(struct multi_context *m)
                                             m->top.c2.link_sockets[i]);
             }
         }
+
+        /*read_incoming_link(&m->top, m->top.c2.link_sockets[0]);
+
+        if (!IS_SIG(&m->top))
+        {
+            multi_process_incoming_link(m, NULL, mpp_flags,
+                                        m->top.c2.link_sockets[0]);
+        }*/
     }
     /* Incoming data on TUN device */
     else if (status & TUN_READ)

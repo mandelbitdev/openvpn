@@ -607,6 +607,8 @@ multi_close_instance(struct multi_context *m,
 {
     perf_push(PERF_MULTI_CLOSE_INSTANCE);
 
+    printf("\n\nClosing instance for %s!\n\n", mroute_addr_print(&mi->real, &mi->gc));
+
     ASSERT(!mi->halt);
     mi->halt = true;
 
@@ -1403,6 +1405,7 @@ multi_delete_dup(struct multi_context *m, struct multi_instance *new_mi)
                 if (mi != new_mi && !mi->halt)
                 {
                     const char *cn = tls_common_name(mi->context.c2.tls_multi, true);
+                    //if (cn && !strcmp(cn, new_cn) && !proto_is_dgram(mi->real.proto))
                     if (cn && !strcmp(cn, new_cn))
                     {
                         mi->did_iter = false;
@@ -3369,7 +3372,10 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
 #ifdef MULTI_DEBUG_EVENT_LOOP
         printf("TCP/UDP -> TUN [%d]\n", BLEN(&m->top.c2.buf));
 #endif
+    //printf("\nMain socket: %p\n", m->top.c2.link_sockets[0]);
         multi_set_pending(m, multi_get_create_instance_udp(m, &floated, ls));
+        //mi = multi_get_create_instance_udp(m, &floated, ls);
+        //multi_set_pending(m, mi);
     }
     else
     {
@@ -3378,6 +3384,7 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
 
     if (m->pending)
     {
+        printf("\nmi: %p, ls: %p\n", m->pending, m->pending->context.c2.link_sockets[0]);
         set_prefix(m->pending);
 
         /* get instance context */
@@ -4174,8 +4181,7 @@ multi_assign_peer_id(struct multi_context *m, struct multi_instance *mi)
 
 void tunnel_server_loop(struct multi_context *multi)
 {
-    int status;
-    bool is_dgram;
+    int status, proto = 0;
 
     while (true)
     {
@@ -4183,22 +4189,28 @@ void tunnel_server_loop(struct multi_context *multi)
 
         /* wait on tun/socket list */
         multi_get_timeout(multi, &multi->top.c2.timeval);
-        status = multi_tcp_wait(&multi->top, multi->mtcp);
+        status = multi_tcp_wait(&multi->top, multi->mtcp, p2mp_iow_flags(multi), proto);
         MULTI_CHECK_SIG(multi);
 
         /* check on status of coarse timers */
         multi_process_per_second_timers(multi);
 
-        /* timeout? */
-        if (status > 0)
+        /* process the I/O which triggered select based on relative protocol */
+        if (status > 0 && !proto_is_dgram(proto))
         {
-            /* process the I/O which triggered select */
-            multi_tcp_process_io(multi, is_dgram);
-            MULTI_CHECK_SIG(multi);
+            multi_tcp_process_io(multi);
         }
-        else if (status == 0 && !is_dgram)
+        else if (status > 0 && proto_is_dgram(proto))
         {
-            multi_tcp_action(multi, NULL, TA_TIMEOUT, false, is_dgram);
+            multi_process_io_udp(multi);
+        }
+        else if (status == 0 && !proto_is_dgram(proto))
+        {
+            multi_tcp_action(multi, NULL, TA_TIMEOUT, false);
+        }
+        else if (multi->mtcp->event_set_status == ES_TIMEOUT && proto_is_dgram(proto))
+        {
+            multi_process_timeout(multi, MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
         }
 
         perf_pop();

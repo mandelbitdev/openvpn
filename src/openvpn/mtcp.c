@@ -249,7 +249,7 @@ multi_tcp_set_global_rw_flags(struct multi_context *m, struct multi_instance *mi
 
 int
 multi_tcp_wait(struct context *c,
-               struct multi_tcp *mtcp)
+               struct multi_tcp *mtcp, const unsigned int flags, int proto)
 {
     int status, i;
 
@@ -274,7 +274,7 @@ multi_tcp_wait(struct context *c,
     }
 #endif
 
-    tun_set(c->c1.tuntap, mtcp->es, EVENT_READ, MTCP_TUN, &mtcp->tun_rwflags);
+    /*tun_set(c->c1.tuntap, mtcp->es, EVENT_READ, MTCP_TUN, &mtcp->tun_rwflags);
 #if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
     dco_event_set(&c->c1.tuntap->dco, mtcp->es, MTCP_DCO);
 #endif
@@ -284,7 +284,7 @@ multi_tcp_wait(struct context *c,
     {
         management_socket_set(management, mtcp->es, MTCP_MANAGEMENT, &mtcp->management_persist_flags);
     }
-#endif
+#*/
 
 #ifdef ENABLE_ASYNC_PUSH
     /* arm inotify watcher */
@@ -297,6 +297,89 @@ multi_tcp_wait(struct context *c,
     if (status > 0)
     {
         mtcp->n_esr = status;
+        for(int i = 0; i < mtcp->n_esr; i++)
+            {
+                struct event_set_return *e = &mtcp->esr[i];
+                struct event_arg *ev_arg = (struct event_arg *)e->arg;
+
+                if (e->arg >= MULTI_N)
+                {    
+                    if (ev_arg->type == EVENT_ARG_LINK_SOCKET)
+                    {
+                        if (!ev_arg->u.ls)
+                        {
+                            msg(D_MULTI_ERRORS, "MULTI: mtcp_proc_io: null socket");
+                            break;
+                        }
+                        proto = ev_arg->u.ls->info.proto;
+                    }
+                }
+            }
+        if (!proto_is_dgram(proto))
+        {
+            tun_set(c->c1.tuntap, mtcp->es, EVENT_READ, MTCP_TUN, &mtcp->tun_rwflags);
+            #if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
+                dco_event_set(&c->c1.tuntap->dco, mtcp->es, MTCP_DCO);
+            #endif
+
+            #ifdef ENABLE_MANAGEMENT
+                if (management)
+                {
+                    management_socket_set(management, mtcp->es, MTCP_MANAGEMENT, &mtcp->management_persist_flags);
+                }
+            #endif
+        }
+
+        if (proto_is_dgram(proto))
+        {
+            if (c->c2.fast_io && (flags & (IOW_TO_TUN|IOW_TO_LINK|IOW_MBUF)))
+            {
+                /* fast path -- only for TUN/TAP/UDP writes */
+                unsigned int ret = 0;
+                if (flags & IOW_TO_TUN)
+                {
+                    ret |= TUN_WRITE;
+                }
+                if (flags & (IOW_TO_LINK|IOW_MBUF))
+                {
+                    ret |= SOCKET_WRITE;
+                }
+                mtcp->event_set_status = ret;
+            }
+            else
+            {
+        #ifdef _WIN32
+                bool skip_iowait = flags & IOW_TO_TUN;
+                if (flags & IOW_READ_TUN)
+                {
+                    /*
+                    * don't read from tun if we have pending write to link,
+                    * since every tun read overwrites to_link buffer filled
+                    * by previous tun read
+                    */
+                    skip_iowait = !(flags & IOW_TO_LINK);
+                }
+                if (tuntap_is_wintun(c->c1.tuntap) && skip_iowait)
+                {
+                    unsigned int ret = 0;
+                    if (flags & IOW_TO_TUN)
+                    {
+                        ret |= TUN_WRITE;
+                    }
+                    if (flags & IOW_READ_TUN)
+                    {
+                        ret |= TUN_READ;
+                    }
+                    mtcp->event_set_status = ret;
+                }
+                else
+        #endif /* ifdef _WIN32 */
+                {
+                    /* slow path */
+                    io_wait_dowork_udp(c, mtcp, flags, status);
+                }
+        }
+    }
     }
     return status;
 }
@@ -478,6 +561,7 @@ multi_tcp_dispatch(struct multi_context *m, struct multi_instance *mi, const int
             ASSERT(mi);
             ASSERT(mi->context.c2.link_sockets);
             ASSERT(mi->context.c2.link_sockets[0]);
+            printf("\nSock proto: %d\n", mi->context.c2.link_sockets[0]->info.proto);
             set_prefix(mi);
             read_incoming_link(&mi->context, mi->context.c2.link_sockets[0]);
             clear_prefix();
@@ -592,7 +676,7 @@ multi_tcp_post(struct multi_context *m, struct multi_instance *mi, const int act
 }
 
 void
-multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action, bool poll, bool is_dgram)
+multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action, bool poll)
 {
     bool tun_input_pending = false;
 
@@ -676,11 +760,11 @@ multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action,
             poll = true;
         }
 
-    } while (action != TA_UNDEF && !is_dgram);
+    } while (action != TA_UNDEF);
 }
 
 void
-multi_tcp_process_io(struct multi_context *m, bool is_dgram)
+multi_tcp_process_io(struct multi_context *m)
 {
     const unsigned int mpp_flags = m->top.c2.fast_io
                                    ? (MPP_CONDITIONAL_PRE_SELECT | MPP_CLOSE_ON_SIGNAL)
@@ -712,11 +796,11 @@ multi_tcp_process_io(struct multi_context *m, bool is_dgram)
                     mi = ev_arg->u.mi;
                     if (e->rwflags & EVENT_WRITE)
                     {
-                        multi_tcp_action(m, mi, TA_SOCKET_WRITE_READY, false, is_dgram);
+                        multi_tcp_action(m, mi, TA_SOCKET_WRITE_READY, false);
                     }
                     else if (e->rwflags & EVENT_READ)
                     {
-                        multi_tcp_action(m, mi, TA_SOCKET_READ, false, is_dgram);
+                        multi_tcp_action(m, mi, TA_SOCKET_READ, false);
                     }
                     break;
                 /* new incoming TCP client attempting to connect? */
@@ -729,19 +813,16 @@ multi_tcp_process_io(struct multi_context *m, bool is_dgram)
                     socket_reset_listen_persistent(ev_arg->u.ls);
                     if (!proto_is_dgram(ev_arg->u.ls->info.proto))
                     {
-                        is_dgram = false;
                         mi = multi_create_instance_tcp(m, ev_arg->u.ls);
                         if (mi)
                         {
-                            multi_tcp_action(m, mi, TA_INITIAL, false, is_dgram);
+                            multi_tcp_action(m, mi, TA_INITIAL, false);
                         }
                         break;
                     }
-                    else
-                    {
-                        is_dgram = true;
-                        
-                        read_incoming_link(&m->top, ev_arg->u.ls);
+                    //else
+                    //{
+                        /*read_incoming_link(&m->top, ev_arg->u.ls);
                         if (!IS_SIG(&m->top))
                         {
                             multi_process_incoming_link(m, NULL, mpp_flags,
@@ -758,14 +839,15 @@ multi_tcp_process_io(struct multi_context *m, bool is_dgram)
                             {
                                 multi_process_timeout(m, MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
                             }
-                            else
+                            else if (ev_arg->pending)
                             {
                                 multi_process_io_udp(m);
-                                MULTI_CHECK_SIG(m);
                             }
+                            MULTI_CHECK_SIG(m);*/
+                            //multi_process_io_udp(m);
                             
-                        break;
-                    }
+                        //break;
+                    //}
             }
         }
         else
@@ -783,15 +865,15 @@ multi_tcp_process_io(struct multi_context *m, bool is_dgram)
             {
                 if (e->rwflags & EVENT_WRITE)
                 {
-                    multi_tcp_action(m, NULL, TA_TUN_WRITE, false, is_dgram);
+                    multi_tcp_action(m, NULL, TA_TUN_WRITE, false);
                 }
                 else if (e->rwflags & EVENT_READ)
                 {
-                    multi_tcp_action(m, NULL, TA_TUN_READ, false, is_dgram);
+                    multi_tcp_action(m, NULL, TA_TUN_READ, false);
                 }
             }
             /* new incoming TCP client attempting to connect? */
-            /*else if (e->arg == MTCP_SOCKET)
+            else if (e->arg == MTCP_SOCKET)
             {
                 struct multi_instance *mi;
                 ASSERT(m->top.c2.link_sockets[0]);
@@ -801,7 +883,7 @@ multi_tcp_process_io(struct multi_context *m, bool is_dgram)
                 {
                     multi_tcp_action(m, mi, TA_INITIAL, false);
                 }
-            }*/
+            }
 #if defined(ENABLE_DCO) && (defined(TARGET_LINUX) || defined(TARGET_FREEBSD))
             /* incoming data on DCO? */
             else if (e->arg == MTCP_DCO)
@@ -835,7 +917,7 @@ multi_tcp_process_io(struct multi_context *m, bool is_dgram)
         struct multi_instance *mi;
         while (!IS_SIG(&m->top) && (mi = mbuf_peek(m->mbuf)) != NULL)
         {
-            multi_tcp_action(m, mi, TA_SOCKET_WRITE, true, is_dgram);
+            multi_tcp_action(m, mi, TA_SOCKET_WRITE, true);
         }
     }
 }
@@ -887,7 +969,7 @@ tunnel_server_tcp(struct context *top)
 
         /* wait on tun/socket list */
         multi_get_timeout(&multi, &multi.top.c2.timeval);
-        status = multi_tcp_wait(&multi.top, multi.mtcp);
+        //status = multi_tcp_wait(&multi.top, multi.mtcp);
         MULTI_CHECK_SIG(&multi);
 
         /* check on status of coarse timers */

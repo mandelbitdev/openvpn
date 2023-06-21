@@ -69,7 +69,7 @@ extern counter_type link_read_bytes_global;
 
 extern counter_type link_write_bytes_global;
 
-void io_wait_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int flags);
+void io_wait_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int flags, int status);
 
 void io_wait_dowork(struct context *c, const unsigned int flags);
 
@@ -413,7 +413,7 @@ io_wait_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int flags)
 #endif /* ifdef _WIN32 */
         {
             /* slow path */
-            io_wait_dowork_udp(c, mtcp, flags);
+            //io_wait_dowork_udp(c, mtcp, flags);
         }
     }
 }

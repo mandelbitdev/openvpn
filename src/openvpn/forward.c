@@ -2044,11 +2044,11 @@ pre_select(struct context *c)
  */
 
 void
-io_wait_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int flags)
+io_wait_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int flags, int status)
 {
     unsigned int socket = 0;
     unsigned int tuntap = 0;
-    struct event_set_return esr[4];
+    //struct event_set_return esr[4];
 
     /* These shifts all depend on EVENT_READ and EVENT_WRITE */
     static uintptr_t socket_shift = 0;   /* depends on SOCKET_READ and SOCKET_WRITE */
@@ -2069,7 +2069,7 @@ io_wait_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int
      * Decide what kind of events we want to wait for.
      */
     //c->c2.event_set = mtcp->es;
-    event_reset(mtcp->es);
+    //event_reset(mtcp->es);
     //event_reset(c->c2.event_set);
 
     /*
@@ -2173,10 +2173,11 @@ io_wait_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int
      */
     for (i = 0; i < c->c1.link_sockets_num; i++)
     {
+        //if (proto_is_dgram(c->c2.link_sockets[i]->info.proto))
         socket_set(c->c2.link_sockets[i], mtcp->es, socket,
                    &c->c2.link_sockets[i]->ev_arg, NULL);
     }
-    tun_set(c->c1.tuntap, c->c2.event_set, tuntap, (void *)tun_shift, NULL);
+    tun_set(c->c1.tuntap, mtcp->es, tuntap, (void *)tun_shift, NULL);
 #if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
     if (socket & EVENT_READ && c->c2.did_open_tun)
     {
@@ -2215,7 +2216,7 @@ io_wait_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int
     {
         if (!(flags & IOW_CHECK_RESIDUAL) || !sockets_read_residual(c))
         {
-            int status;
+            //int status;
 
 #ifdef ENABLE_DEBUG
             if (check_debug_level(D_EVENT_WAIT))
@@ -2227,9 +2228,9 @@ io_wait_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int
             /*
              * Wait for something to happen.
              */
-            status = event_wait(mtcp->es, &c->c2.timeval, esr, SIZE(esr));
+            //status = event_wait(mtcp->es, &c->c2.timeval, esr, SIZE(esr));
 
-            check_status(status, "event_wait", NULL, NULL);
+            //check_status(status, "event_wait", NULL, NULL);
 
             if (status > 0)
             {
@@ -2237,7 +2238,7 @@ io_wait_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int
                 mtcp->event_set_status = 0;
                 for (i = 0; i < status; ++i)
                 {
-                    const struct event_set_return *e = &esr[i];
+                    const struct event_set_return *e = &mtcp->esr[i];
                     uintptr_t shift;
 
                     if (e->arg >= MULTI_N)
