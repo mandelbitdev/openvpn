@@ -1121,13 +1121,16 @@ process_incoming_link_part1(struct context *c, struct link_socket_info *lsi, boo
         decrypt_status = openvpn_decrypt(&c->c2.buf, c->c2.buffers->decrypt_buf,
                                          co, &c->c2.frame, ad_start);
 
-        if (!decrypt_status
-            /* all sockets are of the same type, so just check the first one */
-            && link_socket_connection_oriented(c->c2.link_sockets[0]))
+        for (int i = 0; i < c->c1.link_sockets_num; i++)
         {
-            /* decryption errors are fatal in TCP mode */
-            register_signal(c->sig, SIGUSR1, "decryption-error"); /* SOFT-SIGUSR1 -- decryption error in TCP mode */
-            msg(D_STREAM_ERRORS, "Fatal decryption error (process_incoming_link), restarting");
+            if (!decrypt_status
+                /* all sockets are of the same type, so just check the first one (not anymore!) */
+                && link_socket_connection_oriented(c->c2.link_sockets[i]))
+            {
+                /* decryption errors are fatal in TCP mode */
+                register_signal(c->sig, SIGUSR1, "decryption-error"); /* SOFT-SIGUSR1 -- decryption error in TCP mode */
+                msg(D_STREAM_ERRORS, "Fatal decryption error (process_incoming_link), restarting");
+            }
         }
     }
     else
@@ -2058,10 +2061,10 @@ io_wait_dowork_udp(struct context *c, struct multi_protocol *multi_io, const uns
     static uintptr_t management_shift = 6; /* depends on MANAGEMENT_READ and MANAGEMENT_WRITE */
 #endif
 #ifdef ENABLE_ASYNC_PUSH
-    static int file_shift = FILE_SHIFT;
+    static uintptr_t file_shift = FILE_SHIFT;
 #endif
 #if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
-    static int dco_shift = DCO_SHIFT;    /* Event from DCO linux kernel module */
+    static uintptr_t dco_shift = DCO_SHIFT;    /* Event from DCO linux kernel module */
 #endif
     int i;
 

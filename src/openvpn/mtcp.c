@@ -56,7 +56,7 @@ multi_create_instance_tcp(struct multi_context *m, struct link_socket *ls)
     mi = multi_create_instance(m, NULL, ls);
     if (mi && !proto_is_dgram(ls->info.proto))
     {
-        printf("\nTCP add\n");
+        mi->real.proto = ls->info.proto;
         struct hash_element *he;
         const uint32_t hv = hash_value(hash, &mi->real);
         struct hash_bucket *bucket = hash_bucket(hash, hv);

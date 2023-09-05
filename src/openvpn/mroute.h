@@ -74,9 +74,8 @@
 
 struct mroute_addr {
     uint8_t len;    /* length of address */
-    uint8_t unused;
-    uint8_t type;   /* MR_ADDR/MR_WITH flags */
     uint8_t proto;
+    uint8_t type;   /* MR_ADDR/MR_WITH flags */
     uint8_t netbits; /* number of bits in network part of address,
                       * valid if MR_WITH_NETBITS is set */
     union {
@@ -231,7 +230,7 @@ static inline const uint8_t *
 mroute_addr_hash_ptr(const struct mroute_addr *a)
 {
     /* NOTE: depends on ordering of struct mroute_addr */
-    return (uint8_t *) &a->type;
+    return (uint8_t *) &a->proto;
 }
 
 static inline uint32_t
