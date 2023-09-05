@@ -3825,6 +3825,7 @@ tls_pre_decrypt(struct tls_multi *multi,
                     {
                         msg(D_MULTI_DROPPED,
                             "Incoming control channel packet too big, dropping.");
+                        printf("\nif (!buf_copy(in, buf))\n");
                         goto error;
                     }
                     reliable_mark_active_incoming(ks->rec_reliable, in, id, op);
