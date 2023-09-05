@@ -1153,11 +1153,12 @@ multi_learn_addr(struct multi_context *m,
  */
 static struct multi_instance *
 multi_get_instance_by_virtual_addr(struct multi_context *m,
-                                   const struct mroute_addr *addr,
+                                   struct mroute_addr *addr,
                                    bool cidr_routing)
 {
     struct multi_route *route;
     struct multi_instance *ret = NULL;
+    addr->proto = 0;
 
     /* check for local address */
     if (mroute_addr_equal(addr, &m->local))
@@ -1243,6 +1244,7 @@ multi_learn_in_addr_t(struct multi_context *m,
     CLEAR(remote_si);
     remote_si.addr.in4.sin_family = AF_INET;
     remote_si.addr.in4.sin_addr.s_addr = htonl(a);
+    addr.proto = 0;
     ASSERT(mroute_extract_openvpn_sockaddr(&addr, &remote_si, false));
 
     if (netbits >= 0)
@@ -3344,6 +3346,14 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
     bool ret = true;
     bool floated = false;
 
+    /*
+     * Since we don't really need the protocol on vaddresses for internal VPN
+     * payload packets, make sure we have the same value to void hashing insert
+     * and search issues.
+     */
+    src.proto = 0;
+    dest.proto = src.proto;
+
     if (m->pending)
     {
         return true;
@@ -3410,7 +3420,6 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
                                                                0,
                                                                &c->c2.to_tun,
                                                                DEV_TYPE_TUN);
-
                 /* drop packet if extract failed */
                 if (!(mroute_flags & MROUTE_EXTRACT_SUCCEEDED))
                 {
@@ -3548,6 +3557,8 @@ multi_process_incoming_tun(struct multi_context *m, const unsigned int mpp_flags
         const int dev_type = TUNNEL_TYPE(m->top.c1.tuntap);
         int16_t vid = 0;
 
+        src.proto = 0;
+        dest.proto = src.proto;
 
 #ifdef MULTI_DEBUG_EVENT_LOOP
         printf("TUN -> TCP/UDP [%d]\n", BLEN(&m->top.c2.buf));
