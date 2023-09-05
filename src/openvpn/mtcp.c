@@ -109,7 +109,7 @@ multi_create_instance_tcp(struct multi_context *m, struct link_socket *ls)
     mi = multi_create_instance(m, NULL, ls);
     if (mi && !proto_is_dgram(ls->info.proto))
     {
-        printf("\nTCP add\n");
+        mi->real.proto = ls->info.proto;
         struct hash_element *he;
         const uint32_t hv = hash_value(hash, &mi->real);
         struct hash_bucket *bucket = hash_bucket(hash, hv);
@@ -746,22 +746,26 @@ multi_tcp_process_io(struct multi_context *m)
                                                             ev_arg->u.ls);
                             }
                         }
-                        multi_get_timeout(m, &m->top.c2.timeval);
-                        io_wait_udp(&m->top, m->mtcp, p2mp_iow_flags(m));
-                        MULTI_CHECK_SIG(m);
 
-                        multi_process_per_second_timers(m);
-
-                        if (m->mtcp->event_set_status == ES_TIMEOUT)
+                        while (true)
                         {
-                            multi_process_timeout(m, MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
-                        }
-                        else
-                        {
-                            multi_process_io_udp(m);
+                            multi_get_timeout(m, &m->top.c2.timeval);
+                            io_wait_udp(&m->top, m->mtcp, p2mp_iow_flags(m));
                             MULTI_CHECK_SIG(m);
-                        }
 
+                            multi_process_per_second_timers(m);
+
+                            if (m->mtcp->event_set_status == ES_TIMEOUT)
+                            {
+                                multi_process_timeout(m, MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
+                            }
+                            else
+                            {
+                                multi_process_io_udp(m);
+                                MULTI_CHECK_SIG(m);
+                                break;
+                            }
+                        }
                         break;
                     }
             }

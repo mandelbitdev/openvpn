@@ -1121,13 +1121,16 @@ process_incoming_link_part1(struct context *c, struct link_socket_info *lsi, boo
         decrypt_status = openvpn_decrypt(&c->c2.buf, c->c2.buffers->decrypt_buf,
                                          co, &c->c2.frame, ad_start);
 
-        if (!decrypt_status
-            /* all sockets are of the same type, so just check the first one */
-            && link_socket_connection_oriented(c->c2.link_sockets[0]))
+        for (int i = 0; i < c->c1.link_sockets_num; i++)
         {
-            /* decryption errors are fatal in TCP mode */
-            register_signal(c->sig, SIGUSR1, "decryption-error"); /* SOFT-SIGUSR1 -- decryption error in TCP mode */
-            msg(D_STREAM_ERRORS, "Fatal decryption error (process_incoming_link), restarting");
+            if (!decrypt_status
+                /* all sockets are of the same type, so just check the first one (not anymore!) */
+                && link_socket_connection_oriented(c->c2.link_sockets[i]))
+            {
+                /* decryption errors are fatal in TCP mode */
+                register_signal(c->sig, SIGUSR1, "decryption-error"); /* SOFT-SIGUSR1 -- decryption error in TCP mode */
+                msg(D_STREAM_ERRORS, "Fatal decryption error (process_incoming_link), restarting");
+            }
         }
     }
     else
@@ -2233,6 +2236,7 @@ io_wait_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int
 
             if (status > 0)
             {
+                /*printf("\nstatus: %d\n", status); */
                 int i;
                 mtcp->event_set_status = 0;
                 for (i = 0; i < status; ++i)
@@ -2268,10 +2272,6 @@ io_wait_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int
             {
                 mtcp->event_set_status = ES_TIMEOUT;
             }
-        }
-        else
-        {
-            mtcp->event_set_status = SOCKET_READ;
         }
     }
 
