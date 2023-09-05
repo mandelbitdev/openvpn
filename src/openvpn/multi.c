@@ -1161,11 +1161,12 @@ multi_learn_addr(struct multi_context *m,
  */
 static struct multi_instance *
 multi_get_instance_by_virtual_addr(struct multi_context *m,
-                                   const struct mroute_addr *addr,
+                                   struct mroute_addr *addr,
                                    bool cidr_routing)
 {
     struct multi_route *route;
     struct multi_instance *ret = NULL;
+    addr->proto = 0;
 
     /* check for local address */
     if (mroute_addr_equal(addr, &m->local))
@@ -3425,6 +3426,14 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
     bool ret = true;
     bool floated = false;
 
+    /*
+     * Since we don't really need the protocol on vaddresses for internal VPN
+     * payload packets, make sure we have the same value to void hashing insert
+     * and search issues.
+     */
+    src.proto = 0;
+    dest.proto = src.proto;
+
     if (m->pending)
     {
         return true;
@@ -3491,7 +3500,6 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
                                                                0,
                                                                &c->c2.to_tun,
                                                                DEV_TYPE_TUN);
-
                 /* drop packet if extract failed */
                 if (!(mroute_flags & MROUTE_EXTRACT_SUCCEEDED))
                 {
