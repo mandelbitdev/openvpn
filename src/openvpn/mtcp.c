@@ -56,6 +56,7 @@ multi_create_instance_tcp(struct multi_context *m, struct link_socket *sock)
     mi = multi_create_instance(m, NULL, sock);
     if (mi)
     {
+        mi->real.proto = sock->info.proto;
         struct hash_element *he;
         const uint32_t hv = hash_value(hash, &mi->real);
         struct hash_bucket *bucket = hash_bucket(hash, hv);
