@@ -55,7 +55,7 @@ struct multi_tcp
     int n_esr;
     int maxevents;
     unsigned int tun_rwflags;
-    unsigned int event_set_status;
+    unsigned int udp_flags;
 #ifdef ENABLE_MANAGEMENT
     unsigned int management_persist_flags;
 #endif
@@ -74,7 +74,7 @@ bool multi_tcp_instance_specific_init(struct multi_context *m, struct multi_inst
 
 void multi_tcp_instance_specific_free(struct multi_instance *mi);
 
-int multi_tcp_wait(struct context *c, struct multi_tcp *mtcp);
+int multi_tcp_wait(struct multi_context *m);
 
 void multi_tcp_process_io(struct multi_context *m);
 
@@ -82,17 +82,6 @@ void multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int ac
 
 
 void multi_tcp_link_out_deferred(struct multi_context *m, struct multi_instance *mi);
-
-
-/**************************************************************************/
-/**
- * Main event loop for OpenVPN in TCP server mode.
- * @ingroup eventloop
- *
- * @param top - Top-level context structure.
- */
-void tunnel_server_tcp(struct context *top);
-
 
 void multi_tcp_delete_event(struct multi_tcp *mtcp, event_t event);
 

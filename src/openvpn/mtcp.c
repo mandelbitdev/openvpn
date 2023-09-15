@@ -160,7 +160,7 @@ multi_tcp_instance_specific_init(struct multi_context *m, struct multi_instance 
     ASSERT(mi->context.c2.link_sockets);
     ASSERT(mi->context.c2.link_sockets[0]);
     ASSERT(mi->context.c2.link_sockets[0]->info.lsa);
-    /*ASSERT(mi->context.c2.link_sockets[0]->mode == LS_MODE_TCP_ACCEPT_FROM); */
+    ASSERT(mi->context.c2.link_sockets[0]->mode == LS_MODE_TCP_ACCEPT_FROM);
     ASSERT(mi->context.c2.link_sockets[0]->info.lsa->actual.dest.addr.sa.sa_family == AF_INET
            || mi->context.c2.link_sockets[0]->info.lsa->actual.dest.addr.sa.sa_family == AF_INET6
            );
@@ -236,65 +236,76 @@ multi_tcp_set_global_rw_flags(struct multi_context *m, struct multi_instance *mi
 {
     if (mi)
     {
-        mi->socket_set_called = true;
-        socket_set(mi->context.c2.link_sockets[0],
-                   m->mtcp->es,
-                   mbuf_defined(mi->tcp_link_out_deferred) ? EVENT_WRITE : EVENT_READ,
-                   &mi->ev_arg,
-                   &mi->tcp_rwflags);
+        if (proto_is_dgram(mi->context.c2.link_sockets[0]->info.proto))
+        {
+            return;
+        }
+        else
+        {
+            mi->socket_set_called = true;
+            socket_set(mi->context.c2.link_sockets[0],
+                       m->mtcp->es,
+                       mbuf_defined(mi->tcp_link_out_deferred) ? EVENT_WRITE : EVENT_READ,
+                       &mi->ev_arg,
+                       &mi->tcp_rwflags);
+        }
     }
 }
 
 int
-multi_tcp_wait(struct context *c,
-               struct multi_tcp *mtcp)
+multi_tcp_wait(struct multi_context *m)
 {
     int status, i;
-    unsigned int *persistent = &mtcp->tun_rwflags;
+    unsigned int *persistent = &m->mtcp->tun_rwflags;
 
-    for (i = 0; i < c->c1.link_sockets_num; i++)
+    for (i = 0; i < m->top.c1.link_sockets_num; i++)
     {
-        socket_set_listen_persistent(c->c2.link_sockets[i], mtcp->es,
-                                     &c->c2.link_sockets[i]->ev_arg);
+        socket_set_listen_persistent(m->top.c2.link_sockets[i], m->mtcp->es,
+                                     &m->top.c2.link_sockets[i]->ev_arg);
+    }
+
+    if (has_udp_in_local_list(&m->top.options))
+    {
+        get_io_flags_udp(&m->top, m->mtcp, p2mp_iow_flags(m));
     }
 
 #ifdef _WIN32
-    if (tuntap_is_wintun(c->c1.tuntap))
+    if (tuntap_is_wintun(m->top.c1.tuntap))
     {
-        if (!tuntap_ring_empty(c->c1.tuntap))
+        if (!tuntap_ring_empty(m->top.c1.tuntap))
         {
             /* there is data in wintun ring buffer, read it immediately */
-            mtcp->esr[0].arg = MTCP_TUN;
-            mtcp->esr[0].rwflags = EVENT_READ;
-            mtcp->n_esr = 1;
+            m->mtcp->esr[0].arg = MTCP_TUN;
+            m->mtcp->esr[0].rwflags = EVENT_READ;
+            m->mtcp->n_esr = 1;
             return 1;
         }
         persistent = NULL;
     }
 #endif
-    tun_set(c->c1.tuntap, mtcp->es, EVENT_READ, MTCP_TUN, persistent);
+    tun_set(m->top.c1.tuntap, m->mtcp->es, EVENT_READ, MTCP_TUN, persistent);
 #if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
-    dco_event_set(&c->c1.tuntap->dco, mtcp->es, MTCP_DCO);
+    dco_event_set(&m->top.c1.tuntap->dco, m->mtcp->es, MTCP_DCO);
 #endif
 
 #ifdef ENABLE_MANAGEMENT
     if (management)
     {
-        management_socket_set(management, mtcp->es, MTCP_MANAGEMENT, &mtcp->management_persist_flags);
+        management_socket_set(management, m->mtcp->es, MTCP_MANAGEMENT, &m->mtcp->management_persist_flags);
     }
 #endif
 
 #ifdef ENABLE_ASYNC_PUSH
     /* arm inotify watcher */
-    event_ctl(mtcp->es, c->c2.inotify_fd, EVENT_READ, MTCP_FILE_CLOSE_WRITE);
+    event_ctl(m->mtcp->es, m->top.c2.inotify_fd, EVENT_READ, MTCP_FILE_CLOSE_WRITE);
 #endif
 
-    status = event_wait(mtcp->es, &c->c2.timeval, mtcp->esr, mtcp->maxevents);
+    status = event_wait(m->mtcp->es, &m->top.c2.timeval, m->mtcp->esr, m->mtcp->maxevents);
     update_time();
-    mtcp->n_esr = 0;
+    m->mtcp->n_esr = 0;
     if (status > 0)
     {
-        mtcp->n_esr = status;
+        m->mtcp->n_esr = status;
     }
     return status;
 }
@@ -680,11 +691,11 @@ multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action,
 void
 multi_tcp_process_io(struct multi_context *m)
 {
+    struct multi_tcp *mtcp = m->mtcp;
+    const unsigned int udp_status = mtcp->udp_flags;
     const unsigned int mpp_flags = m->top.c2.fast_io
                                    ? (MPP_CONDITIONAL_PRE_SELECT | MPP_CLOSE_ON_SIGNAL)
                                    : (MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
-    struct multi_tcp *mtcp = m->mtcp;
-    const unsigned int status = mtcp->event_set_status;
     int i;
 
     for (i = 0; i < mtcp->n_esr; ++i)
@@ -725,9 +736,10 @@ multi_tcp_process_io(struct multi_context *m)
                         msg(D_MULTI_ERRORS, "MULTI: mtcp_proc_io: null socket");
                         break;
                     }
-                    socket_reset_listen_persistent(ev_arg->u.ls);
+
                     if (!proto_is_dgram(ev_arg->u.ls->info.proto))
                     {
+                        socket_reset_listen_persistent(ev_arg->u.ls);
                         mi = multi_create_instance_tcp(m, ev_arg->u.ls);
                         if (mi)
                         {
@@ -737,7 +749,23 @@ multi_tcp_process_io(struct multi_context *m)
                     }
                     else
                     {
-                        if (status & SOCKET_READ)
+                        if (e->arg >= MULTI_N)
+                        {
+                            struct event_arg *ev_arg = (struct event_arg *)e->arg;
+                            if (ev_arg->type != EVENT_ARG_LINK_SOCKET)
+                            {
+                                mtcp->udp_flags = ES_ERROR;
+                                msg(D_LINK_ERRORS,
+                                    "io_work: non socket event delivered");
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            ev_arg->pending = true;
+                        }
+
+                        if (udp_status & SOCKET_READ)
                         {
                             read_incoming_link(&m->top, ev_arg->u.ls);
                             if (!IS_SIG(&m->top))
@@ -746,25 +774,9 @@ multi_tcp_process_io(struct multi_context *m)
                                                             ev_arg->u.ls);
                             }
                         }
-
-                        while (true)
+                        else
                         {
-                            multi_get_timeout(m, &m->top.c2.timeval);
-                            io_wait_udp(&m->top, m->mtcp, p2mp_iow_flags(m));
-                            MULTI_CHECK_SIG(m);
-
-                            multi_process_per_second_timers(m);
-
-                            if (m->mtcp->event_set_status == ES_TIMEOUT)
-                            {
-                                multi_process_timeout(m, MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
-                            }
-                            else
-                            {
-                                multi_process_io_udp(m);
-                                MULTI_CHECK_SIG(m);
-                                break;
-                            }
+                            multi_process_io_udp(m);
                         }
                         break;
                     }
@@ -840,88 +852,4 @@ multi_tcp_process_io(struct multi_context *m)
             multi_tcp_action(m, mi, TA_SOCKET_WRITE, true);
         }
     }
-}
-
-/*
- * Top level event loop for single-threaded operation.
- * TCP mode.
- */
-void
-tunnel_server_tcp(struct context *top)
-{
-    struct multi_context multi;
-    int status;
-
-    top->mode = CM_TOP;
-    context_clear_2(top);
-
-    /* initialize top-tunnel instance */
-    init_instance_handle_signals(top, top->es, CC_HARD_USR1_TO_HUP);
-    if (IS_SIG(top))
-    {
-        return;
-    }
-
-    /* initialize global multi_context object */
-    multi_init(&multi, top);
-
-    /* initialize our cloned top object */
-    multi_top_init(&multi, top);
-
-    /* initialize management interface */
-    init_management_callback_multi(&multi);
-
-    /* finished with initialization */
-    initialization_sequence_completed(top, ISC_SERVER); /* --mode server --proto tcp-server */
-
-#ifdef ENABLE_ASYNC_PUSH
-    multi.top.c2.inotify_fd = inotify_init();
-    if (multi.top.c2.inotify_fd < 0)
-    {
-        msg(D_MULTI_ERRORS | M_ERRNO, "MULTI: inotify_init error");
-    }
-#endif
-
-    /* per-packet event loop */
-    while (true)
-    {
-        perf_push(PERF_EVENT_LOOP);
-
-        /* wait on tun/socket list */
-        multi_get_timeout(&multi, &multi.top.c2.timeval);
-        status = multi_tcp_wait(&multi.top, multi.mtcp);
-        MULTI_CHECK_SIG(&multi);
-
-        /* check on status of coarse timers */
-        multi_process_per_second_timers(&multi);
-
-        /* timeout? */
-        if (status > 0)
-        {
-            /* process the I/O which triggered select */
-            /*multi_tcp_process_io(&multi); */
-            MULTI_CHECK_SIG(&multi);
-        }
-        else if (status == 0)
-        {
-            /*multi_tcp_action(&multi, NULL, TA_TIMEOUT, false); */
-        }
-
-        perf_pop();
-    }
-
-#ifdef ENABLE_ASYNC_PUSH
-    close(top->c2.inotify_fd);
-#endif
-
-    /* shut down management interface */
-    uninit_management_callback();
-
-    /* save ifconfig-pool */
-    multi_ifconfig_pool_persist(&multi, true);
-
-    /* tear down tunnel instance (unless --persist-tun) */
-    multi_uninit(&multi);
-    multi_top_free(&multi);
-    close_instance(top);
 }

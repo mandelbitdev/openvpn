@@ -69,7 +69,9 @@ extern counter_type link_read_bytes_global;
 
 extern counter_type link_write_bytes_global;
 
-void io_wait_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int flags);
+void get_io_flags_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int flags);
+
+void get_io_flags_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int flags);
 
 void io_wait_dowork(struct context *c, const unsigned int flags);
 
@@ -365,58 +367,6 @@ p2p_iow_flags(const struct context *c)
     }
 #endif
     return flags;
-}
-
-static inline void
-io_wait_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int flags)
-{
-    if (c->c2.fast_io && (flags & (IOW_TO_TUN|IOW_TO_LINK|IOW_MBUF)))
-    {
-        /* fast path -- only for TUN/TAP/UDP writes */
-        unsigned int ret = 0;
-        if (flags & IOW_TO_TUN)
-        {
-            ret |= TUN_WRITE;
-        }
-        if (flags & (IOW_TO_LINK|IOW_MBUF))
-        {
-            ret |= SOCKET_WRITE;
-        }
-        mtcp->event_set_status = ret;
-    }
-    else
-    {
-#ifdef _WIN32
-        bool skip_iowait = flags & IOW_TO_TUN;
-        if (flags & IOW_READ_TUN)
-        {
-            /*
-             * don't read from tun if we have pending write to link,
-             * since every tun read overwrites to_link buffer filled
-             * by previous tun read
-             */
-            skip_iowait = !(flags & IOW_TO_LINK);
-        }
-        if (tuntap_is_wintun(c->c1.tuntap) && skip_iowait)
-        {
-            unsigned int ret = 0;
-            if (flags & IOW_TO_TUN)
-            {
-                ret |= TUN_WRITE;
-            }
-            if (flags & IOW_READ_TUN)
-            {
-                ret |= TUN_READ;
-            }
-            mtcp->event_set_status = ret;
-        }
-        else
-#endif /* ifdef _WIN32 */
-        {
-            /* slow path */
-            io_wait_dowork_udp(c, mtcp, flags);
-        }
-    }
 }
 
 /*
