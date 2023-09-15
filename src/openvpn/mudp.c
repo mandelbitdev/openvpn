@@ -194,11 +194,11 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
     struct hash *hash = m->hash;
     real.proto = ls->info.proto;
     m->local.proto = real.proto;
+    m->hmac_reply_ls = ls;
 
     if (mroute_extract_openvpn_sockaddr(&real, &m->top.c2.from.dest, true)
         && m->top.c2.buf.len > 0)
     {
-        /*real.proto = ls->info.proto; */
         struct hash_element *he;
         const uint32_t hv = hash_value(hash, &real);
         struct hash_bucket *bucket = hash_bucket(hash, hv);
@@ -321,15 +321,8 @@ multi_process_outgoing_link(struct multi_context *m, const unsigned int mpp_flag
         msg_set_prefix("Connection Attempt");
         m->top.c2.to_link = m->hmac_reply;
         m->top.c2.to_link_addr = m->hmac_reply_dest;
-        for (int i = 0; i < m->top.c1.link_sockets_num; i++)
-        {
-            if (!proto_is_dgram(m->top.c2.link_sockets[i]->info.proto))
-            {
-                continue;
-            }
-
-            process_outgoing_link(&m->top, m->top.c2.link_sockets[i]);
-        }
+        process_outgoing_link(&m->top, m->hmac_reply_ls);
+        m->hmac_reply_ls = NULL;
         m->hmac_reply_dest = NULL;
     }
 }
