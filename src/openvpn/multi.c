@@ -607,6 +607,7 @@ multi_close_instance(struct multi_context *m,
 
     ASSERT(!mi->halt);
     mi->halt = true;
+    bool is_dgram = proto_is_dgram(mi->context.c2.link_sockets[0]->info.proto);
 
     dmsg(D_MULTI_DEBUG, "MULTI: multi_close_instance called");
 
@@ -665,7 +666,7 @@ multi_close_instance(struct multi_context *m,
             mi->did_iroutes = false;
         }
 
-        if (m->mtcp && !proto_is_dgram(m->top.options.ce.proto))
+        if (!is_dgram)
         {
             multi_tcp_dereference_instance(m->mtcp, mi);
         }
@@ -3416,6 +3417,7 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
 
             perf_push(PERF_PROC_IN_LINK);
             lsi = get_link_socket_info(c);
+            /*lsi = &ls->info; */
             orig_buf = c->c2.buf.data;
             if (process_incoming_link_part1(c, lsi, floated))
             {
@@ -3866,7 +3868,7 @@ multi_push_restart_schedule_exit(struct multi_context *m, bool next_server)
     while ((he = hash_iterator_next(&hi)))
     {
         struct multi_instance *mi = (struct multi_instance *) he->value;
-        if (!mi->halt)
+        if (!mi->halt && proto_is_dgram(mi->context.options.ce.proto))
         {
             send_control_channel_string(&mi->context, next_server ? "RESTART,[N]" : "RESTART", D_PUSH);
             multi_schedule_context_wakeup(m, mi);
@@ -3904,13 +3906,15 @@ multi_process_signal(struct multi_context *m)
         status_close(so);
         return false;
     }
-    else if (proto_is_dgram(m->top.options.ce.proto)
-             && is_exit_restart(m->top.sig->signal_received)
-             && (m->deferred_shutdown_signal.signal_received == 0)
-             && m->top.options.ce.explicit_exit_notification != 0)
+    else if (has_udp_in_local_list(&m->top.options))
     {
-        multi_push_restart_schedule_exit(m, m->top.options.ce.explicit_exit_notification == 2);
-        return false;
+        if (is_exit_restart(m->top.sig->signal_received)
+            && (m->deferred_shutdown_signal.signal_received == 0)
+            && m->top.options.ce.explicit_exit_notification != 0)
+        {
+            multi_push_restart_schedule_exit(m, m->top.options.ce.explicit_exit_notification == 2);
+            return false;
+        }
     }
     return true;
 }
@@ -4208,10 +4212,10 @@ tunnel_server_loop(struct multi_context *multi)
             multi_tcp_process_io(multi);
             MULTI_CHECK_SIG(multi);
         }
-        /*else if (status == 0)
-         * {
-         *  multi_tcp_action(multi, NULL, TA_TIMEOUT, false);
-         * }*/
+        else if (status == 0)
+        {
+            multi_tcp_action(multi, NULL, TA_TIMEOUT, false);
+        }
 
         perf_pop();
     }

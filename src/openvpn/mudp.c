@@ -198,7 +198,6 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
     if (mroute_extract_openvpn_sockaddr(&real, &m->top.c2.from.dest, true)
         && m->top.c2.buf.len > 0)
     {
-        /*real.proto = ls->info.proto; */
         struct hash_element *he;
         const uint32_t hv = hash_value(hash, &real);
         struct hash_bucket *bucket = hash_bucket(hash, hv);
@@ -213,7 +212,7 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
             uint32_t peer_id = ntohl(*(uint32_t *)ptr) & 0xFFFFFF;
             peer_id_disabled = (peer_id == MAX_PEER_ID);
 
-            if (!peer_id_disabled && (peer_id < m->max_clients) && (m->instances[peer_id]))
+            if (!peer_id_disabled && (peer_id < m->max_clients) && (m->instances[peer_id]) && proto_is_dgram(m->instances[peer_id]->context.c2.link_sockets[0]->info.proto))
             {
                 mi = m->instances[peer_id];
 
@@ -380,7 +379,7 @@ p2mp_iow_flags(const struct multi_context *m)
 void
 multi_process_io_udp(struct multi_context *m)
 {
-    const unsigned int status = m->mtcp->udp_flags;
+    unsigned int status = m->mtcp->udp_flags;
     const unsigned int mpp_flags = m->top.c2.fast_io
                                    ? (MPP_CONDITIONAL_PRE_SELECT | MPP_CLOSE_ON_SIGNAL)
                                    : (MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);

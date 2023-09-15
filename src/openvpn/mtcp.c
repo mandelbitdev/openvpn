@@ -160,7 +160,7 @@ multi_tcp_instance_specific_init(struct multi_context *m, struct multi_instance 
     ASSERT(mi->context.c2.link_sockets);
     ASSERT(mi->context.c2.link_sockets[0]);
     ASSERT(mi->context.c2.link_sockets[0]->info.lsa);
-    ASSERT(mi->context.c2.link_sockets[0]->mode == LS_MODE_TCP_ACCEPT_FROM); 
+    ASSERT(mi->context.c2.link_sockets[0]->mode == LS_MODE_TCP_ACCEPT_FROM);
     ASSERT(mi->context.c2.link_sockets[0]->info.lsa->actual.dest.addr.sa.sa_family == AF_INET
            || mi->context.c2.link_sockets[0]->info.lsa->actual.dest.addr.sa.sa_family == AF_INET6
            );
@@ -680,11 +680,11 @@ multi_tcp_action(struct multi_context *m, struct multi_instance *mi, int action,
 void
 multi_tcp_process_io(struct multi_context *m)
 {
+    struct multi_tcp *mtcp = m->mtcp;
+    const unsigned int udp_status = mtcp->udp_flags;
     const unsigned int mpp_flags = m->top.c2.fast_io
                                    ? (MPP_CONDITIONAL_PRE_SELECT | MPP_CLOSE_ON_SIGNAL)
                                    : (MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
-    struct multi_tcp *mtcp = m->mtcp;
-    const unsigned int udp_status = mtcp->udp_flags;
     int i;
 
     for (i = 0; i < mtcp->n_esr; ++i)
@@ -725,9 +725,10 @@ multi_tcp_process_io(struct multi_context *m)
                         msg(D_MULTI_ERRORS, "MULTI: mtcp_proc_io: null socket");
                         break;
                     }
-                    socket_reset_listen_persistent(ev_arg->u.ls);
+
                     if (!proto_is_dgram(ev_arg->u.ls->info.proto))
                     {
+                        socket_reset_listen_persistent(ev_arg->u.ls);
                         mi = multi_create_instance_tcp(m, ev_arg->u.ls);
                         if (mi)
                         {
@@ -737,6 +738,22 @@ multi_tcp_process_io(struct multi_context *m)
                     }
                     else
                     {
+                        if (e->arg >= MULTI_N)
+                        {
+                            struct event_arg *ev_arg = (struct event_arg *)e->arg;
+                            if (ev_arg->type != EVENT_ARG_LINK_SOCKET)
+                            {
+                                mtcp->udp_flags = ES_ERROR;
+                                msg(D_LINK_ERRORS,
+                                    "io_work: non socket event delivered");
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            ev_arg->pending = true;
+                        }
+
                         if (udp_status & SOCKET_READ)
                         {
                             read_incoming_link(&m->top, ev_arg->u.ls);
