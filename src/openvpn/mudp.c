@@ -379,7 +379,7 @@ p2mp_iow_flags(const struct multi_context *m)
 void
 multi_process_io_udp(struct multi_context *m)
 {
-    unsigned int status = m->mtcp->udp_flags;
+    unsigned int status = m->multi_io->udp_flags;
     const unsigned int mpp_flags = m->top.c2.fast_io
                                    ? (MPP_CONDITIONAL_PRE_SELECT | MPP_CLOSE_ON_SIGNAL)
                                    : (MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
