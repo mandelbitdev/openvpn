@@ -402,6 +402,8 @@ set(SOURCE_FILES
     src/openvpn/mudp.h
     src/openvpn/multi.c
     src/openvpn/multi.h
+    src/openvpn/multi_io.c
+    src/openvpn/multi_io.h
     src/openvpn/ntlm.c
     src/openvpn/ntlm.h
     src/openvpn/occ.c
