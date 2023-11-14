@@ -440,7 +440,7 @@ multi_init(struct multi_context *m, struct context *t)
     /*
      * Initialize multi-socket TCP I/O wait object
      */
-    m->mtcp = multi_tcp_init(t->options.max_clients, &m->max_clients);
+    m->multi_io = multi_protocol_init(t->options.max_clients, &m->max_clients);
 
     m->tcp_queue_limit = t->options.tcp_queue_limit;
 
@@ -668,7 +668,7 @@ multi_close_instance(struct multi_context *m,
 
         if (!is_dgram)
         {
-            multi_tcp_dereference_instance(m->mtcp, mi);
+            multi_tcp_dereference_instance(m->multi_io, mi);
         }
 
         mbuf_dereference_instance(m->mbuf, mi);
@@ -746,7 +746,7 @@ multi_uninit(struct multi_context *m)
         initial_rate_limit_free(m->initial_rate_limiter);
         multi_reap_free(m->reaper);
         mroute_helper_free(m->route_helper);
-        multi_tcp_free(m->mtcp);
+        multi_protocol_free(m->multi_io);
     }
 }
 
@@ -4007,9 +4007,9 @@ static void
 management_delete_event(void *arg, event_t event)
 {
     struct multi_context *m = (struct multi_context *) arg;
-    if (m->mtcp)
+    if (m->multi_io)
     {
-        multi_tcp_delete_event(m->mtcp, event);
+        multi_protocol_delete_event(m->multi_io, event);
     }
 }
 
@@ -4187,7 +4187,7 @@ multi_assign_peer_id(struct multi_context *m, struct multi_instance *mi)
     ASSERT(mi->context.c2.tls_multi->peer_id < m->max_clients);
 }
 
-
+/* Actual multi protocol event loop in server mode */
 void
 tunnel_server_loop(struct multi_context *multi)
 {
@@ -4199,7 +4199,7 @@ tunnel_server_loop(struct multi_context *multi)
 
         /* wait on tun/socket list */
         multi_get_timeout(multi, &multi->top.c2.timeval);
-        status = multi_tcp_wait(multi);
+        status = multi_protocol_io_wait(multi);
         MULTI_CHECK_SIG(multi);
 
         /* check on status of coarse timers */
@@ -4209,18 +4209,25 @@ tunnel_server_loop(struct multi_context *multi)
         if (status > 0)
         {
             /* process the I/O which triggered select */
-            multi_tcp_process_io(multi);
+            multi_protocol_process_io(multi);
             MULTI_CHECK_SIG(multi);
         }
         else if (status == 0)
         {
-            multi_tcp_action(multi, NULL, TA_TIMEOUT, false);
+            multi_protocol_action(multi, NULL, TA_TIMEOUT, false);
         }
 
         perf_pop();
     }
 }
 
+/**************************************************************************/
+/**
+ * Main event loop for OpenVPN in server mode.
+ * @ingroup eventloop
+ *
+ * @param top - Top-level context structure.
+ */
 void
 tunnel_server_init(struct context *top)
 {

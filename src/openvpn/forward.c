@@ -2047,7 +2047,7 @@ pre_select(struct context *c)
  */
 
 void
-get_io_flags_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int flags)
+get_io_flags_dowork_udp(struct context *c, struct multi_protocol *multi_io, const unsigned int flags)
 {
     unsigned int socket = 0;
     unsigned int tuntap = 0;
@@ -2059,7 +2059,7 @@ get_io_flags_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigne
      */
     if (flags & IOW_WAIT_SIGNAL)
     {
-        wait_signal(mtcp->es, (void *)err_shift);
+        wait_signal(multi_io->es, (void *)err_shift);
     }
 
     if (flags & IOW_TO_LINK)
@@ -2151,19 +2151,19 @@ get_io_flags_dowork_udp(struct context *c, struct multi_tcp *mtcp, const unsigne
     {
         if (proto_is_dgram(c->c2.link_sockets[i]->info.proto))
         {
-            socket_set(c->c2.link_sockets[i], mtcp->es, socket,
+            socket_set(c->c2.link_sockets[i], multi_io->es, socket,
                        &c->c2.link_sockets[i]->ev_arg, NULL);
         }
     }
-    tun_set(c->c1.tuntap, mtcp->es, tuntap, (void *)tun_shift, NULL);
+    tun_set(c->c1.tuntap, multi_io->es, tuntap, (void *)tun_shift, NULL);
 
-    mtcp->udp_flags = socket | tuntap;
+    multi_io->udp_flags = socket | tuntap;
 }
 
 void
-get_io_flags_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int flags)
+get_io_flags_udp(struct context *c, struct multi_protocol *multi_io, const unsigned int flags)
 {
-    mtcp->udp_flags = ES_ERROR;
+    multi_io->udp_flags = ES_ERROR;
     if (c->c2.fast_io && (flags & (IOW_TO_TUN | IOW_TO_LINK | IOW_MBUF)))
     {
         /* fast path -- only for TUN/TAP/UDP writes */
@@ -2176,7 +2176,7 @@ get_io_flags_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int f
         {
             ret |= SOCKET_WRITE;
         }
-        mtcp->udp_flags = ret;
+        multi_io->udp_flags = ret;
     }
     else
     {
@@ -2202,13 +2202,13 @@ get_io_flags_udp(struct context *c, struct multi_tcp *mtcp, const unsigned int f
             {
                 ret |= TUN_READ;
             }
-            mtcp->udp_flags = ret;
+            multi_io->udp_flags = ret;
         }
         else
 #endif /* ifdef _WIN32 */
         {
             /* slow path - delegate to io_wait_dowork_udp to calculate flags */
-            get_io_flags_dowork_udp(c, mtcp, flags);
+            get_io_flags_dowork_udp(c, multi_io, flags);
         }
     }
 }

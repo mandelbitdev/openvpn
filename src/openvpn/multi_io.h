@@ -5,7 +5,7 @@
  *             packet encryption, packet authentication, and
  *             packet compression.
  *
- *  Copyright (C) 2002-2024 OpenVPN Inc <sales@openvpn.net>
+ *  Copyright (C) 2002-2023 OpenVPN Inc <sales@openvpn.net>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2
@@ -22,17 +22,18 @@
  */
 
 /*
- * TCP specific code for --mode server
+ * Multi-protocol specific code for --mode server
  */
 
-#ifndef MTCP_H
-#define MTCP_H
+#ifndef MULTI_IO_H
+#define MULTI_IO_H
 
 #include "event.h"
 
 /*
- * TCP States
+ * I/O processing States
  */
+
 #define TA_UNDEF                 0
 #define TA_SOCKET_READ           1
 #define TA_SOCKET_READ_RESIDUAL  2
@@ -46,9 +47,9 @@
 #define TA_TUN_WRITE_TIMEOUT     10
 
 /*
- * Extra state info needed for TCP mode
+ * Extra state info needed for Multi-protocol
  */
-struct multi_tcp
+struct multi_protocol
 {
     struct event_set *es;
     struct event_set_return *esr;
@@ -61,26 +62,16 @@ struct multi_tcp
 #endif
 };
 
-struct multi_instance;
-struct context;
-struct multi_protocol;
+struct multi_protocol *multi_protocol_init(int maxevents, int *maxclients);
 
-void multi_tcp_dereference_instance(struct multi_protocol *multi_io, struct multi_instance *mi);
+void multi_protocol_free(struct multi_protocol *multi_io);
 
-bool multi_tcp_instance_specific_init(struct multi_context *m, struct multi_instance *mi);
+int multi_protocol_io_wait(struct multi_context *m);
 
-void multi_tcp_instance_specific_free(struct multi_instance *mi);
+void multi_protocol_process_io(struct multi_context *m);
 
-bool multi_tcp_process_outgoing_link(struct multi_context *m, bool defer, const unsigned int mpp_flags);
+void multi_protocol_action(struct multi_context *m, struct multi_instance *mi, int action, bool poll);
 
-bool multi_tcp_process_outgoing_link_ready(struct multi_context *m, struct multi_instance *mi, const unsigned int mpp_flags);
+void multi_protocol_delete_event(struct multi_protocol *multi_io, event_t event);
 
-struct multi_instance *multi_create_instance_tcp(struct multi_context *m, struct link_socket *ls);
-
-void multi_tcp_set_global_rw_flags(struct multi_context *m, struct multi_instance *mi);
-
-void multi_tcp_link_out_deferred(struct multi_context *m, struct multi_instance *mi);
-
-struct context *multi_tcp_context(struct multi_context *m, struct multi_instance *mi);
-
-#endif /* ifndef MTCP_H */
+#endif /* ifndef MULTI_IO_H */
