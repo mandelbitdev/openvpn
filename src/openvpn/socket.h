@@ -998,12 +998,14 @@ link_socket_get_outgoing_addr(struct buffer *buf,
                               const struct link_socket_info *info,
                               struct link_socket_actual **act)
 {
+    struct gc_arena gc = gc_new();
     if (buf->len > 0)
     {
         struct link_socket_addr *lsa = info->lsa;
         if (link_socket_actual_defined(&lsa->actual))
         {
             *act = &lsa->actual;
+            printf("\nLSA in get_outgoind_addr()-> %s\n", print_link_socket_actual(&lsa->actual, &gc));
         }
         else
         {
@@ -1012,6 +1014,7 @@ link_socket_get_outgoing_addr(struct buffer *buf,
             *act = NULL;
         }
     }
+    gc_free(&gc);
 }
 
 static inline void
@@ -1020,7 +1023,9 @@ link_socket_set_outgoing_addr(struct link_socket_info *info,
                               const char *common_name,
                               struct env_set *es)
 {
+    struct gc_arena gc = gc_new();
     struct link_socket_addr *lsa = info->lsa;
+    printf("\nLSA in set_outgoind_addr() -> %s\n", print_link_socket_actual(&lsa->actual, &gc));
     if (
         /* new or changed address? */
         (!info->connection_established
@@ -1035,6 +1040,7 @@ link_socket_set_outgoing_addr(struct link_socket_info *info,
     {
         link_socket_connection_initiated(info, act, common_name, es);
     }
+    gc_free(&gc);
 }
 
 bool stream_buf_read_setup_dowork(struct link_socket *sock);

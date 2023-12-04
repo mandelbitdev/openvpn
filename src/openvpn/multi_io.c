@@ -486,12 +486,14 @@ multi_protocol_process_io(struct multi_context *m)
 
                         if (udp_status & SOCKET_READ)
                         {
+                            ev_arg->u.ls->ev_arg.pending = true;
                             read_incoming_link(&m->top, ev_arg->u.ls);
                             if (!IS_SIG(&m->top))
                             {
                                 multi_process_incoming_link(m, NULL, mpp_flags,
                                                             ev_arg->u.ls);
                             }
+                            m->udp_ls_current = ev_arg->u.ls;
                         }
 
                         while (true)

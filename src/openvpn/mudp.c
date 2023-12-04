@@ -212,7 +212,7 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
             uint32_t peer_id = ntohl(*(uint32_t *)ptr) & 0xFFFFFF;
             peer_id_disabled = (peer_id == MAX_PEER_ID);
 
-            if (!peer_id_disabled && (peer_id < m->max_clients) && (m->instances[peer_id]) && proto_is_dgram(m->instances[peer_id]->context.c2.link_sockets[0]->info.proto))
+            if (!peer_id_disabled && (peer_id < m->max_clients) && (m->instances[peer_id]) && (proto_is_dgram(m->instances[peer_id]->context.c2.link_sockets[0]->info.proto)))
             {
                 mi = m->instances[peer_id];
 
@@ -307,7 +307,7 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
 /*
  * Send a packet to UDP socket.
  */
-static inline void
+void
 multi_process_outgoing_link(struct multi_context *m, const unsigned int mpp_flags)
 {
     struct multi_instance *mi = multi_process_outgoing_link_pre(m);
@@ -320,15 +320,7 @@ multi_process_outgoing_link(struct multi_context *m, const unsigned int mpp_flag
         msg_set_prefix("Connection Attempt");
         m->top.c2.to_link = m->hmac_reply;
         m->top.c2.to_link_addr = m->hmac_reply_dest;
-        for (int i = 0; i < m->top.c1.link_sockets_num; i++)
-        {
-            if (!proto_is_dgram(m->top.c2.link_sockets[i]->info.proto))
-            {
-                continue;
-            }
-
-            process_outgoing_link(&m->top, m->top.c2.link_sockets[i]);
-        }
+        process_outgoing_link(&m->top, m->udp_ls_current);
         m->hmac_reply_dest = NULL;
     }
 }

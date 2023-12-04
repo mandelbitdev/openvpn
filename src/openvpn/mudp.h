@@ -47,6 +47,9 @@ p2mp_iow_flags(const struct multi_context *m);
 void tunnel_server_udp(struct context *top);
 
 void multi_process_io_udp(struct multi_context *m);
+
+void multi_process_outgoing_link(struct multi_context *m, const unsigned int mpp_flags);
+
 /**************************************************************************/
 /**
  * Get, and if necessary create, the multi_instance associated with a
