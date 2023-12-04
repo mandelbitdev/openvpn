@@ -131,22 +131,27 @@ multi_protocol_free(struct multi_protocol *multi_io)
 }
 
 int
-multi_protocol_io_wait(struct context *c,
+multi_protocol_io_wait(struct multi_context *m,
                        struct multi_protocol *multi_io)
 {
     int status, i;
     unsigned int *persistent = &multi_io->tun_rwflags;
 
-    for (i = 0; i < c->c1.link_sockets_num; i++)
+    for (i = 0; i < m->top.c1.link_sockets_num; i++)
     {
-        socket_set_listen_persistent(c->c2.link_sockets[i], multi_io->es,
-                                     &c->c2.link_sockets[i]->ev_arg);
+        socket_set_listen_persistent(m->top.c2.link_sockets[i], multi_io->es,
+                                     &m->top.c2.link_sockets[i]->ev_arg);
+    }
+
+    if (has_udp_in_local_list(&m->top.options))
+    {
+        get_io_flags_udp(&m->top, m->multi_io, p2mp_iow_flags(m));
     }
 
 #ifdef _WIN32
-    if (tuntap_is_wintun(c->c1.tuntap))
+    if (tuntap_is_wintun(m->top.c1.tuntap))
     {
-        if (!tuntap_ring_empty(c->c1.tuntap))
+        if (!tuntap_ring_empty(m->top.c1.tuntap))
         {
             /* there is data in wintun ring buffer, read it immediately */
             multi_io->esr[0].arg = MULTI_IO_TUN;
@@ -157,9 +162,9 @@ multi_protocol_io_wait(struct context *c,
         persistent = NULL;
     }
 #endif
-    tun_set(c->c1.tuntap, multi_io->es, EVENT_READ, MULTI_IO_TUN, persistent);
+    tun_set(m->top.c1.tuntap, multi_io->es, EVENT_READ, MULTI_IO_TUN, persistent);
 #if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
-    dco_event_set(&c->c1.tuntap->dco, multi_io->es, MULTI_IO_DCO);
+    dco_event_set(&m->top.c1.tuntap->dco, multi_io->es, MULTI_IO_DCO);
 #endif
 
 #ifdef ENABLE_MANAGEMENT
@@ -171,10 +176,10 @@ multi_protocol_io_wait(struct context *c,
 
 #ifdef ENABLE_ASYNC_PUSH
     /* arm inotify watcher */
-    event_ctl(multi_io->es, c->c2.inotify_fd, EVENT_READ, MULTI_IO_FILE_CLOSE_WRITE);
+    event_ctl(multi_io->es, m->top.c2.inotify_fd, EVENT_READ, MULTI_IO_FILE_CLOSE_WRITE);
 #endif
 
-    status = event_wait(multi_io->es, &c->c2.timeval, multi_io->esr, multi_io->maxevents);
+    status = event_wait(multi_io->es, &m->top.c2.timeval, multi_io->esr, multi_io->maxevents);
     update_time();
     multi_io->n_esr = 0;
     if (status > 0)
@@ -259,12 +264,19 @@ multi_protocol_set_global_rw_flags(struct multi_context *m, struct multi_instanc
 {
     if (mi)
     {
-        mi->socket_set_called = true;
-        socket_set(mi->context.c2.link_sockets[0],
-                   m->multi_io->es,
-                   mbuf_defined(mi->tcp_link_out_deferred) ? EVENT_WRITE : EVENT_READ,
-                   &mi->ev_arg,
-                   &mi->tcp_rwflags);
+        if (proto_is_dgram(mi->context.c2.link_sockets[0]->info.proto))
+        {
+            return;
+        }
+        else
+        {
+            mi->socket_set_called = true;
+            socket_set(mi->context.c2.link_sockets[0],
+                       m->multi_io->es,
+                       mbuf_defined(mi->tcp_link_out_deferred) ? EVENT_WRITE : EVENT_READ,
+                       &mi->ev_arg,
+                       &mi->tcp_rwflags);
+        }
     }
 }
 
@@ -486,34 +498,19 @@ multi_protocol_process_io(struct multi_context *m)
 
                         if (udp_status & SOCKET_READ)
                         {
+                            ev_arg->u.ls->ev_arg.pending = true;
                             read_incoming_link(&m->top, ev_arg->u.ls);
                             if (!IS_SIG(&m->top))
                             {
                                 multi_process_incoming_link(m, NULL, mpp_flags,
                                                             ev_arg->u.ls);
                             }
+                            break;
                         }
-
-                        while (true)
+                        else
                         {
-                            multi_get_timeout(m, &m->top.c2.timeval);
-                            get_io_flags_udp(&m->top, m->multi_io, p2mp_iow_flags(m));
-                            MULTI_CHECK_SIG(m);
-
-                            multi_process_per_second_timers(m);
-
-                            if (m->multi_io->udp_flags == ES_TIMEOUT)
-                            {
-                                multi_process_timeout(m, MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
-                            }
-                            else
-                            {
-                                multi_process_io_udp(m);
-                                MULTI_CHECK_SIG(m);
-                                break;
-                            }
+                            multi_process_io_udp(m);
                         }
-                        break;
                     }
             }
         }
@@ -630,7 +627,7 @@ multi_protocol_action(struct multi_context *m, struct multi_instance *mi, int ac
          * Signal received or connection
          * reset by peer?
          */
-        if (touched && IS_SIG(&touched->context))
+        if ((touched && IS_SIG(&touched->context)))
         {
             if (mi == touched)
             {

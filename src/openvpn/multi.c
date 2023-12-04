@@ -4199,7 +4199,7 @@ tunnel_server_loop(struct multi_context *multi)
 
         /* wait on tun/socket list */
         multi_get_timeout(multi, &multi->top.c2.timeval);
-        status = multi_protocol_io_wait(&multi->top, multi->multi_io);
+        status = multi_protocol_io_wait(multi, multi->multi_io);
         MULTI_CHECK_SIG(multi);
 
         /* check on status of coarse timers */
@@ -4215,6 +4215,11 @@ tunnel_server_loop(struct multi_context *multi)
         else if (status == 0)
         {
             multi_protocol_action(multi, NULL, TA_TIMEOUT, false);
+        }
+        if (multi->multi_io->udp_flags == ES_TIMEOUT)
+        {
+            printf("\nUDP timeout!\n");
+            multi_process_timeout(multi, MPP_PRE_SELECT|MPP_CLOSE_ON_SIGNAL);
         }
 
         perf_pop();

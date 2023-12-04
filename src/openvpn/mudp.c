@@ -194,6 +194,7 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
     struct hash *hash = m->hash;
     real.proto = ls->info.proto;
     m->local.proto = real.proto;
+    m->hmac_reply_ls = ls;
 
     if (mroute_extract_openvpn_sockaddr(&real, &m->top.c2.from.dest, true)
         && m->top.c2.buf.len > 0)
@@ -212,7 +213,7 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
             uint32_t peer_id = ntohl(*(uint32_t *)ptr) & 0xFFFFFF;
             peer_id_disabled = (peer_id == MAX_PEER_ID);
 
-            if (!peer_id_disabled && (peer_id < m->max_clients) && (m->instances[peer_id]) && proto_is_dgram(m->instances[peer_id]->context.c2.link_sockets[0]->info.proto))
+            if (!peer_id_disabled && (peer_id < m->max_clients) && (m->instances[peer_id]) && (proto_is_dgram(m->instances[peer_id]->context.c2.link_sockets[0]->info.proto)))
             {
                 mi = m->instances[peer_id];
 
@@ -307,7 +308,7 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
 /*
  * Send a packet to UDP socket.
  */
-static inline void
+void
 multi_process_outgoing_link(struct multi_context *m, const unsigned int mpp_flags)
 {
     struct multi_instance *mi = multi_process_outgoing_link_pre(m);
@@ -320,16 +321,9 @@ multi_process_outgoing_link(struct multi_context *m, const unsigned int mpp_flag
         msg_set_prefix("Connection Attempt");
         m->top.c2.to_link = m->hmac_reply;
         m->top.c2.to_link_addr = m->hmac_reply_dest;
-        for (int i = 0; i < m->top.c1.link_sockets_num; i++)
-        {
-            if (!proto_is_dgram(m->top.c2.link_sockets[i]->info.proto))
-            {
-                continue;
-            }
-
-            process_outgoing_link(&m->top, m->top.c2.link_sockets[i]);
-        }
+        process_outgoing_link(&m->top, m->hmac_reply_ls);
         m->hmac_reply_dest = NULL;
+        m->hmac_reply_ls = NULL;
     }
 }
 
@@ -476,83 +470,4 @@ multi_process_io_udp(struct multi_context *m)
         }
     }
 #endif
-}
-
-void
-tunnel_server_udp(struct context *top)
-{
-    struct multi_context multi;
-
-    top->mode = CM_TOP;
-    context_clear_2(top);
-
-    /* initialize top-tunnel instance */
-    init_instance_handle_signals(top, top->es, CC_HARD_USR1_TO_HUP);
-    if (IS_SIG(top))
-    {
-        return;
-    }
-
-    /* initialize global multi_context object */
-    multi_init(&multi, top);
-
-    /* initialize our cloned top object */
-    multi_top_init(&multi, top);
-
-    /* initialize management interface */
-    init_management_callback_multi(&multi);
-
-    /* finished with initialization */
-    initialization_sequence_completed(top, ISC_SERVER); /* --mode server --proto udp */
-
-#ifdef ENABLE_ASYNC_PUSH
-    multi.top.c2.inotify_fd = inotify_init();
-    if (multi.top.c2.inotify_fd < 0)
-    {
-        msg(D_MULTI_ERRORS | M_ERRNO, "MULTI: inotify_init error");
-    }
-#endif
-
-    /* per-packet event loop */
-    while (true)
-    {
-        perf_push(PERF_EVENT_LOOP);
-
-        /* set up and do the io_wait() */
-        multi_get_timeout(&multi, &multi.top.c2.timeval);
-        /*io_wait(&multi.top, p2mp_iow_flags(&multi)); */
-        MULTI_CHECK_SIG(&multi);
-
-        /* check on status of coarse timers */
-        multi_process_per_second_timers(&multi);
-
-        /* timeout? */
-        if (multi.top.c2.event_set_status == ES_TIMEOUT)
-        {
-            multi_process_timeout(&multi, MPP_PRE_SELECT|MPP_CLOSE_ON_SIGNAL);
-        }
-        else
-        {
-            /* process I/O */
-            /*multi_process_io_udp(&multi); */
-            MULTI_CHECK_SIG(&multi);
-        }
-
-        perf_pop();
-    }
-
-#ifdef ENABLE_ASYNC_PUSH
-    close(top->c2.inotify_fd);
-#endif
-
-    /* shut down management interface */
-    uninit_management_callback();
-
-    /* save ifconfig-pool */
-    multi_ifconfig_pool_persist(&multi, true);
-
-    /* tear down tunnel instance (unless --persist-tun) */
-    multi_uninit(&multi);
-    multi_top_free(&multi);
-    close_instance(top);
 }

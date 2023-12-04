@@ -1675,11 +1675,11 @@ process_ip_header(struct context *c, unsigned int flags, struct buffer *buf,
         if (is_ipv4(TUNNEL_TYPE(c->c1.tuntap), &ipbuf))
         {
 #if PASSTOS_CAPABILITY
-                /* extract TOS from IP header */
-                if (flags & PIPV4_PASSTOS)
-                {
-                    link_socket_extract_tos(ls, &ipbuf);
-                }
+            /* extract TOS from IP header */
+            if (flags & PIPV4_PASSTOS)
+            {
+                link_socket_extract_tos(ls, &ipbuf);
+            }
 #endif
 
             /* possibly alter the TCP MSS */
@@ -2045,6 +2045,7 @@ get_io_flags_dowork_udp(struct context *c, struct multi_protocol *multi_io, cons
 {
     unsigned int socket = 0;
     unsigned int tuntap = 0;
+    static uintptr_t tun_shift = 2;
     static uintptr_t err_shift = 4;
 
     /*
@@ -2148,6 +2149,7 @@ get_io_flags_dowork_udp(struct context *c, struct multi_protocol *multi_io, cons
                        &c->c2.link_sockets[i]->ev_arg, NULL);
         }
     }
+    tun_set(c->c1.tuntap, multi_io->es, tuntap, (void *)tun_shift, NULL);
     multi_io->udp_flags = socket | tuntap;
 }
 

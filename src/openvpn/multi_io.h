@@ -66,7 +66,7 @@ struct multi_protocol *multi_protocol_init(int maxevents, int *maxclients);
 
 void multi_protocol_free(struct multi_protocol *multi_io);
 
-int multi_protocol_io_wait(struct context *c, struct multi_protocol *multi_io);
+int multi_protocol_io_wait(struct multi_context *m, struct multi_protocol *multi_io);
 
 void multi_protocol_process_io(struct multi_context *m);
 
