@@ -924,7 +924,7 @@ read_incoming_link(struct context *c, struct link_socket *ls)
      * sent to our TCP/UDP port.
      */
     int status;
-
+    printf("\nread_incoming_link()\n");
     /*ASSERT (!c->c2.to_tun.len);*/
 
     perf_push(PERF_READ_IN_LINK);
@@ -1285,6 +1285,7 @@ process_incoming_dco(struct context *c)
 void
 read_incoming_tun(struct context *c)
 {
+    printf("\nread_incoming_tun()\n");
     /*
      * Setup for read() call on TUN/TAP device.
      */
@@ -1750,6 +1751,7 @@ process_outgoing_link(struct context *c, struct link_socket *ls)
          */
         int size = 0;
         ASSERT(link_socket_actual_defined(c->c2.to_link_addr));
+        printf("\nprocess_outgoing_link() lsa -> %s\n", print_link_socket_actual(c->c2.to_link_addr, &gc));
 
 #ifdef ENABLE_DEBUG
         /* In gremlin-test mode, we may choose to drop this packet */

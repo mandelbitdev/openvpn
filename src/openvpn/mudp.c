@@ -45,6 +45,7 @@ send_hmac_reset_packet(struct multi_context *m,
                        struct session_id *sid,
                        bool request_resend_wkc)
 {
+    struct gc_arena gc = gc_new();
     reset_packet_id_send(&state->tls_wrap_tmp.opt.packet_id.send);
     state->tls_wrap_tmp.opt.packet_id.rec.initialized = true;
     uint8_t header = 0 | (P_CONTROL_HARD_RESET_SERVER_V2 << P_OPCODE_SHIFT);
@@ -58,7 +59,9 @@ send_hmac_reset_packet(struct multi_context *m,
     buf_copy(&c->c2.buffers->aux_buf, &buf);
     m->hmac_reply = c->c2.buffers->aux_buf;
     m->hmac_reply_dest = &m->top.c2.from;
+    printf("\nCurrent lsa -> %s hmac_reset()\n", print_link_socket_actual(&m->top.c2.from, &gc));
     msg(D_MULTI_DEBUG, "Reset packet from client, sending HMAC based reset challenge");
+    gc_free(&gc);
 }
 
 
@@ -194,12 +197,14 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
     struct hash *hash = m->hash;
     real.proto = ls->info.proto;
     m->local.proto = real.proto;
+    m->hmac_reply_ls = ls;
 
     if (mroute_extract_openvpn_sockaddr(&real, &m->top.c2.from.dest, true)
         && m->top.c2.buf.len > 0)
     {
         struct hash_element *he;
         const uint32_t hv = hash_value(hash, &real);
+        printf("\nCurrent hv: %u\n", hv);
         struct hash_bucket *bucket = hash_bucket(hash, hv);
         uint8_t *ptr = BPTR(&m->top.c2.buf);
         uint8_t op = ptr[0] >> P_OPCODE_SHIFT;
@@ -214,8 +219,9 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
 
             if (!peer_id_disabled && (peer_id < m->max_clients) && (m->instances[peer_id]) && (proto_is_dgram(m->instances[peer_id]->context.c2.link_sockets[0]->info.proto)))
             {
+                printf("\nmi = peer_id -> %d\n", peer_id);
                 mi = m->instances[peer_id];
-
+                //link_socket_actual_match(&m->instances[peer_id]->context.c2.link_sockets[0]->info.lsa->actual, &ls->info.lsa->actual)
                 *floated = !link_socket_actual_match(&mi->context.c2.from, &m->top.c2.from);
 
                 if (*floated)
@@ -239,6 +245,7 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
         /* we have no existing multi instance for this connection */
         if (!mi)
         {
+            printf("\n!mi\n");
             struct tls_pre_decrypt_state state = {0};
             if (m->deferred_shutdown_signal.signal_received)
             {
@@ -262,6 +269,7 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated,
                     mi = multi_create_instance(m, &real, ls);
                     if (mi)
                     {
+                        printf("\nmi created!\n");
                         hash_add_fast(hash, bucket, &mi->real, hv, mi);
                         mi->did_real_hash = true;
                         multi_assign_peer_id(m, mi);
@@ -320,8 +328,9 @@ multi_process_outgoing_link(struct multi_context *m, const unsigned int mpp_flag
         msg_set_prefix("Connection Attempt");
         m->top.c2.to_link = m->hmac_reply;
         m->top.c2.to_link_addr = m->hmac_reply_dest;
-        process_outgoing_link(&m->top, m->udp_ls_current);
+        process_outgoing_link(&m->top, m->hmac_reply_ls);
         m->hmac_reply_dest = NULL;
+        m->hmac_reply_ls = NULL;
     }
 }
 

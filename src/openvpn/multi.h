@@ -200,8 +200,10 @@ struct multi_context {
 
     struct buffer hmac_reply;
     struct link_socket_actual *hmac_reply_dest;
+    struct link_socket *hmac_reply_ls;
 
     struct link_socket *udp_ls_current;
+    
     /*
      * Timer object for stale route check
      */

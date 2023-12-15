@@ -3216,6 +3216,7 @@ done:
 void
 multi_close_instance_on_signal(struct multi_context *m, struct multi_instance *mi)
 {
+    printf("\nmulti_close_instance_on_signal()\n");
     remap_signal(&mi->context);
     set_prefix(mi);
     print_signal(mi->context.sig, "client-instance", D_MULTI_LOW);
@@ -3388,12 +3389,14 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
 
         if (!instance)
         {
+            printf("\n!instance, transfer packet pointer to instance\n");
             /* transfer packet pointer from top-level context buffer to instance */
             c->c2.buf = m->top.c2.buf;
 
             /* transfer from-addr from top-level context buffer to instance */
             if (!floated)
             {
+                printf("\n!floated, transfer from-addr from top-level context\n");
                 c->c2.from = m->top.c2.from;
             }
         }
@@ -3406,8 +3409,8 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
             /* decrypt in instance context */
 
             perf_push(PERF_PROC_IN_LINK);
-            lsi = get_link_socket_info(c);
-            /*lsi = &ls->info; */
+            //lsi = get_link_socket_info(c);
+            lsi = &ls->info;
             orig_buf = c->c2.buf.data;
             if (process_incoming_link_part1(c, lsi, floated))
             {
@@ -3557,6 +3560,7 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
 bool
 multi_process_incoming_tun(struct multi_context *m, const unsigned int mpp_flags)
 {
+    printf("\nmulti_process_incoming_tun()\n");
     bool ret = true;
 
     if (BLEN(&m->top.c2.buf) > 0)
@@ -3689,6 +3693,7 @@ multi_get_queue(struct mbuf_set *ms)
 bool
 multi_process_timeout(struct multi_context *m, const unsigned int mpp_flags)
 {
+    printf("\nmulti_process_timeout()\n");
     bool ret = true;
 
 #ifdef MULTI_DEBUG_EVENT_LOOP
@@ -3700,11 +3705,13 @@ multi_process_timeout(struct multi_context *m, const unsigned int mpp_flags)
     {
         if (m->earliest_wakeup == (struct multi_instance *)&m->deferred_shutdown_signal)
         {
+            printf("\nschedule_remove_entry()\n");
             schedule_remove_entry(m->schedule, (struct schedule_entry *) &m->deferred_shutdown_signal);
             throw_signal(m->deferred_shutdown_signal.signal_received);
         }
         else
         {
+            printf("\nelse, set_prefix()\n");
             set_prefix(m->earliest_wakeup);
             ret = multi_process_post(m, m->earliest_wakeup, mpp_flags);
             clear_prefix();
@@ -4186,7 +4193,7 @@ tunnel_server_loop(struct multi_context *multi)
     while (true)
     {
         perf_push(PERF_EVENT_LOOP);
-
+        //multi->multi_io->udp_flags = ES_ERROR;
         /* wait on tun/socket list */
         multi_get_timeout(multi, &multi->top.c2.timeval);
         status = multi_protocol_io_wait(&multi->top, multi->multi_io);

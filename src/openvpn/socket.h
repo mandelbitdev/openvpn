@@ -990,6 +990,7 @@ link_socket_verify_incoming_addr(struct buffer *buf,
                 }
         }
     }
+    printf("\nlink_socket_verify_incoming_addr() -> false\n");
     return false;
 }
 
@@ -1106,6 +1107,8 @@ link_socket_read(struct link_socket *sock,
                  struct buffer *buf,
                  struct link_socket_actual *from)
 {
+    struct gc_arena gc = gc_new();
+    printf("\nReading from %s\n", print_link_socket_actual(from, &gc));
     if (proto_is_udp(sock->info.proto) || socket_is_dco_win(sock))
     /* unified UDPv4 and UDPv6, for DCO-WIN the kernel
      * will strip the length header */
@@ -1130,6 +1133,7 @@ link_socket_read(struct link_socket *sock,
         ASSERT(0);
         return -1; /* NOTREACHED */
     }
+    gc_free(&gc);
 }
 
 /*

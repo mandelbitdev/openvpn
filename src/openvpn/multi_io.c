@@ -411,7 +411,7 @@ void
 multi_protocol_process_io(struct multi_context *m)
 {
     struct multi_protocol *multi_io = m->multi_io;
-    const unsigned int udp_status = multi_io->udp_flags;
+    unsigned int udp_status = multi_io->udp_flags;
     const unsigned int mpp_flags = m->top.c2.fast_io
                                    ? (MPP_CONDITIONAL_PRE_SELECT | MPP_CLOSE_ON_SIGNAL)
                                    : (MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
@@ -471,6 +471,20 @@ multi_protocol_process_io(struct multi_context *m)
                         if (e->arg >= MULTI_N)
                         {
                             struct event_arg *ev_arg = (struct event_arg *)e->arg;
+                            //event_del(multi_io->es, socket_event_handle(ev_arg->u.ls));
+                            get_io_flags_udp(&m->top, multi_io, p2mp_iow_flags(m));
+                            if (udp_status & SOCKET_READ)
+                            {
+                                printf("\nif (udp_status & SOCKET_READ)\n");
+                                read_incoming_link(&m->top, ev_arg->u.ls);
+                                if (!IS_SIG(&m->top))
+                                {
+                                    multi_process_incoming_link(m, NULL, mpp_flags,
+                                                                ev_arg->u.ls);
+                                }
+                                //event_del(multi_io->es, socket_event_handle(ev_arg->u.ls));
+                            }
+
                             if (ev_arg->type != EVENT_ARG_LINK_SOCKET)
                             {
                                 multi_io->udp_flags = ES_ERROR;
@@ -484,22 +498,24 @@ multi_protocol_process_io(struct multi_context *m)
                             ev_arg->pending = true;
                         }
 
-                        if (udp_status & SOCKET_READ)
-                        {
-                            ev_arg->u.ls->ev_arg.pending = true;
-                            read_incoming_link(&m->top, ev_arg->u.ls);
-                            if (!IS_SIG(&m->top))
-                            {
-                                multi_process_incoming_link(m, NULL, mpp_flags,
-                                                            ev_arg->u.ls);
-                            }
-                            m->udp_ls_current = ev_arg->u.ls;
-                        }
+                        //if (udp_status & SOCKET_READ)
+                        //{
+                            //printf("\nUDP event!\n");
+                            //get_io_flags_udp(&m->top, multi_io, p2mp_iow_flags(m));
+                            //ev_arg->u.ls->ev_arg.pending = true;
+                            //read_incoming_link(&m->top, ev_arg->u.ls);
+                            //if (!IS_SIG(&m->top))
+                            //{
+                                //multi_process_incoming_link(m, NULL, mpp_flags,
+                                  //                          ev_arg->u.ls);
+                            //}
+                            //event_del(multi_io->es, socket_event_handle(ev_arg->u.ls));
+                        //}
 
                         while (true)
                         {
                             multi_get_timeout(m, &m->top.c2.timeval);
-                            get_io_flags_udp(&m->top, m->multi_io, p2mp_iow_flags(m));
+                            get_io_flags_udp(&m->top, multi_io, p2mp_iow_flags(m));
                             MULTI_CHECK_SIG(m);
 
                             multi_process_per_second_timers(m);
@@ -515,6 +531,7 @@ multi_protocol_process_io(struct multi_context *m)
                                 break;
                             }
                         }
+                        //event_del(multi_io->es, socket_event_handle(ev_arg->u.ls));
                         break;
                     }
             }
@@ -532,6 +549,7 @@ multi_protocol_process_io(struct multi_context *m)
             /* incoming data on TUN? */
             if (e->arg == MULTI_IO_TUN)
             {
+                printf("\nMULTI_IO_TUN case!\n");
                 if (e->rwflags & EVENT_WRITE)
                 {
                     multi_protocol_action(m, NULL, TA_TUN_WRITE, false);
@@ -586,6 +604,7 @@ multi_protocol_process_io(struct multi_context *m)
         struct multi_instance *mi;
         while (!IS_SIG(&m->top) && (mi = mbuf_peek(m->mbuf)) != NULL)
         {
+            printf("\nmbuf_peek\n");
             multi_protocol_action(m, mi, TA_SOCKET_WRITE, true);
         }
     }
@@ -634,6 +653,7 @@ multi_protocol_action(struct multi_context *m, struct multi_instance *mi, int ac
          */
         if (touched && IS_SIG(&touched->context))
         {
+            printf("\nif (touched && IS_SIG(&touched->context))\n");
             if (mi == touched)
             {
                 mi = NULL;
