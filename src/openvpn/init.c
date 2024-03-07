@@ -1499,6 +1499,7 @@ do_init_route_list(const struct options *options,
                         options->routes,
                         gw,
                         metric,
+                        options->route_default_table_id,
                         link_socket_current_remote(link_socket_info),
                         es,
                         ctx))
@@ -1546,7 +1547,7 @@ do_init_route_ipv6_list(const struct options *options,
         {
             add_route_ipv6_to_option_list( options->routes_ipv6,
                                            string_alloc(opt_list[i], options->routes_ipv6->gc),
-                                           NULL, NULL );
+                                           NULL, NULL, options->route_default_table_id);
         }
     }
 
@@ -1554,6 +1555,7 @@ do_init_route_ipv6_list(const struct options *options,
                              options->routes_ipv6,
                              gw,
                              metric,
+                             options->route_default_table_id,
                              link_socket_current_remote_ipv6(link_socket_info),
                              es,
                              ctx))
