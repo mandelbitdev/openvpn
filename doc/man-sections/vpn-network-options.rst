@@ -367,6 +367,14 @@ routing.
   Like ``--redirect-gateway``, but omit actually changing the default gateway.
   Useful when pushing private subnets.
 
+--route-table id
+  Specify a default table id for use with --route.
+  By default, OpenVPN installs routes in the main routing
+  table of the operating system, but with this option,
+  a user defined routing table can be used instead.
+
+  (Supported on Linux only, on other platforms this is a no-op).
+
 --route args
   Add route to routing table after connection is established. Multiple
   routes can be specified. Routes will be automatically torn down in
@@ -379,6 +387,7 @@ routing.
       route network/IP netmask
       route network/IP netmask gateway
       route network/IP netmask gateway metric
+      route network/IP netmask gateway metric table-id
 
   This option is intended as a convenience proxy for the ``route``\(8)
   shell command, while at the same time providing portable semantics
@@ -393,6 +402,10 @@ routing.
 
   ``metric``
         default taken from ``--route-metric`` if set, otherwise :code:`0`.
+
+  ``table-id`` (Supported on Linux only, on other platforms this is a no-op).
+        Since this option must be an entirely local choice, it isn't pushable.
+        default taken from ``--route-table`` if set, otherwise :code:`0`.
 
   The default can be specified by leaving an option blank or setting it to
   :code:`default`.
@@ -441,14 +454,25 @@ routing.
   Setup IPv6 routing in the system to send the specified IPv6 network into
   OpenVPN's *tun*.
 
-  Valid syntax:
+  Valid syntaxes:
   ::
 
-     route-ipv6 ipv6addr/bits [gateway] [metric]
+     route-ipv6 ipv6addr/bits
+     route-ipv6 ipv6addr/bits gateway
+     route-ipv6 ipv6addr/bits gateway metric
+     route-ipv6 ipv6addr/bits gateway metric table-id
 
-  The gateway parameter is only used for IPv6 routes across *tap* devices,
-  and if missing, the ``ipv6remote`` field from ``--ifconfig-ipv6`` or
-  ``--route-ipv6-gateway`` is used.
+  ``gateway``
+        Only used for IPv6 routes across *tap* devices,
+        and if missing, the ``ipv6remote`` field from ``--ifconfig-ipv6`` or
+        ``--route-ipv6-gateway`` is used.
+
+  ``metric``
+        default taken from ``--route-metric`` if set, otherwise :code:`0`.
+
+  ``table-id`` (Supported on Linux only, on other platforms this is a no-op).
+        Since this option must be an entirely local choice, it isn't pushable.
+        default taken from ``--route-table`` if set, otherwise :code:`0`.
 
 --route-gateway arg
   Specify a default *gateway* for use with ``--route``.

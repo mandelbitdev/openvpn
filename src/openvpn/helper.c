@@ -118,6 +118,7 @@ helper_add_route(const in_addr_t network, const in_addr_t netmask, struct option
                              print_in_addr_t(network, 0, &o->gc),
                              print_in_addr_t(netmask, 0, &o->gc),
                              NULL,
+                             NULL,
                              NULL);
 }
 

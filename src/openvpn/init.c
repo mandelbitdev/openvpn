@@ -1476,6 +1476,7 @@ do_init_route_list(const struct options *options,
     const char *gw = NULL;
     int dev = dev_type_enum(options->dev, options->dev_type);
     int metric = 0;
+    int table_id = 0; /* unspec table */
 
     /* if DCO is enabled we have both regular routes and iroutes in the system
      * routing table, and normal routes must have a higher metric for that to
@@ -1494,6 +1495,10 @@ do_init_route_list(const struct options *options,
     {
         gw = options->route_default_gateway;
     }
+    if (options->route_default_table_id)
+    {
+        table_id = options->route_default_table_id;
+    }
     if (options->route_default_metric)
     {
         metric = options->route_default_metric;
@@ -1503,6 +1508,7 @@ do_init_route_list(const struct options *options,
                         options->routes,
                         gw,
                         metric,
+                        table_id,
                         link_socket_current_remote(link_socket_info),
                         es,
                         ctx))
@@ -1521,6 +1527,7 @@ do_init_route_ipv6_list(const struct options *options,
 {
     const char *gw = NULL;
     int metric = -1;            /* no metric set */
+    int table_id = 0; /* unspec table */
 
     /* see explanation in do_init_route_list() */
     if (dco_enabled(options))
@@ -1539,6 +1546,11 @@ do_init_route_ipv6_list(const struct options *options,
         metric = options->route_default_metric;
     }
 
+    if (options->route_default_table_id)
+    {
+        table_id = options->route_default_table_id;
+    }
+
     /* redirect (IPv6) gateway to VPN?  if yes, add a few more specifics
      */
     if (options->routes_ipv6->flags & RG_REROUTE_GW)
@@ -1550,7 +1562,7 @@ do_init_route_ipv6_list(const struct options *options,
         {
             add_route_ipv6_to_option_list( options->routes_ipv6,
                                            string_alloc(opt_list[i], options->routes_ipv6->gc),
-                                           NULL, NULL );
+                                           NULL, NULL, NULL );
         }
     }
 
@@ -1558,6 +1570,7 @@ do_init_route_ipv6_list(const struct options *options,
                              options->routes_ipv6,
                              gw,
                              metric,
+                             table_id,
                              link_socket_current_remote_ipv6(link_socket_info),
                              es,
                              ctx))
