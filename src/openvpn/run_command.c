@@ -196,6 +196,7 @@ openvpn_execve_check(const struct argv *a, const struct env_set *es, const unsig
     const int stat = openvpn_execve(a, es, flags);
     int ret = false;
 
+    printf("\nin openvpn_execve_check() -> %d %d %d\n", stat, WIFEXITED(stat), WEXITSTATUS(stat));
     if (flags & S_EXITCODE)
     {
         ret = platform_ret_code(stat);
@@ -209,6 +210,7 @@ openvpn_execve_check(const struct argv *a, const struct env_set *es, const unsig
         ret = true;
         goto done;
     }
+    printf("\nError message: %s\n", error_message);
     if (error_message)
     {
         msg(((flags & S_FATAL) ? M_FATAL : M_WARN), "%s: %s",

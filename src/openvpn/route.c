@@ -1217,7 +1217,11 @@ add_routes(struct route_list *rl, struct route_ipv6_list *rl6,
             }
             ret = add_route(r, tt, flags, &rl->rgi, es, ctx) && ret;
         }
-        rl->iflags |= RL_ROUTES_ADDED;
+        if (ret)
+        {
+            printf("\nRoute added!\n");
+            rl->iflags |= RL_ROUTES_ADDED;
+        }
     }
     if (rl6 && !(rl6->iflags & RL_ROUTES_ADDED) )
     {
@@ -1803,9 +1807,12 @@ add_route(struct route_ipv4 *r,
     }
 
     argv_msg(D_ROUTE, &argv);
+    /*bool ret = openvpn_execve_check(&argv, es, 0,
+                                    "ERROR: OS X route add command failed");*/
     bool ret = openvpn_execve_check(&argv, es, 0,
-                                    "ERROR: OS X route add command failed");
+                                    "route: writing to routing socket: File exists");
     status = ret ? RTA_SUCCESS : RTA_ERROR;
+    printf("\nStatus: %d\n", status);
 
 #elif defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)
 
@@ -1852,10 +1859,12 @@ done:
     if (status == RTA_SUCCESS)
     {
         r->flags |= RT_ADDED;
+        printf("\nRoute added.\n");
     }
     else
     {
         r->flags &= ~RT_ADDED;
+        printf("\nRoute not added.\n");
     }
     argv_free(&argv);
     gc_free(&gc);
