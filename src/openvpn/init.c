@@ -2349,7 +2349,8 @@ do_deferred_options_part2(struct context *c)
     if (!tls_session_update_crypto_params(c->c2.tls_multi, session,
                                           &c->options, &c->c2.frame,
                                           frame_fragment,
-                                          get_link_socket_info(c)))
+                                          get_link_socket_info(c),
+                                          &c->c1.tuntap->dco))
     {
         msg(D_TLS_ERRORS, "OPTIONS ERROR: failed to import crypto options");
         return false;
@@ -2568,7 +2569,8 @@ do_deferred_p2p_ncp(struct context *c)
 
     if (!tls_session_update_crypto_params(c->c2.tls_multi, session, &c->options,
                                           &c->c2.frame, frame_fragment,
-                                          get_link_socket_info(c)))
+                                          get_link_socket_info(c),
+                                          &c->c1.tuntap->dco))
     {
         msg(D_TLS_ERRORS, "ERROR: failed to set crypto cipher");
         return false;
@@ -4652,10 +4654,15 @@ init_instance(struct context *c, const struct env_set *env, const unsigned int f
          * (IP vs IPv6) may be only available after socket phase2 has finished.
          * This is only needed for --static or no crypto, NCP will recalculate this
          * in tls_session_update_crypto_params (P2MP) */
+        /*frame_calculate_dynamic(&c->c2.frame, &c->c1.ks.key_type, &c->options,
+                                get_link_socket_info(c));*/
+    }
+
+    if (c->mode == CM_P2P || c->mode == CM_TOP || c->mode == CM_CHILD_TCP || c->mode == CM_CHILD_UDP)
+    {
         frame_calculate_dynamic(&c->c2.frame, &c->c1.ks.key_type, &c->options,
                                 get_link_socket_info(c));
     }
-
     /*
      * Actually do UID/GID downgrade, and chroot, if requested.
      * May be delayed by --client, --pull, or --up-delay.

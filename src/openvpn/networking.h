@@ -102,8 +102,8 @@ void net_ctx_free(openvpn_net_ctx_t *ctx);
  *
  * @return          0 on success, negative error code on error
  */
-int net_iface_new(openvpn_net_ctx_t *ctx, const openvpn_net_iface_t *iface,
-                  const char *type, void *arg);
+/*int net_iface_new(openvpn_net_ctx_t *ctx, const openvpn_net_iface_t *iface,
+                  const char *type, void *arg);*/
 
 /**
  * Retrieve the interface type

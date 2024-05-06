@@ -126,7 +126,7 @@ int open_tun_dco(struct tuntap *tt, openvpn_net_ctx_t *ctx, const char *dev);
  * @param tt        the tuntap context
  * @param ctx       the networking API context
  */
-void close_tun_dco(struct tuntap *tt, openvpn_net_ctx_t *ctx);
+void close_tun_dco(struct tuntap *tt);
 
 /**
  * Read data from the DCO communication channel (i.e. a control packet)

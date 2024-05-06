@@ -1321,7 +1321,7 @@ net_route_v6_del(openvpn_net_ctx_t *ctx, const struct in6_addr *dst,
                            table, metric);
 }
 
-
+/*
 int
 net_iface_new(openvpn_net_ctx_t *ctx, const char *iface, const char *type,
               void *arg)
@@ -1358,7 +1358,7 @@ net_iface_new(openvpn_net_ctx_t *ctx, const char *iface, const char *type,
     ret = sitnl_send(&req.n, 0, 0, NULL, NULL);
 err:
     return ret;
-}
+}*/
 
 static int
 sitnl_parse_rtattr_flags(struct rtattr *tb[], int max, struct rtattr *rta,

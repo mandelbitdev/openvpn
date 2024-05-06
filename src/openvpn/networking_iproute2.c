@@ -60,7 +60,7 @@ net_ctx_free(openvpn_net_ctx_t *ctx)
 {
     gc_free(&ctx->gc);
 }
-
+/*
 int
 net_iface_new(openvpn_net_ctx_t *ctx, const char *iface, const char *type,
               void *arg)
@@ -75,7 +75,7 @@ net_iface_new(openvpn_net_ctx_t *ctx, const char *iface, const char *type,
 
     return 0;
 }
-
+*/
 int
 net_iface_type(openvpn_net_ctx_t *ctx, const char *iface,
                char type[IFACE_TYPE_LEN_MAX])

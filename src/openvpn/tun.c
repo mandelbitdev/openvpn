@@ -2361,7 +2361,7 @@ close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
 #if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
     if (tun_dco_enabled(tt))
     {
-        close_tun_dco(tt, ctx);
+        close_tun_dco(tt);
     }
 #endif
     close_tun_generic(tt);
