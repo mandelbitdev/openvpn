@@ -1584,7 +1584,8 @@ tls_session_update_crypto_params_do_work(struct tls_multi *multi,
                                          struct options *options,
                                          struct frame *frame,
                                          struct frame *frame_fragment,
-                                         struct link_socket_info *lsi)
+                                         struct link_socket_info *lsi,
+                                         dco_context_t *dco)
 {
     if (session->key[KS_PRIMARY].crypto_options.key_ctx_bi.initialized)
     {
@@ -1631,6 +1632,26 @@ tls_session_update_crypto_params_do_work(struct tls_multi *multi,
             return false;
         }
     }
+
+    if (dco_enabled(options))
+    {
+        /* dco_set_peer() must be called only when both
+         * keepalive and mss_fix are properly set. */
+        if (options->ping_send_timeout || frame->mss_fix)
+        {
+            int ret = dco_set_peer(dco,
+                                   multi->dco_peer_id,
+                                   options->ping_send_timeout,
+                                   options->ping_rec_timeout,
+                                   frame->mss_fix);
+            if (ret < 0)
+            {
+                msg(D_DCO, "Cannot set DCO peer parameters for peer (id=%u): %s",
+                    multi->dco_peer_id, strerror(-ret));
+                return false;
+            }
+        }
+    }
     return tls_session_generate_data_channel_keys(multi, session);
 }
 
@@ -1639,7 +1660,8 @@ tls_session_update_crypto_params(struct tls_multi *multi,
                                  struct tls_session *session,
                                  struct options *options, struct frame *frame,
                                  struct frame *frame_fragment,
-                                 struct link_socket_info *lsi)
+                                 struct link_socket_info *lsi,
+                                 dco_context_t *dco)
 {
     if (!check_session_cipher(session, options))
     {
@@ -1650,7 +1672,7 @@ tls_session_update_crypto_params(struct tls_multi *multi,
     session->opt->crypto_flags |= options->imported_protocol_flags;
 
     return tls_session_update_crypto_params_do_work(multi, session, options,
-                                                    frame, frame_fragment, lsi);
+                                                    frame, frame_fragment, lsi, dco);
 }
 
 
