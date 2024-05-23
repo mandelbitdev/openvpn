@@ -54,6 +54,8 @@ openvpn_SOURCES = \
 	dco.c dco.h dco_internal.h \
 	dco_freebsd.c dco_freebsd.h \
 	dco_linux.c dco_linux.h \
+	dco_linux_v2.c \
+        dco_linux_v3.c \
 	dco_win.c dco_win.h \
 	dhcp.c dhcp.h \
 	dns.c dns.h \
@@ -79,6 +81,7 @@ openvpn_SOURCES = \
 	misc.c misc.h \
 	ovpn_dco_freebsd.h \
 	ovpn_dco_linux.h \
+	ovpn_dco_v3.h \
 	ovpn_dco_win.h \
 	platform.c platform.h \
 	console.c console.h console_builtin.c console_systemd.c \

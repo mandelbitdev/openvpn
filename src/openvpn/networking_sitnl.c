@@ -1344,7 +1344,7 @@ net_iface_new(openvpn_net_ctx_t *ctx, const char *iface, const char *type,
     {
         dco_context_t *dco = arg;
         struct rtattr *data = SITNL_NEST(&req.n, sizeof(req), IFLA_INFO_DATA);
-        SITNL_ADDATTR(&req.n, sizeof(req), IFLA_OVPN_MODE, &dco->ifmode,
+        SITNL_ADDATTR(&req.n, sizeof(req), IFLA_OVPN_V2_MODE, &dco->ifmode,
                       sizeof(uint8_t));
         SITNL_NEST_END(&req.n, data);
     }

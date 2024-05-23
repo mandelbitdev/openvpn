@@ -1222,7 +1222,13 @@ process_incoming_link(struct context *c)
 static void
 process_incoming_dco(struct context *c)
 {
-#if defined(ENABLE_DCO) && (defined(TARGET_LINUX) || defined(TARGET_FREEBSD))
+#if defined(ENABLE_DCO) && defined(TARGET_LINUX)
+
+    process_incoming_dco_actual(c);
+
+#endif /*#if defined(ENABLE_DCO) && defined(TARGET_LINUX)*/
+
+#if defined(ENABLE_DCO) && defined(TARGET_FREEBSD)
     dco_context_t *dco = &c->c1.tuntap->dco;
 
     dco_do_read(dco);
@@ -1262,7 +1268,7 @@ process_incoming_dco(struct context *c)
             return;
     }
 
-#endif /* if defined(ENABLE_DCO) && (defined(TARGET_LINUX) || defined(TARGET_FREEBSD)) */
+#endif /* #if defined(ENABLE_DCO) && defined(TARGET_FREEBSD) */
 }
 
 /*

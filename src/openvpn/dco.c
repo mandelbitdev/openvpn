@@ -396,7 +396,7 @@ dco_check_startup_option(int msglevel, const struct options *o)
     /* now that all options have been confirmed to be supported, check
      * if DCO is truly available on the system
      */
-    return dco_available(msglevel);
+    return dco_available(msglevel, NULL);
 }
 
 bool

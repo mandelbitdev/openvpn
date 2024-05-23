@@ -2366,11 +2366,11 @@ multi_client_setup_dco_initial(struct multi_context *m,
 
     if (mi->context.options.ping_send_timeout || mi->context.c2.frame.mss_fix)
     {
-        ret = dco_set_peer(&mi->context.c1.tuntap->dco,
-                           mi->context.c2.tls_multi->dco_peer_id,
-                           mi->context.options.ping_send_timeout,
-                           mi->context.options.ping_rec_timeout,
-                           mi->context.c2.frame.mss_fix);
+        dco_set_peer(&mi->context.c1.tuntap->dco,
+                     mi->context.c2.tls_multi->dco_peer_id,
+                     mi->context.options.ping_send_timeout,
+                     mi->context.options.ping_rec_timeout,
+                     mi->context.c2.frame.mss_fix);
         if (ret < 0)
         {
             msg(D_DCO, "Cannot set DCO peer parameters for %s (id=%u): %s",
