@@ -3297,11 +3297,11 @@ multi_process_incoming_dco(struct multi_context *m)
     if ((peer_id < m->max_clients) && (m->instances[peer_id]))
     {
         mi = m->instances[peer_id];
-        if (dco->dco_message_type == OVPN_CMD_DEL_PEER)
+        if (dco->dco_message_type == OVPN_V2_CMD_DEL_PEER)
         {
             process_incoming_del_peer(m, mi, dco);
         }
-        else if (dco->dco_message_type == OVPN_CMD_SWAP_KEYS)
+        else if (dco->dco_message_type == OVPN_V2_CMD_SWAP_KEYS)
         {
             tls_session_soft_reset(mi->context.c2.tls_multi);
         }
@@ -3309,7 +3309,7 @@ multi_process_incoming_dco(struct multi_context *m)
     else
     {
         int msglevel = D_DCO;
-        if (dco->dco_message_type == OVPN_CMD_DEL_PEER
+        if (dco->dco_message_type == OVPN_V2_CMD_DEL_PEER
             && dco->dco_del_peer_reason == OVPN_DEL_PEER_REASON_USERSPACE)
         {
             /* we receive OVPN_CMD_DEL_PEER message with reason USERSPACE
