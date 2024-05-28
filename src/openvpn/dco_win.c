@@ -357,7 +357,7 @@ dco_swap_keys(dco_context_t *dco, unsigned int peer_id)
 }
 
 bool
-dco_available(int msglevel)
+dco_available(int msglevel, dco_context_t *dco)
 {
     /* try to open device by symbolic name */
     HANDLE h = CreateFile("\\\\.\\ovpn-dco", GENERIC_READ | GENERIC_WRITE,

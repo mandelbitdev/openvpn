@@ -398,6 +398,7 @@ set(SOURCE_FILES
     src/openvpn/dco_win.h
     src/openvpn/dco_linux.c
     src/openvpn/dco_linux.h
+    src/openvpn/dco_linux_v2.c
     src/openvpn/dco_freebsd.c
     src/openvpn/dco_freebsd.h
     src/openvpn/dhcp.c

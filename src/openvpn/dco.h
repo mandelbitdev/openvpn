@@ -56,7 +56,7 @@ struct tuntap;
  * @param msglevel      level to print messages to
  * @return              true if ovpn-dco is available, false otherwise
  */
-bool dco_available(int msglevel);
+bool dco_available(int msglevel, dco_context_t *dco);
 
 
 /**
@@ -254,7 +254,7 @@ const char *dco_get_supported_ciphers();
 typedef void *dco_context_t;
 
 static inline bool
-dco_available(int msglevel)
+dco_available(int msglevel, dco_context_t *dco)
 {
     return false;
 }

@@ -1230,6 +1230,9 @@ static void
 process_incoming_dco(struct context *c)
 {
 #if defined(ENABLE_DCO) && (defined(TARGET_LINUX) || defined(TARGET_FREEBSD))
+    int cmd_del_peer = OVPN_CMD_DEL_PEER;
+    int cmd_swap_keys = OVPN_CMD_SWAP_KEYS;
+
     dco_context_t *dco = &c->c1.tuntap->dco;
 
     dco_do_read(dco);
@@ -1245,31 +1248,30 @@ process_incoming_dco(struct context *c)
         return;
     }
 
-    switch (dco->dco_message_type)
+    if (dco->dco_message_type == cmd_del_peer)
     {
-        case OVPN_CMD_DEL_PEER:
-            if (dco->dco_del_peer_reason == OVPN_DEL_PEER_REASON_EXPIRED)
-            {
-                msg(D_DCO_DEBUG, "%s: received peer expired notification of for peer-id "
-                    "%d", __func__, dco->dco_message_peer_id);
-                trigger_ping_timeout_signal(c);
-                return;
-            }
-            break;
-
-        case OVPN_CMD_SWAP_KEYS:
-            msg(D_DCO_DEBUG, "%s: received key rotation notification for peer-id %d",
-                __func__, dco->dco_message_peer_id);
-            tls_session_soft_reset(c->c2.tls_multi);
-            break;
-
-        default:
-            msg(D_DCO_DEBUG, "%s: received message of type %u - ignoring", __func__,
-                dco->dco_message_type);
+        if (dco->dco_del_peer_reason == OVPN_DEL_PEER_REASON_EXPIRED)
+        {
+            msg(D_DCO_DEBUG, "%s: received peer expired notification of for peer-id "
+                "%d", __func__, dco->dco_message_peer_id);
+            trigger_ping_timeout_signal(c);
             return;
+        }
+    }
+    else if (dco->dco_message_type == cmd_swap_keys)
+    {
+        msg(D_DCO_DEBUG, "%s: received key rotation notification for peer-id %d",
+            __func__, dco->dco_message_peer_id);
+        tls_session_soft_reset(c->c2.tls_multi);
+    }
+    else
+    {
+        msg(D_DCO_DEBUG, "%s: received message of type %u - ignoring", __func__,
+            dco->dco_message_type);
+        return;
     }
 
-#endif /* if defined(ENABLE_DCO) && (defined(TARGET_LINUX) || defined(TARGET_FREEBSD)) */
+#endif /* #if defined(ENABLE_DCO) && defined(TARGET_FREEBSD) */
 }
 
 /*
