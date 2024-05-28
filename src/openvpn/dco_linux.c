@@ -92,8 +92,12 @@ resolve_ovpn_netlink_id(int msglevel, dco_context_t *dco)
     }
     set_cloexec(nl_socket_get_fd(nl_sock));
 
-    ret = do_family_name_resolve(nl_sock, msglevel, OVPN_NL_NAME, dco, &dco_ops_v2);
+    ret = do_family_name_resolve(nl_sock, msglevel, OVPN_FAMILY_NAME, dco, &dco_ops_v3);
 
+    if (ret < 0)
+    {
+        ret = do_family_name_resolve(nl_sock, msglevel, OVPN_NL_NAME, dco, &dco_ops_v2);
+    }
 err_sock:
     nl_socket_free(nl_sock);
     return ret;

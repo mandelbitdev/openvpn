@@ -27,6 +27,7 @@
 #include "event.h"
 
 #include "ovpn_dco_linux.h"
+#include "ovpn_dco_v3.h"
 
 #include <netlink/socket.h>
 #include <netlink/netlink.h>
@@ -100,6 +101,7 @@ struct dco_ops
 };
 
 extern const struct dco_ops dco_ops_v2;
+extern const struct dco_ops dco_ops_v3;
 
 int ovpn_get_mcast_id(dco_context_t *dco);
 

@@ -52,38 +52,6 @@ enum ovpn_v2_nl_commands {
     OVPN_V2_CMD_GET_PEER,
 };
 
-enum ovpn_cipher_alg {
-/**
- * @OVPN_CIPHER_ALG_NONE: No encryption - reserved for debugging only
- */
-	OVPN_CIPHER_ALG_NONE = 0,
-/**
- * @OVPN_CIPHER_ALG_AES_GCM: AES-GCM AEAD cipher with any allowed key size
- */
-	OVPN_CIPHER_ALG_AES_GCM,
-/**
- * @OVPN_CIPHER_ALG_CHACHA20_POLY1305: ChaCha20Poly1305 AEAD cipher
- */
-	OVPN_CIPHER_ALG_CHACHA20_POLY1305,
-}; 
-
-enum ovpn_del_peer_reason {
-    __OVPN_DEL_PEER_REASON_FIRST,
-    OVPN_DEL_PEER_REASON_TEARDOWN = __OVPN_DEL_PEER_REASON_FIRST,
-    OVPN_DEL_PEER_REASON_USERSPACE,
-    OVPN_DEL_PEER_REASON_EXPIRED,
-    OVPN_DEL_PEER_REASON_TRANSPORT_ERROR,
-    OVPN_DEL_PEER_REASON_TRANSPORT_DISCONNECT,
-    __OVPN_DEL_PEER_REASON_AFTER_LAST
-};
-
-enum ovpn_key_slot {
-      __OVPN_KEY_SLOT_FIRST,
-      OVPN_KEY_SLOT_PRIMARY = __OVPN_KEY_SLOT_FIRST,
-      OVPN_KEY_SLOT_SECONDARY,
-      __OVPN_KEY_SLOT_AFTER_LAST,
-};
-
 enum ovpn_v2_netlink_attrs {
     OVPN_V2_ATTR_UNSPEC = 0,
     OVPN_V2_ATTR_IFINDEX,
