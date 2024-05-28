@@ -92,8 +92,12 @@ resolve_ovpn_netlink_id(int msglevel, dco_context_t *dco)
     }
     set_cloexec(nl_socket_get_fd(nl_sock));
 
-    ret = do_family_name_resolve(nl_sock, msglevel, OVPN_NL_NAME, dco, &dco_ops_v2);
+    ret = do_family_name_resolve(nl_sock, msglevel, OVPN_FAMILY_NAME, dco, &dco_ops_v3);
 
+    if (ret < 0)
+    {
+        ret = do_family_name_resolve(nl_sock, msglevel, OVPN_NL_NAME, dco, &dco_ops_v2);
+    }
 err_sock:
     nl_socket_free(nl_sock);
     return ret;
@@ -290,11 +294,11 @@ ovpn_dco_init(int mode, dco_context_t *dco)
     switch (mode)
     {
         case CM_TOP:
-            dco->ifmode = OVPN_MODE_MP;
+            dco->ifmode = OVPN_V2_MODE_MP;
             break;
 
         case CM_P2P:
-            dco->ifmode = OVPN_MODE_P2P;
+            dco->ifmode = OVPN_V2_MODE_P2P;
             break;
 
         default:
@@ -406,7 +410,8 @@ ovpn_get_mcast_id(dco_context_t *dco)
     genlmsg_put(nl_msg, 0, 0, ctrlid, 0, 0, CTRL_CMD_GETFAMILY, 0);
 
     int ret = -EMSGSIZE;
-    NLA_PUT_STRING(nl_msg, CTRL_ATTR_FAMILY_NAME, OVPN_NL_NAME);
+    NLA_PUT_STRING(nl_msg, CTRL_ATTR_FAMILY_NAME, OVPN_FAMILY_NAME);
+    //NLA_PUT_STRING(nl_msg, CTRL_ATTR_FAMILY_NAME, OVPN_NL_NAME);
 
     ret = ovpn_nl_msg_send(dco, nl_msg, mcast_family_handler, dco, __func__);
 

@@ -1233,6 +1233,14 @@ process_incoming_dco(struct context *c)
     int cmd_del_peer = OVPN_CMD_DEL_PEER;
     int cmd_swap_keys = OVPN_CMD_SWAP_KEYS;
 
+#if defined(ENABLE_DCO) && defined(TARGET_LINUX)
+    if (c->c1.tuntap->dco.ops == &dco_ops_v2)
+    {
+        cmd_del_peer = OVPN_V2_CMD_DEL_PEER;
+        cmd_swap_keys = OVPN_V2_CMD_SWAP_KEYS;
+    }
+#endif /* #if defined(ENABLE_DCO) && defined(TARGET_LINUX) */
+
     dco_context_t *dco = &c->c1.tuntap->dco;
 
     dco_do_read(dco);
@@ -1271,7 +1279,7 @@ process_incoming_dco(struct context *c)
         return;
     }
 
-#endif /* #if defined(ENABLE_DCO) && defined(TARGET_FREEBSD) */
+#endif /* #if defined(ENABLE_DCO) && (defined (TARGET_LINUX) || defined(TARGET_FREEBSD)) */
 }
 
 /*
