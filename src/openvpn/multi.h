@@ -37,6 +37,7 @@
 #include "pool.h"
 #include "mudp.h"
 #include "mtcp.h"
+#include "multi_io.h"
 #include "perf.h"
 #include "vlan.h"
 #include "reflect_filter.h"
@@ -174,8 +175,8 @@ struct multi_context {
     struct mbuf_set *mbuf;      /**< Set of buffers for passing data
                                  *   channel packets between VPN tunnel
                                  *   instances. */
-    struct multi_tcp *mtcp;     /**< State specific to OpenVPN using TCP
-                                 *   as external transport. */
+    struct multi_protocol *multi_io;     /**< State specific to OpenVPN using TCP
+                                          *   as external transport. */
     struct ifconfig_pool *ifconfig_pool;
     struct frequency_limit *new_connection_limiter;
     struct initial_packet_rate_limit *initial_rate_limiter;
@@ -276,7 +277,7 @@ void multi_top_init(struct multi_context *m, struct context *top);
 void multi_top_free(struct multi_context *m);
 
 struct multi_instance *multi_create_instance(struct multi_context *m, const struct mroute_addr *real,
-                                             struct link_socket *ls);
+                                             struct link_socket *sock);
 
 void multi_close_instance(struct multi_context *m, struct multi_instance *mi, bool shutdown);
 
@@ -291,7 +292,7 @@ bool multi_process_timeout(struct multi_context *m, const unsigned int mpp_flags
  * updates hashtables in multi_context.
  */
 void multi_process_float(struct multi_context *m, struct multi_instance *mi,
-                         struct link_socket *ls);
+                         struct link_socket *sock);
 
 #define MPP_PRE_SELECT             (1<<0)
 #define MPP_CONDITIONAL_PRE_SELECT (1<<1)
@@ -356,10 +357,10 @@ bool multi_process_incoming_dco(struct multi_context *m);
  *                       when using TCP transport. Otherwise NULL, as is
  *                       the case when using UDP transport.
  * @param mpp_flags    - Fast I/O optimization flags.
- * @param ls           - Socket where the packet was received.
+ * @param sock           - Socket where the packet was received.
  */
 bool multi_process_incoming_link(struct multi_context *m, struct multi_instance *instance, const unsigned int mpp_flags,
-                                 struct link_socket *ls);
+                                 struct link_socket *sock);
 
 
 /**

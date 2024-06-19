@@ -50,6 +50,7 @@
 #include "openvpn.h"
 #include "occ.h"
 #include "ping.h"
+#include "multi_io.h"
 
 #define IOW_TO_TUN          (1<<0)
 #define IOW_TO_LINK         (1<<1)
@@ -308,7 +309,7 @@ void reschedule_multi_process(struct context *c);
 
 
 void process_ip_header(struct context *c, unsigned int flags, struct buffer *buf,
-                       struct link_socket *ls);
+                       struct link_socket *sock);
 
 bool schedule_exit(struct context *c);
 

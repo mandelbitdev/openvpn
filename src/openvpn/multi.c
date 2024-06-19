@@ -440,7 +440,7 @@ multi_init(struct multi_context *m, struct context *t, bool tcp_mode)
      */
     if (tcp_mode)
     {
-        m->mtcp = multi_tcp_init(t->options.max_clients, &m->max_clients);
+        m->multi_io = multi_protocol_init(t->options.max_clients, &m->max_clients);
     }
     m->tcp_queue_limit = t->options.tcp_queue_limit;
 
@@ -665,9 +665,9 @@ multi_close_instance(struct multi_context *m,
             mi->did_iroutes = false;
         }
 
-        if (m->mtcp)
+        if (m->multi_io)
         {
-            multi_tcp_dereference_instance(m->mtcp, mi);
+            multi_tcp_dereference_instance(m->multi_io, mi);
         }
 
         mbuf_dereference_instance(m->mbuf, mi);
@@ -745,7 +745,7 @@ multi_uninit(struct multi_context *m)
         initial_rate_limit_free(m->initial_rate_limiter);
         multi_reap_free(m->reaper);
         mroute_helper_free(m->route_helper);
-        multi_tcp_free(m->mtcp);
+        multi_protocol_free(m->multi_io);
     }
 }
 
@@ -754,7 +754,7 @@ multi_uninit(struct multi_context *m)
  */
 struct multi_instance *
 multi_create_instance(struct multi_context *m, const struct mroute_addr *real,
-                      struct link_socket *ls)
+                      struct link_socket *sock)
 {
     struct gc_arena gc = gc_new();
     struct multi_instance *mi;
@@ -778,7 +778,7 @@ multi_create_instance(struct multi_context *m, const struct mroute_addr *real,
     }
 
     mi->did_open_context = true;
-    inherit_context_child(&mi->context, &m->top, ls);
+    inherit_context_child(&mi->context, &m->top, sock);
     if (IS_SIG(&mi->context))
     {
         goto err;
@@ -3130,7 +3130,7 @@ multi_process_post(struct multi_context *m, struct multi_instance *mi, const uns
 
 void
 multi_process_float(struct multi_context *m, struct multi_instance *mi,
-                    struct link_socket *ls)
+                    struct link_socket *sock)
 {
     struct mroute_addr real = {0};
     struct hash *hash = m->hash;
@@ -3186,7 +3186,7 @@ multi_process_float(struct multi_context *m, struct multi_instance *mi,
     mi->context.c2.to_link_addr = &mi->context.c2.from;
 
     /* inherit parent link_socket and link_socket_info */
-    mi->context.c2.link_sockets[0] = ls;
+    mi->context.c2.link_sockets[0] = sock;
     mi->context.c2.link_socket_infos[0]->lsa->actual = m->top.c2.from;
 
     tls_update_remote_addr(mi->context.c2.tls_multi, &mi->context.c2.from);
@@ -3336,7 +3336,7 @@ multi_process_incoming_dco(struct multi_context *m)
  */
 bool
 multi_process_incoming_link(struct multi_context *m, struct multi_instance *instance, const unsigned int mpp_flags,
-                            struct link_socket *ls)
+                            struct link_socket *sock)
 {
     struct gc_arena gc = gc_new();
 
@@ -3357,7 +3357,7 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
 #ifdef MULTI_DEBUG_EVENT_LOOP
         printf("TCP/UDP -> TUN [%d]\n", BLEN(&m->top.c2.buf));
 #endif
-        multi_set_pending(m, multi_get_create_instance_udp(m, &floated, ls));
+        multi_set_pending(m, multi_get_create_instance_udp(m, &floated, sock));
     }
     else
     {
@@ -3398,7 +3398,7 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
                 /* nonzero length means that we have a valid, decrypted packed */
                 if (floated && c->c2.buf.len > 0)
                 {
-                    multi_process_float(m, m->pending, ls);
+                    multi_process_float(m, m->pending, sock);
                 }
 
                 process_incoming_link_part2(c, lsi, orig_buf);
@@ -3978,9 +3978,9 @@ static void
 management_delete_event(void *arg, event_t event)
 {
     struct multi_context *m = (struct multi_context *) arg;
-    if (m->mtcp)
+    if (m->multi_io)
     {
-        multi_tcp_delete_event(m->mtcp, event);
+        multi_tcp_delete_event(m->multi_io, event);
     }
 }
 

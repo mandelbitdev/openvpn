@@ -1659,7 +1659,7 @@ ipv6_send_icmp_unreachable(struct context *c, struct buffer *buf, bool client)
 
 void
 process_ip_header(struct context *c, unsigned int flags, struct buffer *buf,
-                  struct link_socket *ls)
+                  struct link_socket *sock)
 {
     if (!c->options.ce.mssfix)
     {
@@ -1693,7 +1693,7 @@ process_ip_header(struct context *c, unsigned int flags, struct buffer *buf,
             /* extract TOS from IP header */
             if (flags & PIPV4_PASSTOS)
             {
-                link_socket_extract_tos(ls, &ipbuf);
+                link_socket_extract_tos(sock, &ipbuf);
             }
 #endif
 
