@@ -4912,7 +4912,7 @@ close_instance(struct context *c)
 void
 inherit_context_child(struct context *dest,
                       const struct context *src,
-                      struct link_socket *ls)
+                      struct link_socket *sock)
 {
     CLEAR(*dest);
 
@@ -4951,7 +4951,7 @@ inherit_context_child(struct context *dest,
          * The CM_TOP context does the socket listen(),
          * and the CM_CHILD_TCP context does the accept().
          */
-        dest->c2.accept_from = ls;
+        dest->c2.accept_from = sock;
     }
 
 #ifdef ENABLE_PLUGIN
@@ -4985,13 +4985,13 @@ inherit_context_child(struct context *dest,
                        &dest->gc);
 
         /* inherit parent link_socket and tuntap */
-        dest->c2.link_sockets[0] = ls;
+        dest->c2.link_sockets[0] = sock;
 
         ALLOC_ARRAY_GC(dest->c2.link_socket_infos, struct link_socket_info *, 1,
                        &dest->gc);
         ALLOC_OBJ_GC(dest->c2.link_socket_infos[0], struct link_socket_info,
                      &dest->gc);
-        *dest->c2.link_socket_infos[0] = ls->info;
+        *dest->c2.link_socket_infos[0] = sock->info;
 
         /* locally override some link_socket_info fields */
         dest->c2.link_socket_infos[0]->lsa = &dest->c1.link_socket_addrs[0];
