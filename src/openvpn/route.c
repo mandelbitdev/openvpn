@@ -1571,6 +1571,7 @@ add_route(struct route_ipv4 *r,
 {
     int status = 0;
     int is_local_route;
+    bool gateway_needed = false;
 
     if (!(r->flags & RT_DEFINED))
     {
@@ -1580,8 +1581,8 @@ add_route(struct route_ipv4 *r,
     struct argv argv = argv_new();
     struct gc_arena gc = gc_new();
 
-#if !defined(TARGET_LINUX)
     const char *network = print_in_addr_t(r->network, 0, &gc);
+#if !defined(TARGET_LINUX)
 #if !defined(TARGET_AIX)
     const char *netmask = print_in_addr_t(r->netmask, 0, &gc);
 #endif
@@ -1594,8 +1595,39 @@ add_route(struct route_ipv4 *r,
         goto done;
     }
 
+#ifndef _WIN32
+    if (rgi && (rgi->flags & RGI_IFACE_DEFINED) && rgi->iface[0] != 0)  /* vpn server special route */
+    {
+        if (rgi->flags & RGI_ADDR_DEFINED && r->gateway != 0)
+        {
+            gateway_needed = true;
+        }
+    }
+#endif
+
+    if (tt->type == DEV_TYPE_TAP
+        && !( (r->flags & RT_METRIC_DEFINED) && r->metric == 0 ) )
+    {
+        gateway_needed = true;
+    }
+
+    if (gateway_needed && r->gateway == 0)
+    {
+        msg(M_WARN, "ROUTE WARNING: " PACKAGE_NAME " needs a gateway "
+            "parameter for a --route option and no default was set via "
+            "--route-gateway or --ifconfig option. Not installing "
+            "IPv4 route to %s/%d.", network, netmask_to_netbits2(r->netmask));
+        status = 0;
+        goto done;
+    }
+
 #if defined(TARGET_LINUX)
-    const char *iface = NULL;
+    const char *iface = tt->actual_name;
+    if (!gateway_needed && rgi && (rgi->flags & RGI_IFACE_DEFINED) && rgi->iface[0] != 0)  /* vpn server special route */
+    {
+        iface = rgi->iface;
+    }
+
     int metric = -1;
 
     if (is_on_link(is_local_route, flags, rgi))
@@ -1610,7 +1642,8 @@ add_route(struct route_ipv4 *r,
 
     status = RTA_SUCCESS;
     int ret = net_route_v4_add(ctx, &r->network, netmask_to_netbits2(r->netmask),
-                               &r->gateway, iface, 0, metric);
+                               gateway_needed ? &r->gateway : NULL,
+                               iface, 0, metric);
     if (ret == -EEXIST)
     {
         msg(D_ROUTE, "NOTE: Linux route add command failed because route exists");
