@@ -1479,6 +1479,7 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
 {
     int status = 0;
     int is_local_route;
+    bool gateway_needed = false;
 
     if (!(r->flags & RT_DEFINED))
     {
@@ -1488,8 +1489,8 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
     struct argv argv = argv_new();
     struct gc_arena gc = gc_new();
 
-#if !defined(TARGET_LINUX)
     const char *network = print_in_addr_t(r->network, 0, &gc);
+#if !defined(TARGET_LINUX)
 #if !defined(TARGET_AIX)
     const char *netmask = print_in_addr_t(r->netmask, 0, &gc);
 #endif
@@ -1502,8 +1503,47 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
         goto done;
     }
 
+#ifndef _WIN32
+    /* server told us which interface to use; pass gateway if it gave one */
+    if (rgi && (rgi->flags & RGI_IFACE_DEFINED) && rgi->iface[0] != 0)
+    {
+        if (rgi->flags & RGI_ADDR_DEFINED && r->gateway != 0)
+        {
+            gateway_needed = true;
+        }
+    }
+#endif
+
+    /* TAP is an L2 device, so for destinations that are not explicitly
+     * on-link the kernel needs a gateway so it can ARP/ND for the
+     * MAC address. We make an exception only when the user explicitly sets
+     * metric 0, which is taken as a request for an on-link “route to
+     * interface” (no gateway). This keeps parity with the IPv6 code.
+     */
+    if (tt->type == DEV_TYPE_TAP
+        && !((r->flags & RT_METRIC_DEFINED) && r->metric == 0))
+    {
+        gateway_needed = true;
+    }
+
+    if (gateway_needed && r->gateway == 0)
+    {
+        msg(M_WARN, "ROUTE WARNING: " PACKAGE_NAME " needs a gateway "
+                    "parameter for a --route option and no default was set via "
+                    "--route-gateway or --ifconfig option. Not installing "
+                    "IPv4 route to %s/%d.",
+            network, netmask_to_netbits2(r->netmask));
+        status = 0;
+        goto done;
+    }
+
 #if defined(TARGET_LINUX)
-    const char *iface = NULL;
+    const char *iface = tt->actual_name;
+    if (!gateway_needed && rgi && (rgi->flags & RGI_IFACE_DEFINED) && rgi->iface[0] != 0) /* vpn server special route */
+    {
+        iface = rgi->iface;
+    }
+
     int metric = -1;
 
     if (is_on_link(is_local_route, flags, rgi))
@@ -1518,7 +1558,8 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
 
 
     status = RTA_SUCCESS;
-    int ret = net_route_v4_add(ctx, &r->network, netmask_to_netbits2(r->netmask), &r->gateway,
+    int ret = net_route_v4_add(ctx, &r->network, netmask_to_netbits2(r->netmask),
+                               gateway_needed ? &r->gateway : NULL,
                                iface, r->table_id, metric);
     if (ret == -EEXIST)
     {

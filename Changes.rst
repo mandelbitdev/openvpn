@@ -170,6 +170,13 @@ Improved logging of service events/errors to event log on Windows.
 COPYING: license details only relevant to our Windows installers have
    been updated and moved to the openvpn-build repo
 
+The route gateway is now only added for IPv4 when strictly necessary.
+  The gateway-needed logic previously applied to IPv6 only has been copied
+  and extended to IPv4 route handling.  Route additions now omit the
+  gateway unless required after checking device type, special routes,
+  on-link gateways, and whether the gateway lies inside the VPN subnet,
+  optimizing route configuration and potentially reducing redundant route
+  entries.
 
 Deprecated features
 -------------------
