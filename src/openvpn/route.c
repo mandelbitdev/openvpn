@@ -1892,9 +1892,10 @@ add_route(struct route_ipv4 *r,
                         netmask);
     }
     else
-    {
-        argv_printf_cat(&argv, "-net %s -interface %s",
+    {/* route add -inet 10.10.10.0 -netmask 255.255.255.0 -link -iface tun0 */
+        argv_printf_cat(&argv, "-net %s -netmask %s -link -iface %s",
                         network,
+			netmask,
                         device);
     }
     /* FIXME -- add on-link support for OpenBSD/NetBSD */
