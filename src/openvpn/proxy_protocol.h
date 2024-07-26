@@ -60,6 +60,25 @@
 #define PROXY_PROTOCOL_V2_TP_STREAM (0x1 << 0)
 #define PROXY_PROTOCOL_V2_TP_DGRAM  (0x2 << 0)
 
+#define PROXY_PROTOCOL_TLV_TYPE_ALPN            0x01
+#define PROXY_PROTOCOL_TLV_TYPE_AUTHORITY       0x02
+#define PROXY_PROTOCOL_TLV_TYPE_CRC32C          0x03
+#define PROXY_PROTOCOL_TLV_TYPE_NOOP            0x04
+#define PROXY_PROTOCOL_TLV_TYPE_UNIQUE_ID       0x05
+#define PROXY_PROTOCOL_TLV_TYPE_SSL             0x20
+#define PROXY_PROTOCOL_TLV_SUBTYPE_SSL_VERSION  0x21
+#define PROXY_PROTOCOL_TLV_SUBTYPE_SSL_CN       0x22
+#define PROXY_PROTOCOL_TLV_SUBTYPE_SSL_CIPHER   0x23
+#define PROXY_PROTOCOL_TLV_SUBTYPE_SSL_SIG_ALG  0x24
+#define PROXY_PROTOCOL_TLV_SUBTYPE_SSL_KEY_ALG  0x25
+#define PROXY_PROTOCOL_TLV_TYPE_NETNS           0x30
+
+#define PROXY_PROTOCOL_V2_CLIENT_SSL          0x01
+#define PROXY_PROTOCOL_V2_CLIENT_CERT_CONN    0x02
+#define PROXY_PROTOCOL_V2_CLIENT_CERT_SESS    0x04
+
+#define PROXY_PROTOCOL_V2_TLV_UNIQUE_ID_MAX_LEN 128
+
 typedef enum
 {
     PROXY_PROTOCOL_VERSION_INVALID = -1,
@@ -68,6 +87,22 @@ typedef enum
     PROXY_PROTOCOL_VERSION_1,
     PROXY_PROTOCOL_VERSION_2,
 } proxy_protocol_version_t;
+
+struct proxy_protocol_tlv
+{
+    uint8_t type;
+    uint8_t length_hi;
+    uint8_t length_lo;
+    uint8_t value[0];
+};
+
+#pragma pack(push, 1)
+struct proxy_protocol_tlv_ssl
+{
+    uint8_t client;
+    uint32_t verify;
+} __attribute__((packed));
+#pragma pack(pop)
 
 /* HAProxy PROXY protocol header */
 typedef union
@@ -115,6 +150,23 @@ struct proxy_protocol_info
     int sock_type;
     struct openvpn_sockaddr src;
     struct openvpn_sockaddr dst;
+
+    /* data extracted from TLVs */
+    char *alpn;
+    char *authority;
+
+    uint8_t unique_id[PROXY_PROTOCOL_V2_TLV_UNIQUE_ID_MAX_LEN + 1];
+    uint16_t unique_id_len;
+
+    uint8_t ssl_client;
+    uint32_t ssl_verify;
+    char *ssl_version;
+    char *ssl_cn;
+    char *ssl_cipher;
+    char *ssl_sig_alg;
+    char *ssl_key_alg;
+
+    char *netns;
 };
 
 /*
