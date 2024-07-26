@@ -45,6 +45,7 @@
 #include "pool.h"
 #include "plugin.h"
 #include "manage.h"
+#include "proxy_protocol.h"
 
 /*
  * Our global key schedules, packaged thusly
@@ -190,6 +191,8 @@ struct context_1
     /* SOCKS proxy object */
     struct socks_proxy_info *socks_proxy;
     bool socks_proxy_owned;
+
+    struct proxy_protocol_info *proxy_protocol;
 
     /* persist --ifconfig-pool db to file */
     struct ifconfig_pool_persist *ifconfig_pool_persist;
