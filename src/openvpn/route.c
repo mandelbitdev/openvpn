@@ -2117,7 +2117,8 @@ add_route_ipv6(struct route_ipv6 *r6, const struct tuntap *tt,
 
 #if defined(TARGET_DARWIN) || defined(TARGET_LINUX)  \
     || defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY)    \
-    || defined(TARGET_OPENBSD) || defined(TARGET_ANDROID)
+    || defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)  \
+    || defined(TARGET_ANDROID)
 
     const char *device = tt->actual_name;
     if (r6->iface != NULL)
@@ -2343,12 +2344,16 @@ delete_route(struct route_ipv4 *r,
 #if defined(TARGET_DARWIN) || defined(TARGET_LINUX)  \
     || defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY)    \
     || defined(TARGET_OPENBSD)
+
     bool gateway_needed = is_gateway_needed_ipv4(r, rgi, tt, is_multipoint);
+
+#if !defined(TARGET_OPENBSD)
     const char *device = tt->actual_name;
     if (!gateway_needed && rgi && (rgi->flags & RGI_IFACE_DEFINED) && rgi->iface[0] != 0)  /* vpn server special route */
     {
         device = rgi->iface;
     }
+#endif
 #endif
 
     if ((r->flags & (RT_DEFINED|RT_ADDED)) != (RT_DEFINED|RT_ADDED))
@@ -2583,7 +2588,9 @@ delete_route_ipv6(const struct route_ipv6 *r6, const struct tuntap *tt,
 #if !defined(TARGET_LINUX)
     const char *gateway;
 #endif
-#if !defined(TARGET_SOLARIS)
+#if defined(TARGET_DARWIN) || defined(TARGET_LINUX)  \
+    || defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY)
+
     const char *device = tt->actual_name;
     if (r6->iface != NULL)              /* vpn server special route */
     {
@@ -2603,7 +2610,7 @@ delete_route_ipv6(const struct route_ipv6 *r6, const struct tuntap *tt,
 
 #if defined(TARGET_DARWIN) || defined(TARGET_LINUX)  \
     || defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY)    \
-    || defined(TARGET_OPENBSD)
+    || defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)
     /* if we used a gateway on "add route", we also need to specify it on
      * delete, otherwise some OSes will refuse to delete the route
      */
