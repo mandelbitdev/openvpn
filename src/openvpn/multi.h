@@ -293,6 +293,15 @@ bool multi_process_timeout(struct multi_context *m, const unsigned int mpp_flags
 void multi_process_float(struct multi_context *m, struct multi_instance *mi,
                          struct link_socket *ls);
 
+/**
+ * Replaces the proxy address with the real client address obtained via the
+ * HAProxy PROXY protocol.
+ *
+ * If the real address is already in use, the new client will take precedence.
+ */
+void
+multi_replace_proxy_addr(struct multi_context *m, struct multi_instance *mi);
+
 #define MPP_PRE_SELECT             (1<<0)
 #define MPP_CONDITIONAL_PRE_SELECT (1<<1)
 #define MPP_CLOSE_ON_SIGNAL        (1<<2)

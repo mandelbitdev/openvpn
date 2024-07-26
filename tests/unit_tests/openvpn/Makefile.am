@@ -10,8 +10,9 @@ if HAVE_LD_WRAP_SUPPORT
 test_binaries += argv_testdriver buffer_testdriver
 endif
 
-test_binaries += crypto_testdriver packet_id_testdriver auth_token_testdriver ncp_testdriver misc_testdriver \
-	pkt_testdriver ssl_testdriver user_pass_testdriver
+test_binaries += crypto_testdriver packet_id_testdriver auth_token_testdriver \
+				 haproxy_protocol_testdriver ncp_testdriver misc_testdriver \
+				 pkt_testdriver ssl_testdriver user_pass_testdriver
 
 if HAVE_LD_WRAP_SUPPORT
 if !WIN32
@@ -73,6 +74,16 @@ crypto_testdriver_SOURCES = test_crypto.c mock_msg.c mock_msg.h \
 	$(top_srcdir)/src/openvpn/mtu.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
 	$(top_srcdir)/src/openvpn/mss.c
+
+haproxy_protocol_testdriver_CFLAGS  = \
+	-I$(top_srcdir)/include -I$(top_srcdir)/src/openvpn -I$(top_srcdir)/src/compat \
+	@TEST_CFLAGS@
+haproxy_protocol_testdriver_LDFLAGS = @TEST_LDFLAGS@
+haproxy_protocol_testdriver_SOURCES = test_haproxy_protocol.c mock_msg.c mock_msg.h \
+	mock_get_random.c \
+	$(top_srcdir)/src/openvpn/platform.c \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/haproxy_protocol.c
 
 ssl_testdriver_CFLAGS  = \
 	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \

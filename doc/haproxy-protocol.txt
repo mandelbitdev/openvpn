@@ -1,0 +1,166 @@
+HAProxy PROXY protocol support for OpenVPN
+==========================================
+
+The PROXY protocol is a simple protocol that can be used to retreive the
+original source address of a connection that has been proxied. Every connection
+is prepended with a header reporting the client IP address and port. This
+document aims to breifly describe the protocol and how it can be tested in
+OpenVPN. For more information about the protocol, see the official
+specification at https://www.haproxy.org/download/2.4/doc/proxy-protocol.txt.
+
+Currently there are two versions of the protocol, a text based version (v1) and
+a binary version (v2). Although the binary version is more efficient, the text
+based version is still the only version supported by some proxies therefore it
+we support both versions.
+
+The protocol is agnostic to the underlying transport protocol, so it can be used
+with both TCP, UDP and UNIX sockets but currently only TCP is supported by
+OpenVPN.
+
+Version 1
+---------
+
+The text based version is a human readable protocol that is easy to debug. It
+consists of a single line of text with the following fields:
+
+PROXY_SIGNATURE_V1 + single space + INET_PROTOCOL + single space + CLIENT_IP +
+single space + PROXY_IP + single space + CLIENT_PORT + single space +
+PROXY_PORT + "\r\n"
+
+The only supported INET_PROTOCOL in version 1 are "TCP4" and "TCP6".
+
+Version 2
+---------
+
+The binary version is a more efficient protocol that is more suitable for
+production use. It consists of a fixed length header followed by the original
+connection data.
+
+A PROXY Protocol binary header for an IPv4 incoming address has the format:
+ 0               1               2               3
+ 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
++                                                               +
+|                  Proxy Protocol v2 Signature                  |
++                                                               +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Version|Command|   AF  | Proto.|         Address Length        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      IPv4 Source Address                      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    IPv4 Destination Address                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Source Port          |        Destination Port       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
++                                                               +
++                              TLVs                             +
++                                                               +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+A PROXY Protocol binary header for a IPv6 incoming address has the format:
+ 0               1               2               3
+ 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7 0 1 2 3 4 5 6 7
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
++                                                               +
+|                  Proxy Protocol v2 Signature                  |
++                                                               +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Version|Command|   AF  | Proto.|         Address Length        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
++                                                               +
+|                                                               |
++                      IPv6 Source Address                      +
+|                                                               |
++                                                               +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
++                                                               +
+|                                                               |
++                    IPv6 Destination Address                   +
+|                                                               |
++                                                               +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Source Port          |        Destination Port       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
++                                                               +
++                              TLVs                             +
++                                                               +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+The fields are as follows:
+
+- Proxy Protocol v2 Signature: 12 bytes
+  The v2 signature of the protocol: "\x0D\x0A\x0D\x0A\x00\x0D\x0A\x51\x55\x49\x54\x0A\x20".
+
+- Version: 4 bits
+  The version of the PROXY protocol (0x2).
+
+- Command: 4 bits
+  Can by one of the following:
+    - LOCAL: 0x0
+      The connection was initiated by the proxy for health-checks or similar.
+      This command is not supported and therefore the header is ignored.
+    - PROXY: 0x1
+      The connection was initiated by the client.
+
+- AF: 4 bits
+    The address family of the connection can be: AF_UNSPEC (0x0), AF_INET (0x1),
+    AF_INET6 (0x2) or AF_UNIX (0x3). Only AF_INET and AF_INET6 are supported.
+
+- Proto: 4 bits
+    The protocol of the connection can be: UNSPEC (0x0), STREAM (0x1) or
+    DGRAM (0x2). Only STREAM is supported.
+
+- Address Length: 16 bits
+    The length of the rest of the header in bytes.
+
+Finally there may be additional data arranged as a series of TLV
+(Type-Length-Value) vectors that can be used to carry additional information.
+
+OpenVPN testing
+---------------
+
+Currently only TCP is supported. To test the PROXY protocol support in OpenVPN,
+you can use HAProxy as a proxy with a configuration like this:
+
+global
+    log stdout format raw local0
+    log 127.0.0.1 local0 debug
+    daemon
+
+defaults
+    log     global
+    mode    tcp
+    option  tcplog
+    timeout connect 5000ms
+    timeout client  50000ms
+    timeout server  50000ms
+
+frontend openvpn_front
+    bind 10.10.20.1:1195
+    default_backend openvpn_back
+
+backend openvpn_back
+    server openvpn_server 10.10.10.1:1194 send-proxy
+    # server openvpn_server 10.10.10.1:1194 send-proxy-v2 proxy-v2-options ssl,cert-cn,ssl-cipher,cert-sig,cert-key,authority,crc32c,unique-id
+
+
+You can use the commented line to test the binary format and the TLV data
+instead of the text based format.
+
+Note that you should set the keepalive option so that the connection is not
+reset by HAProxy for inactivity (timeout option in the config).
+
+The OpenVPN TCP server should read and parse the header and use the information
+to display the original source address in the logs.

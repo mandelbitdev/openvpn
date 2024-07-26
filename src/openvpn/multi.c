@@ -51,6 +51,7 @@
 #include "ssl_util.h"
 #include "dco.h"
 #include "reflect_filter.h"
+#include "haproxy_protocol.h"
 
 /*#define MULTI_DEBUG_EVENT_LOOP*/
 
@@ -780,6 +781,8 @@ multi_create_instance(struct multi_context *m, const struct mroute_addr *real,
         goto err;
     }
 
+    ALLOC_OBJ_CLEAR(mi->context.c1.haproxy_protocol, struct haproxy_protocol_info);
+
     mi->context.c2.tls_multi->multi_state = CAS_NOT_CONNECTED;
 
     if (hash_n_elements(m->hash) >= m->max_clients)
@@ -790,6 +793,9 @@ multi_create_instance(struct multi_context *m, const struct mroute_addr *real,
 
     if (!real) /* TCP mode? */
     {
+        /* allow checking for HAProxy protocol header at the beginning of the connection */
+        ls->haproxy_protocol_allowed = true;
+
         if (!multi_tcp_instance_specific_init(m, mi))
         {
             goto err;
@@ -3199,6 +3205,57 @@ done:
     gc_free(&gc);
 }
 
+void
+multi_replace_proxy_addr(struct multi_context *m, struct multi_instance *mi)
+{
+    struct mroute_addr real = {0};
+    struct hash *hash = m->hash;
+    struct gc_arena gc = gc_new();
+
+    if (!mroute_extract_openvpn_sockaddr(&real, &mi->context.c1.haproxy_protocol->src, true))
+    {
+        goto done;
+    }
+
+    const uint32_t hv = hash_value(hash, &real);
+    struct hash_bucket *bucket = hash_bucket(hash, hv);
+
+    /* if the new address is already in the hash table, the new client takes precedence */
+    struct hash_element *he = hash_lookup_fast(hash, bucket, &real, hv);
+    if (he)
+    {
+        struct multi_instance *oldmi = (struct multi_instance *) he->value;
+        msg(D_MULTI_LOW, "Client's real address (behind proxy) matches "
+            "existing client address -- new client takes precedence");
+        oldmi->did_real_hash = false;
+        multi_close_instance(m, oldmi, false);
+        he->key = &mi->real;
+        he->value = mi;
+    }
+
+    clear_prefix();
+    msg(D_MULTI_LOW, "Replacing proxy address: %s with client's real address: %s",
+        mroute_addr_print(&mi->real, &gc),
+        mroute_addr_print(&real, &gc));
+
+    /* remove proxy address from hash table before changing address */
+    ASSERT(hash_remove(m->hash, &mi->real));
+    ASSERT(hash_remove(m->iter, &mi->real));
+
+    mi->real = real;
+    generate_prefix(mi);
+
+    ASSERT(hash_add(m->hash, &mi->real, mi, false));
+    ASSERT(hash_add(m->iter, &mi->real, mi, false));
+
+#ifdef ENABLE_MANAGEMENT
+    ASSERT(hash_add(m->cid_hash, &mi->context.c2.mda_context.cid, mi, true));
+#endif
+
+done:
+    gc_free(&gc);
+}
+
 /*
  * Called when an instance should be closed due to the
  * reception of a soft signal.
@@ -3341,6 +3398,7 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
     struct mroute_addr src, dest;
     unsigned int mroute_flags;
     struct multi_instance *mi;
+    struct link_socket_info *lsi;
     bool ret = true;
     bool floated = false;
 
@@ -3380,15 +3438,28 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
             }
         }
 
+        lsi = get_link_socket_info(c);
+
+        /* check for PROXY protocol */
+        if (lsi->proto == PROTO_TCP_SERVER && ls->haproxy_protocol_allowed && BLEN(&c->c2.buf) > 0)
+        {
+            if (haproxy_protocol_parse(c->c1.haproxy_protocol, BPTR(&c->c2.buf), BLEN(&c->c2.buf)))
+            {
+                multi_replace_proxy_addr(m, m->pending);
+                /* avoid processing the packet as an openvpn one */
+                buf_reset_len(&c->c2.buf);
+            }
+            /* stop checking for HAProxy protocol headers */
+            ls->haproxy_protocol_allowed = false;
+        }
+
         if (BLEN(&c->c2.buf) > 0)
         {
-            struct link_socket_info *lsi;
             const uint8_t *orig_buf;
 
             /* decrypt in instance context */
 
             perf_push(PERF_PROC_IN_LINK);
-            lsi = get_link_socket_info(c);
             orig_buf = c->c2.buf.data;
             if (process_incoming_link_part1(c, lsi, floated))
             {

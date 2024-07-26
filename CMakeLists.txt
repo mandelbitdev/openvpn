@@ -422,6 +422,8 @@ set(SOURCE_FILES
     src/openvpn/fragment.h
     src/openvpn/gremlin.c
     src/openvpn/gremlin.h
+    src/openvpn/haproxy_protocol.c
+    src/openvpn/haproxy_protocol.h
     src/openvpn/helper.c
     src/openvpn/helper.h
     src/openvpn/httpdigest.c

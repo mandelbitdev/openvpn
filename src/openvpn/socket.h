@@ -244,6 +244,9 @@ struct link_socket
     const char *proxy_dest_host;
     const char *proxy_dest_port;
 
+    /* check HAProxy PROXY protocol only if true */
+    bool haproxy_protocol_allowed;
+
     /* Pointer to the server-poll to trigger the timeout in function which have
      * their own loop instead of using the main oop */
     struct event_timeout *server_poll_timeout;

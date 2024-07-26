@@ -68,6 +68,7 @@ openvpn_SOURCES = \
 	forward.c forward.h \
 	fragment.c fragment.h \
 	gremlin.c gremlin.h \
+	haproxy_protocol.c haproxy_protocol.h \
 	helper.c helper.h \
 	httpdigest.c httpdigest.h \
 	lladdr.c lladdr.h \

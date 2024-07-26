@@ -55,6 +55,7 @@
 #include "mudp.h"
 #include "dco.h"
 #include "tun_afunix.h"
+#include "haproxy_protocol.h"
 
 #include "memdbg.h"
 
@@ -4073,6 +4074,14 @@ do_close_link_socket(struct context *c)
 
             c->c1.link_socket_addrs[i].bind_local = NULL;
         }
+    }
+
+    /* Clear and free the memory allocated for the HAProxy protocol obj */
+    if (c->c1.haproxy_protocol)
+    {
+        haproxy_protocol_reset(c->c1.haproxy_protocol);
+        free(c->c1.haproxy_protocol);
+        c->c1.haproxy_protocol = NULL;
     }
 }
 
