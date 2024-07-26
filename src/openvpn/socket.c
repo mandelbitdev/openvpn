@@ -39,6 +39,7 @@
 #include "manage.h"
 #include "openvpn.h"
 #include "forward.h"
+#include "proxy_protocol.h"
 
 #include "memdbg.h"
 
@@ -2680,10 +2681,20 @@ stream_buf_added(struct stream_buf *sb,
 
         if (sb->len < 1 || sb->len > sb->maxlen)
         {
-            msg(M_WARN, "WARNING: Bad encapsulated packet length from peer (%d), which must be > 0 and <= %d -- please ensure that --tun-mtu or --link-mtu is equal on both peers -- this condition could also indicate a possible active attack on the TCP link -- [Attempting restart...]", sb->len, sb->maxlen);
-            stream_buf_reset(sb);
-            sb->error = true;
-            return false;
+            /* check if it's a PROXY protocol header */
+
+            /* undo the reading of net_size */
+            ASSERT(buf_prepend(&sb->buf, sizeof(net_size)));
+            const proxy_protocol_version_t pp_version = proxy_protocol_version(BPTR(&sb->buf), BLEN(&sb->buf));
+            const int pp_len = proxy_protocol_header_len(BPTR(&sb->buf), BLEN(&sb->buf), pp_version);
+            if (pp_version <= 0 || pp_len < 0 || pp_len > sb->buf.len)
+            {
+                msg(M_WARN, "WARNING: Bad encapsulated packet length from peer (%d), which must be > 0 and <= %d -- please ensure that --tun-mtu or --link-mtu is equal on both peers -- this condition could also indicate a possible active attack on the TCP link -- [Attempting restart...]", sb->len, sb->maxlen);
+                stream_buf_reset(sb);
+                sb->error = true;
+                return false;
+            }
+            sb->len = pp_len;
         }
     }
 

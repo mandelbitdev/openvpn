@@ -54,6 +54,7 @@
 #include "mss.h"
 #include "mudp.h"
 #include "dco.h"
+#include "proxy_protocol.h"
 
 #include "memdbg.h"
 
@@ -679,6 +680,11 @@ uninit_proxy_dowork(struct context *c)
         socks_proxy_close(c->c1.socks_proxy);
         c->c1.socks_proxy = NULL;
         c->c1.socks_proxy_owned = false;
+    }
+    if (c->c1.proxy_protocol)
+    {
+        proxy_protocol_free(c->c1.proxy_protocol);
+        c->c1.proxy_protocol = NULL;
     }
 }
 
@@ -4774,7 +4780,7 @@ close_instance(struct context *c)
         /* free up environmental variable store */
         do_env_set_destroy(c);
 
-        /* close HTTP or SOCKS proxy */
+        /* close HTTP or SOCKS proxy or PROXY protocol object */
         uninit_proxy(c);
 
         /* garbage collect */
