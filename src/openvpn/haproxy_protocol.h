@@ -88,6 +88,22 @@ typedef enum
     HAPROXY_PROTOCOL_VERSION_2,
 } haproxy_protocol_version_t;
 
+struct haproxy_protocol_tlv
+{
+    uint8_t type;
+    uint8_t length_hi;
+    uint8_t length_lo;
+    uint8_t value[0];
+};
+
+#pragma pack(push, 1)
+struct haproxy_protocol_tlv_ssl
+{
+    uint8_t client;
+    uint32_t verify;
+} __attribute__((packed));
+#pragma pack(pop)
+
 #pragma pack(push, 1)
 typedef union
 {
@@ -127,12 +143,32 @@ typedef union
 } __attribute__((packed)) haproxy_protocol_header_t;
 #pragma pack(pop)
 
+struct haproxy_protocol_tlv_info
+{
+    struct gc_arena gc;
+
+    char *alpn;
+    char *authority;
+    uint8_t unique_id[HAPROXY_PROTOCOL_V2_TLV_UNIQUE_ID_MAX_LEN + 1];
+    uint16_t unique_id_len;
+    uint8_t ssl_client;
+    uint32_t ssl_verify;
+    char *ssl_version;
+    char *ssl_cn;
+    char *ssl_cipher;
+    char *ssl_sig_alg;
+    char *ssl_key_alg;
+    char *netns;
+};
+
 struct haproxy_protocol_info
 {
     haproxy_protocol_version_t version;
     int sock_type;
     struct openvpn_sockaddr src;
     struct openvpn_sockaddr dst;
+
+    struct haproxy_protocol_tlv_info tlv;
 };
 
 /*

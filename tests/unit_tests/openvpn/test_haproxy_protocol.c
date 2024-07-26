@@ -121,6 +121,19 @@ static uint8_t HP2_TEST_WRONG_VER[] = {
     HP2_V4_DST_PORT,
 };
 
+static uint8_t HP2_TEST_WRONG_CRC32C[] = {
+    HP2_SIG,
+    HAPROXY_PROTOCOL_V2_VER | HAPROXY_PROTOCOL_V2_PROXY_CMD,
+    HAPROXY_PROTOCOL_V2_AF_INET | HAPROXY_PROTOCOL_V2_TP_STREAM,
+    0x00, 0x7c, /* length */
+    HP2_V4_SRC_ADDR,
+    HP2_V4_DST_ADDR,
+    HP2_V4_SRC_PORT,
+    HP2_V4_DST_PORT,
+    HP2_TLV,
+    0x03, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00 /* crc32c */
+};
+
 static uint8_t HP2_TEST_PROXY_TCP4[] = {
     HP2_SIG,
     HAPROXY_PROTOCOL_V2_VER | HAPROXY_PROTOCOL_V2_PROXY_CMD,
@@ -232,9 +245,30 @@ compare_hpi_basic(void **state, struct haproxy_protocol_info *actual, struct hap
 }
 
 static bool
+compare_hpi_tlv(void **state, struct haproxy_protocol_info *actual, struct haproxy_protocol_info *expected)
+{
+    return strcmp(actual->tlv.alpn, expected->tlv.alpn) == 0
+           && strcmp(actual->tlv.authority, expected->tlv.authority) == 0
+           && actual->tlv.unique_id_len == expected->tlv.unique_id_len
+           && memcmp(actual->tlv.unique_id, expected->tlv.unique_id, actual->tlv.unique_id_len) == 0
+           && actual->tlv.ssl_client == expected->tlv.ssl_client
+           && actual->tlv.ssl_verify == expected->tlv.ssl_verify
+           && strcmp(actual->tlv.ssl_version, expected->tlv.ssl_version) == 0
+           && strcmp(actual->tlv.ssl_cn, expected->tlv.ssl_cn) == 0
+           && strcmp(actual->tlv.ssl_cipher, expected->tlv.ssl_cipher) == 0
+           && strcmp(actual->tlv.ssl_sig_alg, expected->tlv.ssl_sig_alg) == 0
+           && strcmp(actual->tlv.ssl_key_alg, expected->tlv.ssl_key_alg) == 0
+           && strcmp(actual->tlv.netns, expected->tlv.netns) == 0;
+}
+
+static bool
 compare_hpi(void **state, struct haproxy_protocol_info *actual, struct haproxy_protocol_info *expected)
 {
-    return compare_hpi_basic(state, actual, expected);
+    if (actual->version != HAPROXY_PROTOCOL_VERSION_2)
+    {
+        return compare_hpi_basic(state, actual, expected);
+    }
+    return compare_hpi_basic(state, actual, expected) && compare_hpi_tlv(state, actual, expected);
 }
 
 static int
@@ -305,6 +339,11 @@ test_haproxy_protocol_parse(void **state)
     memset((actual), 0, sizeof(struct haproxy_protocol_info));
     assert_false(haproxy_protocol_parse(actual, HP2_TEST_LOCAL, sizeof(HP2_TEST_LOCAL)));
 
+    /* v2 wrong crc32c */
+    haproxy_protocol_reset(actual);
+    memset((actual), 0, sizeof(struct haproxy_protocol_info));
+    assert_false(haproxy_protocol_parse(actual, HP2_TEST_WRONG_CRC32C, sizeof(HP2_TEST_WRONG_CRC32C)));
+
     /* v2 TCP4 */
     haproxy_protocol_reset(actual);
     haproxy_protocol_reset(expected);
@@ -318,6 +357,18 @@ test_haproxy_protocol_parse(void **state)
     expected->dst.addr.in4.sin_family = AF_INET;
     expected->dst.addr.in4.sin_port = ntohs(1195);
     expected->dst.addr.in4.sin_addr.s_addr = htonl(0x0a0a1401);
+    expected->tlv.alpn = "h23";
+    expected->tlv.authority = "example.com";
+    expected->tlv.unique_id_len = 15;
+    memcpy(expected->tlv.unique_id, "\x75\x6E\x69\x71\x75\x65\x2D\x69\x64\x2D\x76\x61\x6C\x75\x65", 15);
+    expected->tlv.ssl_client = HAPROXY_PROTOCOL_V2_CLIENT_SSL;
+    expected->tlv.ssl_verify = 0;
+    expected->tlv.ssl_version = "TLS1.3";
+    expected->tlv.ssl_cn = "client";
+    expected->tlv.ssl_cipher = "AES256";
+    expected->tlv.ssl_sig_alg = "SHA256";
+    expected->tlv.ssl_key_alg = "RSA2048";
+    expected->tlv.netns = "netns-1";
     haproxy_protocol_parse(actual, HP2_TEST_PROXY_TCP4, sizeof(HP2_TEST_PROXY_TCP4));
     assert_true(compare_hpi(state, actual, expected));
 
@@ -334,6 +385,18 @@ test_haproxy_protocol_parse(void **state)
     expected->dst.addr.in6.sin6_family = AF_INET6;
     expected->dst.addr.in6.sin6_port = ntohs(1195);
     inet_pton(AF_INET6, "2001:db8:20::1", &expected->dst.addr.in6.sin6_addr);
+    expected->tlv.alpn = "h23";
+    expected->tlv.authority = "example.com";
+    expected->tlv.unique_id_len = 15;
+    memcpy(expected->tlv.unique_id, "\x75\x6E\x69\x71\x75\x65\x2D\x69\x64\x2D\x76\x61\x6C\x75\x65", 15);
+    expected->tlv.ssl_client = HAPROXY_PROTOCOL_V2_CLIENT_SSL;
+    expected->tlv.ssl_verify = 0;
+    expected->tlv.ssl_version = "TLS1.3";
+    expected->tlv.ssl_cn = "client";
+    expected->tlv.ssl_cipher = "AES256";
+    expected->tlv.ssl_sig_alg = "SHA256";
+    expected->tlv.ssl_key_alg = "RSA2048";
+    expected->tlv.netns = "netns-1";
     haproxy_protocol_parse(actual, HP2_TEST_PROXY_TCP6, sizeof(HP2_TEST_PROXY_TCP6));
     assert_true(compare_hpi(state, actual, expected));
 
