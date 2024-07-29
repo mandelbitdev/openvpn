@@ -1653,9 +1653,8 @@ add_route(struct route_ipv4 *r,
         goto done;
     }
 
-#if defined(TARGET_LINUX) || defined(TARGET_DARWIN) \
-    || defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY) \
-    || defined(TARGET_OPENBSD) || defined(TARGET_ANDROID)
+#if !defined(_WIN32) && !defined(TARGET_SOLARIS) \
+    && !defined(TARGET_AIX)
     const char *device = tt->actual_name;
     if (!gateway_needed && rgi && (rgi->flags & RGI_IFACE_DEFINED) && rgi->iface[0] != 0)  /* vpn server special route */
     {
@@ -1874,7 +1873,7 @@ add_route(struct route_ipv4 *r,
                                     "ERROR: OS X route add command failed");
     status = ret ? RTA_SUCCESS : RTA_ERROR;
 
-#elif defined(TARGET_OPENBSD)
+#elif defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)
 
     argv_printf(&argv, "%s add ",
                 ROUTE_PATH);
@@ -1903,30 +1902,7 @@ add_route(struct route_ipv4 *r,
 
     argv_msg(D_ROUTE, &argv);
     bool ret = openvpn_execve_check(&argv, es, 0,
-                                    "ERROR: OpenBSD route add command failed");
-    status = ret ? RTA_SUCCESS : RTA_ERROR;
-
-#elif defined(TARGET_NETBSD)
-    argv_printf(&argv, "%s add",
-                ROUTE_PATH);
-
-#if 0
-    if (r->flags & RT_METRIC_DEFINED)
-    {
-        argv_printf_cat(&argv, "-rtt %d", r->metric);
-    }
-#endif
-
-    argv_printf_cat(&argv, "-net %s %s -netmask %s",
-                    network,
-                    gateway,
-                    netmask);
-
-    /* FIXME -- add on-link support for OpenBSD/NetBSD */
-
-    argv_msg(D_ROUTE, &argv);
-    bool ret = openvpn_execve_check(&argv, es, 0,
-                                    "ERROR: NetBSD route add command failed");
+                                    "ERROR: OpenBSD/NetBSD route add command failed");
     status = ret ? RTA_SUCCESS : RTA_ERROR;
 
 #elif defined(TARGET_AIX)
@@ -2115,10 +2091,8 @@ add_route_ipv6(struct route_ipv6 *r6, const struct tuntap *tt,
     }
 #endif
 
-#if defined(TARGET_DARWIN) || defined(TARGET_LINUX)  \
-    || defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY)    \
-    || defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)  \
-    || defined(TARGET_ANDROID)
+#if !defined(_WIN32) && !defined(TARGET_SOLARIS) \
+    && !defined(TARGET_AIX)
 
     const char *device = tt->actual_name;
     if (r6->iface != NULL)
@@ -2257,7 +2231,7 @@ add_route_ipv6(struct route_ipv6 *r6, const struct tuntap *tt,
                                     "ERROR: MacOS X route add -inet6 command failed");
     status = ret ? RTA_SUCCESS : RTA_ERROR;
 
-#elif defined(TARGET_OPENBSD)
+#elif defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)
 
     argv_printf(&argv, "%s add -inet6 %s -prefixlen %d ",
                 ROUTE_PATH,
@@ -2271,21 +2245,12 @@ add_route_ipv6(struct route_ipv6 *r6, const struct tuntap *tt,
     {
         argv_printf_cat(&argv, "-link -iface %s", device);
     }
+    /* FIX ME: in NetBSD in TUN mode, the route is already added by ifconfig
+    so add_route_ipv6 fail with 'Invalid argument' or 'File exists' */
 
     argv_msg(D_ROUTE, &argv);
     bool ret = openvpn_execve_check(&argv, es, 0,
-                                    "ERROR: OpenBSD route add -inet6 command failed");
-    status = ret ? RTA_SUCCESS : RTA_ERROR;
-
-#elif defined(TARGET_NETBSD)
-
-    argv_printf(&argv, "%s add -inet6 %s/%d %s",
-                ROUTE_PATH,
-                network, r6->netbits, gateway );
-
-    argv_msg(D_ROUTE, &argv);
-    bool ret = openvpn_execve_check(&argv, es, 0,
-                                    "ERROR: NetBSD route add -inet6 command failed");
+                                    "ERROR: OpenBSD/NetBSD route add -inet6 command failed");
     status = ret ? RTA_SUCCESS : RTA_ERROR;
 
 #elif defined(TARGET_AIX)
@@ -2343,11 +2308,11 @@ delete_route(struct route_ipv4 *r,
 
 #if defined(TARGET_DARWIN) || defined(TARGET_LINUX)  \
     || defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY)    \
-    || defined(TARGET_OPENBSD)
+    || defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)
 
     bool gateway_needed = is_gateway_needed_ipv4(r, rgi, tt, is_multipoint);
 
-#if !defined(TARGET_OPENBSD)
+#if !defined(TARGET_OPENBSD) && !defined(TARGET_NETBSD)
     const char *device = tt->actual_name;
     if (!gateway_needed && rgi && (rgi->flags & RGI_IFACE_DEFINED) && rgi->iface[0] != 0)  /* vpn server special route */
     {
@@ -2512,7 +2477,7 @@ delete_route(struct route_ipv4 *r,
     argv_msg(D_ROUTE, &argv);
     openvpn_execve_check(&argv, es, 0, "ERROR: OS X route delete command failed");
 
-#elif defined(TARGET_OPENBSD)
+#elif defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)
 
     argv_printf(&argv, "%s delete ",
                 ROUTE_PATH);
@@ -2532,18 +2497,7 @@ delete_route(struct route_ipv4 *r,
     }
 
     argv_msg(D_ROUTE, &argv);
-    openvpn_execve_check(&argv, es, 0, "ERROR: OpenBSD route delete command failed");
-
-#elif defined(TARGET_NETBSD)
-
-    argv_printf(&argv, "%s delete -net %s %s -netmask %s",
-                ROUTE_PATH,
-                network,
-                gateway,
-                netmask);
-
-    argv_msg(D_ROUTE, &argv);
-    openvpn_execve_check(&argv, es, 0, "ERROR: NetBSD route delete command failed");
+    openvpn_execve_check(&argv, es, 0, "ERROR: OpenBSD/NetBSD route delete command failed");
 
 #elif defined(TARGET_ANDROID)
     msg(D_ROUTE_DEBUG, "Deleting routes on Android is not possible/not "
@@ -2712,7 +2666,7 @@ delete_route_ipv6(const struct route_ipv6 *r6, const struct tuntap *tt,
     argv_msg(D_ROUTE, &argv);
     openvpn_execve_check(&argv, es, 0, "ERROR: MacOS X route delete -inet6 command failed");
 
-#elif defined(TARGET_OPENBSD)
+#elif defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)
 
     argv_printf(&argv, "%s delete -inet6 %s -prefixlen %d",
                 ROUTE_PATH,
@@ -2724,16 +2678,7 @@ delete_route_ipv6(const struct route_ipv6 *r6, const struct tuntap *tt,
     }
 
     argv_msg(D_ROUTE, &argv);
-    openvpn_execve_check(&argv, es, 0, "ERROR: OpenBSD route delete -inet6 command failed");
-
-#elif defined(TARGET_NETBSD)
-
-    argv_printf(&argv, "%s delete -inet6 %s/%d %s",
-                ROUTE_PATH,
-                network, r6->netbits, gateway );
-
-    argv_msg(D_ROUTE, &argv);
-    openvpn_execve_check(&argv, es, 0, "ERROR: NetBSD route delete -inet6 command failed");
+    openvpn_execve_check(&argv, es, 0, "ERROR: OpenBSD/NetBSD route delete -inet6 command failed");
 
 #elif defined(TARGET_AIX)
 
