@@ -54,7 +54,7 @@
 #include "mss.h"
 #include "mudp.h"
 #include "dco.h"
-#include "proxy_protocol.h"
+#include "haproxy_protocol.h"
 
 #include "memdbg.h"
 
@@ -680,11 +680,6 @@ uninit_proxy_dowork(struct context *c)
         socks_proxy_close(c->c1.socks_proxy);
         c->c1.socks_proxy = NULL;
         c->c1.socks_proxy_owned = false;
-    }
-    if (c->c1.proxy_protocol)
-    {
-        proxy_protocol_free(c->c1.proxy_protocol);
-        c->c1.proxy_protocol = NULL;
     }
 }
 
@@ -3931,6 +3926,14 @@ do_close_link_socket(struct context *c)
         }
 
         c->c1.link_socket_addr.bind_local = NULL;
+    }
+
+    /* Clear and free the memory allocated for the HAProxy protocol */
+    if (c->c1.haproxy_protocol)
+    {
+        haproxy_protocol_reset(c->c1.haproxy_protocol);
+        free(c->c1.haproxy_protocol);
+        c->c1.haproxy_protocol = NULL;
     }
 }
 

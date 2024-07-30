@@ -419,6 +419,8 @@ set(SOURCE_FILES
     src/openvpn/fragment.h
     src/openvpn/gremlin.c
     src/openvpn/gremlin.h
+    src/openvpn/haproxy_protocol.c
+    src/openvpn/haproxy_protocol.h
     src/openvpn/helper.c
     src/openvpn/helper.h
     src/openvpn/httpdigest.c
@@ -490,8 +492,6 @@ set(SOURCE_FILES
     src/openvpn/proto.h
     src/openvpn/proxy.c
     src/openvpn/proxy.h
-    src/openvpn/proxy_protocol.c
-    src/openvpn/proxy_protocol.h
     src/openvpn/ps.c
     src/openvpn/ps.h
     src/openvpn/push.c

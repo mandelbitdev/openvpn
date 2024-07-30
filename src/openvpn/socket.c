@@ -39,7 +39,7 @@
 #include "manage.h"
 #include "openvpn.h"
 #include "forward.h"
-#include "proxy_protocol.h"
+#include "haproxy_protocol.h"
 
 #include "memdbg.h"
 
@@ -1618,7 +1618,7 @@ static void
 stream_buf_close(struct stream_buf *sb);
 
 static bool
-stream_buf_added(struct stream_buf *sb, int length_added);
+stream_buf_added(struct stream_buf *sb, int length_added, bool haproxy_protocol_allowed);
 
 /* For stream protocols, allocate a buffer to build up packet.
  * Called after frame has been finalized. */
@@ -2630,7 +2630,7 @@ stream_buf_read_setup_dowork(struct link_socket *sock)
     {
         ASSERT(buf_copy(&sock->stream_buf.buf, &sock->stream_buf.residual));
         ASSERT(buf_init(&sock->stream_buf.residual, 0));
-        sock->stream_buf.residual_fully_formed = stream_buf_added(&sock->stream_buf, 0);
+        sock->stream_buf.residual_fully_formed = stream_buf_added(&sock->stream_buf, 0, false);
         dmsg(D_STREAM_DEBUG, "STREAM: RESIDUAL FULLY FORMED [%s], len=%d",
              sock->stream_buf.residual_fully_formed ? "YES" : "NO",
              sock->stream_buf.residual.len);
@@ -2645,7 +2645,8 @@ stream_buf_read_setup_dowork(struct link_socket *sock)
 
 static bool
 stream_buf_added(struct stream_buf *sb,
-                 int length_added)
+                 int length_added,
+                 const bool haproxy_protocol_allowed)
 {
     dmsg(D_STREAM_DEBUG, "STREAM: ADD length_added=%d", length_added);
     if (length_added > 0)
@@ -2681,20 +2682,26 @@ stream_buf_added(struct stream_buf *sb,
 
         if (sb->len < 1 || sb->len > sb->maxlen)
         {
-            /* check if it's a PROXY protocol header */
+            haproxy_protocol_version_t hp_version = HAPROXY_PROTOCOL_VERSION_UNKNOWN;
+            int hp_len = -1;
+            /* if it's allowed (first packet), check for a HAProxy protocol header */
+            if (haproxy_protocol_allowed)
+            {
+                /* undo the reading of net_size */
+                ASSERT(buf_prepend(&sb->buf, sizeof(net_size)));
+                hp_version = haproxy_protocol_version(BPTR(&sb->buf), BLEN(&sb->buf));
+                hp_len = haproxy_protocol_header_len(BPTR(&sb->buf), BLEN(&sb->buf), hp_version);
+            }
 
-            /* undo the reading of net_size */
-            ASSERT(buf_prepend(&sb->buf, sizeof(net_size)));
-            const proxy_protocol_version_t pp_version = proxy_protocol_version(BPTR(&sb->buf), BLEN(&sb->buf));
-            const int pp_len = proxy_protocol_header_len(BPTR(&sb->buf), BLEN(&sb->buf), pp_version);
-            if (pp_version <= 0 || pp_len < 0 || pp_len > sb->buf.len)
+            /* we do not allow partial headers */
+            if (hp_version <= 0 || hp_len < 0 || hp_len > sb->buf.len)
             {
                 msg(M_WARN, "WARNING: Bad encapsulated packet length from peer (%d), which must be > 0 and <= %d -- please ensure that --tun-mtu or --link-mtu is equal on both peers -- this condition could also indicate a possible active attack on the TCP link -- [Attempting restart...]", sb->len, sb->maxlen);
                 stream_buf_reset(sb);
                 sb->error = true;
                 return false;
             }
-            sb->len = pp_len;
+            sb->len = hp_len;
         }
     }
 
@@ -3278,7 +3285,7 @@ link_socket_read_tcp(struct link_socket *sock,
     }
 
     if (sock->stream_buf.residual_fully_formed
-        || stream_buf_added(&sock->stream_buf, len)) /* packet complete? */
+        || stream_buf_added(&sock->stream_buf, len, sock->haproxy_protocol_allowed)) /* packet complete? */
     {
         stream_buf_get_final(&sock->stream_buf, buf);
         stream_buf_reset(&sock->stream_buf);

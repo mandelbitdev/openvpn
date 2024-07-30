@@ -5,7 +5,7 @@
  *             packet encryption, packet authentication, and
  *             packet compression.
  *
- *  Copyright (C) 2002-2024 OpenVPN Inc <sales@openvpn.net>
+ *  Copyright (C) 2024 OpenVPN Inc <sales@openvpn.net>
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License version 2
@@ -25,18 +25,20 @@
 #include "config.h"
 #endif
 
-#include "error.h"
-#include "proxy_protocol.h"
+#include "syshead.h"
 
-#define PROXY_PROTOCOL_V1_MAX_WORDS 6
-#define PROXY_PROTOCOL_V1_MAX_WORD_LEN 40
+#include "error.h"
+#include "haproxy_protocol.h"
+
+#define HAPROXY_PROTOCOL_V1_MAX_WORDS 6
+#define HAPROXY_PROTOCOL_V1_MAX_WORD_LEN 40
 
 typedef enum
 {
-    PROXY_PROTOCOL_PARSING_STATE_INVALID = -1,
-    PROXY_PROTOCOL_PARSING_STATE_OK = 0,
-    PROXY_PROTOCOL_PARSING_STATE_IGNORE = 1,
-} proxy_protocol_parsing_state_t;
+    HAPROXY_PROTOCOL_PARSING_STATE_INVALID = -1,
+    HAPROXY_PROTOCOL_PARSING_STATE_OK = 0,
+    HAPROXY_PROTOCOL_PARSING_STATE_IGNORE = 1,
+} haproxy_protocol_parsing_state_t;
 
 static const uint32_t CRC32C_TABLE[256] =
 {
@@ -106,50 +108,50 @@ static const uint32_t CRC32C_TABLE[256] =
     0xBE2DA0A5L, 0x4C4623A6L, 0x5F16D052L, 0xAD7D5351L
 };
 
-static const size_t PROXY_PROTOCOL_V2_ADDR_LEN_IPV4 = 12;
-static const size_t PROXY_PROTOCOL_V2_ADDR_LEN_IPV6 = 36;
-static const size_t PROXY_PROTOCOL_V2_ADDR_LEN_UNIX = 216;
+static const size_t HAPROXY_PROTOCOL_V2_ADDR_LEN_IPV4 = 12;
+static const size_t HAPROXY_PROTOCOL_V2_ADDR_LEN_IPV6 = 36;
+static const size_t HAPROXY_PROTOCOL_V2_ADDR_LEN_UNIX = 216;
 
-static proxy_protocol_header_t header;
-static uint16_t header_len;
-static proxy_protocol_parsing_state_t parsing_state = PROXY_PROTOCOL_PARSING_STATE_OK;
+static haproxy_protocol_header_t *header = NULL;
+static uint16_t header_len = 0;
+static haproxy_protocol_parsing_state_t parsing_state = HAPROXY_PROTOCOL_PARSING_STATE_OK;
 
-proxy_protocol_version_t
-proxy_protocol_version(const uint8_t *buf, const int buf_len)
+haproxy_protocol_version_t
+haproxy_protocol_version(const uint8_t *buf, const int buf_len)
 {
-    if (buf_len >= PROXY_PROTOCOL_V2_MIN_HDR_LEN
-        && memcmp(buf, PROXY_PROTOCOL_V2_SIG, PROXY_PROTOCOL_V2_SIG_LEN) == 0)
+    if (buf_len >= HAPROXY_PROTOCOL_V2_MIN_HDR_LEN
+        && memcmp(buf, HAPROXY_PROTOCOL_V2_SIG, HAPROXY_PROTOCOL_V2_SIG_LEN) == 0)
     {
-        return PROXY_PROTOCOL_VERSION_2;
+        return HAPROXY_PROTOCOL_VERSION_2;
     }
-    else if (buf_len >= PROXY_PROTOCOL_V1_MIN_HDR_LEN
-             && memcmp(buf, PROXY_PROTOCOL_V1_SIG, PROXY_PROTOCOL_V1_SIG_LEN) == 0)
+    else if (buf_len >= HAPROXY_PROTOCOL_V1_MIN_HDR_LEN
+             && memcmp(buf, HAPROXY_PROTOCOL_V1_SIG, HAPROXY_PROTOCOL_V1_SIG_LEN) == 0)
     {
-        return PROXY_PROTOCOL_VERSION_1;
+        return HAPROXY_PROTOCOL_VERSION_1;
     }
-    return PROXY_PROTOCOL_VERSION_INVALID;
+    return HAPROXY_PROTOCOL_VERSION_INVALID;
 }
 
 int
-proxy_protocol_header_len(const uint8_t *buf, const int buf_len,
-                          const proxy_protocol_version_t version)
+haproxy_protocol_header_len(const uint8_t *buf, const int buf_len,
+                            const haproxy_protocol_version_t version)
 {
-    memcpy(&header, buf, buf_len);
-
     switch (version)
     {
-        case PROXY_PROTOCOL_VERSION_1:
+        case HAPROXY_PROTOCOL_VERSION_1:
         {
-            char *end = memchr(header.v1.line, '\r', buf_len - 1);
+            const char *end = memchr(buf, '\r', buf_len - 1);
+            /* partial or invalid header */
             if (!end || end[1] != '\n')
             {
-                return -1; /* partial or invalid header */
+                return -1;
             }
-            return (int)(end + 2 - header.v1.line);
+            return (int)(end + 2 - (char *)buf);
         }
 
-        case PROXY_PROTOCOL_VERSION_2:
-            return PROXY_PROTOCOL_V2_MIN_HDR_LEN + ntohps(header.v2.len);
+        case HAPROXY_PROTOCOL_VERSION_2:
+            /* byte 15 and 16 contain the length */
+            return HAPROXY_PROTOCOL_V2_MIN_HDR_LEN + ntohps(*(uint16_t *)(buf + 14));
 
         default:
             return -1;
@@ -157,7 +159,7 @@ proxy_protocol_header_len(const uint8_t *buf, const int buf_len,
 }
 
 uint32_t
-proxy_protocol_crc32c(const uint8_t *data, int len)
+haproxy_protocol_crc32c(const uint8_t *data, int len)
 {
     uint32_t crc = 0xFFFFFFFF;
     while (len-- > 0)
@@ -175,7 +177,7 @@ proxy_protocol_crc32c(const uint8_t *data, int len)
  * @return - The port number or -1 if the string is invalid.
  */
 uint16_t
-proxy_protocol_parse_port(const char *port_str)
+haproxy_protocol_parse_port(const char *port_str)
 {
     char *endptr;
     errno = 0;
@@ -192,7 +194,7 @@ proxy_protocol_parse_port(const char *port_str)
  * Set the source and destination addresses and ports in the proxy protocol
  * info structure for later use.
  *
- * @param ppi - The proxy protocol info structure to store the addresses.
+ * @param hpi - The haproxy protocol info structure to store the addresses.
  * @param ver - The version of the PROXY protocol.
  * @param fam - The address family (supports: AF_INET or AF_INET6).
  * @param st - The socket type.
@@ -202,66 +204,72 @@ proxy_protocol_parse_port(const char *port_str)
  * @param dst_port - The destination port.
  */
 void
-proxy_protocol_set_addr(struct proxy_protocol_info *ppi,
-                        const proxy_protocol_version_t ver, const int fam, const int st,
-                        const void *src_addr, const void *dst_addr,
-                        const uint16_t src_port, const uint16_t dst_port)
+haproxy_protocol_set_addr(struct haproxy_protocol_info *hpi,
+                          const haproxy_protocol_version_t ver, const int fam, const int st,
+                          const void *src_addr, const void *dst_addr,
+                          const uint16_t src_port, const uint16_t dst_port)
 {
 
-    ppi->version = ver;
-    ppi->sock_type = st;
+    hpi->version = ver;
+    hpi->sock_type = st;
     if (fam == AF_INET)
     {
-        ppi->src.addr.sa.sa_family = AF_INET;
-        ppi->dst.addr.sa.sa_family = AF_INET;
-        memcpy(&ppi->src.addr.in4.sin_addr, (uint32_t *)src_addr,
-               sizeof(struct in_addr));
-        memcpy(&ppi->dst.addr.in4.sin_addr, (uint32_t *)dst_addr,
-               sizeof(struct in_addr));
-        ppi->src.addr.in4.sin_port = src_port;
-        ppi->dst.addr.in4.sin_port = dst_port;
-        msg(M_DEBUG, "PROXY protocol: SRC: %s:%u",
-            inet_ntoa(ppi->src.addr.in4.sin_addr),
-            ntohs(ppi->src.addr.in4.sin_port));
-        msg(M_DEBUG, "PROXY protocol: DST: %s:%u",
-            inet_ntoa(ppi->dst.addr.in4.sin_addr),
-            ntohs(ppi->dst.addr.in4.sin_port));
+        hpi->src.addr.sa.sa_family = AF_INET;
+        hpi->dst.addr.sa.sa_family = AF_INET;
+        hpi->src.addr.in4.sin_addr.s_addr = *(uint32_t *)src_addr;
+        hpi->dst.addr.in4.sin_addr.s_addr = *(uint32_t *)dst_addr;
+        hpi->src.addr.in4.sin_port = src_port;
+        hpi->dst.addr.in4.sin_port = dst_port;
+        msg(M_DEBUG, "PROXY protocol %s: SRC %s:%u",
+            ver == HAPROXY_PROTOCOL_VERSION_2 ? "v2" : "v1",
+            inet_ntoa(hpi->src.addr.in4.sin_addr),
+            ntohs(hpi->src.addr.in4.sin_port));
+        msg(M_DEBUG, "PROXY protocol %s: DST %s:%u",
+            ver == HAPROXY_PROTOCOL_VERSION_2 ? "v2" : "v1",
+            inet_ntoa(hpi->dst.addr.in4.sin_addr),
+            ntohs(hpi->dst.addr.in4.sin_port));
     }
     else if (fam == AF_INET6)
     {
-        ppi->src.addr.sa.sa_family = AF_INET6;
-        ppi->dst.addr.sa.sa_family = AF_INET6;
-        memcpy(&ppi->src.addr.in6.sin6_addr, src_addr, sizeof(struct in6_addr));
-        memcpy(&ppi->dst.addr.in6.sin6_addr, dst_addr, sizeof(struct in6_addr));
-        ppi->src.addr.in6.sin6_port = src_port;
-        ppi->dst.addr.in6.sin6_port = dst_port;
+        hpi->src.addr.sa.sa_family = AF_INET6;
+        hpi->dst.addr.sa.sa_family = AF_INET6;
+        memcpy(&hpi->src.addr.in6.sin6_addr, src_addr, sizeof(struct in6_addr));
+        memcpy(&hpi->dst.addr.in6.sin6_addr, dst_addr, sizeof(struct in6_addr));
+        hpi->src.addr.in6.sin6_port = src_port;
+        hpi->dst.addr.in6.sin6_port = dst_port;
 
         char ip6_str[INET6_ADDRSTRLEN];
-        if (inet_ntop(AF_INET6, &ppi->src.addr.in6.sin6_addr, ip6_str,
+        if (inet_ntop(AF_INET6, &hpi->src.addr.in6.sin6_addr, ip6_str,
                       INET6_ADDRSTRLEN))
         {
-            msg(M_DEBUG, "PROXY protocol: SRC: %s:%u", ip6_str,
-                ntohs(ppi->src.addr.in6.sin6_port));
+            msg(M_DEBUG, "PROXY protocol %s: SRC %s:%u",
+                ver == HAPROXY_PROTOCOL_VERSION_2 ? "v2" : "v1",
+                ip6_str,
+                ntohs(hpi->src.addr.in6.sin6_port));
         }
         else
         {
-            msg(M_NONFATAL, "PROXY protocol: could not parse source address");
+            msg(M_NONFATAL, "PROXY protocol %s: could not parse source address",
+                ver == HAPROXY_PROTOCOL_VERSION_2 ? "v2" : "v1");
         }
-        if (inet_ntop(AF_INET6, &ppi->dst.addr.in6.sin6_addr, ip6_str,
+        if (inet_ntop(AF_INET6, &hpi->dst.addr.in6.sin6_addr, ip6_str,
                       INET6_ADDRSTRLEN))
         {
-            msg(M_DEBUG, "PROXY protocol: DST: %s:%u", ip6_str,
-                ntohs(ppi->dst.addr.in6.sin6_port));
+            msg(M_DEBUG, "PROXY protocol %s: DST %s:%u",
+                ver == HAPROXY_PROTOCOL_VERSION_2 ? "v2" : "v1",
+                ip6_str,
+                ntohs(hpi->dst.addr.in6.sin6_port));
         }
         else
         {
-            msg(M_NONFATAL,
-                "PROXY protocol: could not parse destination address");
+            msg(M_NONFATAL, "PROXY protocol %s: could not parse destination address",
+                ver == HAPROXY_PROTOCOL_VERSION_2 ? "v2" : "v1");
         }
     }
     else
     {
-        msg(M_NONFATAL, "PROXY protocol: unsupported address family");
+        msg(M_NONFATAL, "PROXY protocol %s: unsupported address family",
+            ver == HAPROXY_PROTOCOL_VERSION_2 ? "v2" : "v1");
     }
 }
 
@@ -275,9 +283,8 @@ proxy_protocol_set_addr(struct proxy_protocol_info *ppi,
  * @return - The number of words found or -1 if an error occurred.
  */
 int
-proxy_protocol_v1_split_words(char words[][PROXY_PROTOCOL_V1_MAX_WORD_LEN],
-                              const char *line,
-                              int len)
+haproxy_protocol_v1_split_words(char words[][HAPROXY_PROTOCOL_V1_MAX_WORD_LEN],
+                                const char *line, int len)
 {
     int word_num = 0;
     const char *start = line;
@@ -285,10 +292,10 @@ proxy_protocol_v1_split_words(char words[][PROXY_PROTOCOL_V1_MAX_WORD_LEN],
     {
         if (line[i] == ' ')
         {
-            if (word_num < PROXY_PROTOCOL_V1_MAX_WORDS)
+            if (word_num < HAPROXY_PROTOCOL_V1_MAX_WORDS)
             {
                 int word_len = (int)(line + i - start);
-                if (word_len < PROXY_PROTOCOL_V1_MAX_WORD_LEN)
+                if (word_len < HAPROXY_PROTOCOL_V1_MAX_WORD_LEN)
                 {
                     memcpy(words[word_num], start, word_len);
                     words[word_num][word_len] = '\0';
@@ -309,19 +316,18 @@ proxy_protocol_v1_split_words(char words[][PROXY_PROTOCOL_V1_MAX_WORD_LEN],
 /*
  * Parse the PROXY protocol v1 header line.
  *
- * @param ppi - The proxy protocol info structure to store the parsed data.
+ * @param hpi - The haproxy protocol info structure to store the parsed data.
  * @param line - The header line to parse.
  * @param len - The length of the header line.
  *
  * @return - true if the header was successfully parsed.
  */
 bool
-proxy_protocol_parse_v1(struct proxy_protocol_info *ppi,
-                        const char *line,
-                        int len)
+haproxy_protocol_parse_v1(struct haproxy_protocol_info *hpi,
+                          const char *line, int len)
 {
-    const proxy_protocol_version_t version = PROXY_PROTOCOL_VERSION_1;
-    char words[PROXY_PROTOCOL_V1_MAX_WORDS][PROXY_PROTOCOL_V1_MAX_WORD_LEN];
+    const haproxy_protocol_version_t version = HAPROXY_PROTOCOL_VERSION_1;
+    char words[HAPROXY_PROTOCOL_V1_MAX_WORDS][HAPROXY_PROTOCOL_V1_MAX_WORD_LEN];
 
     char *end = memchr(line, '\r', len - 1);
     if (!end || end[1] != '\n') /* partial or invalid header */
@@ -331,19 +337,14 @@ proxy_protocol_parse_v1(struct proxy_protocol_info *ppi,
     *end = ' '; /* replace CRLF with space for easier splitting */
     int size = (int)(end - line + 1);
 
-    int word_num = proxy_protocol_v1_split_words(words, line, size);
+    int word_num = haproxy_protocol_v1_split_words(words, line, size);
     if (word_num < 3)
     {
-        msg(M_NONFATAL, "PROXY protocol v1: could not split header");
+        msg(M_NONFATAL, "PROXY protocol v1: invalid header");
         return false;
     }
 
-    if (strcmp(words[1], "UNKNOWN") == 0)
-    {
-        msg(M_DEBUG, "PROXY protocol v1: UNKNOWN protocol, ignoring header");
-        return true;
-    }
-    else if (strcmp(words[1], "TCP4") == 0)
+    if (strcmp(words[1], "TCP4") == 0)
     {
         msg(M_DEBUG, "PROXY protocol v1: TCP4 protocol");
         struct in_addr ip4_src_addr, ip4_dst_addr;
@@ -359,10 +360,10 @@ proxy_protocol_parse_v1(struct proxy_protocol_info *ppi,
                 "PROXY protocol v1: could not parse destination address");
             return false;
         }
-        proxy_protocol_set_addr(ppi, version, AF_INET, SOCK_STREAM,
-                                &ip4_src_addr, &ip4_dst_addr,
-                                ntohs(proxy_protocol_parse_port(words[4])),
-                                ntohs(proxy_protocol_parse_port(words[5])));
+        haproxy_protocol_set_addr(hpi, version, AF_INET, SOCK_STREAM,
+                                  &ip4_src_addr, &ip4_dst_addr,
+                                  ntohs(haproxy_protocol_parse_port(words[4])),
+                                  ntohs(haproxy_protocol_parse_port(words[5])));
         return true;
     }
     else if (strcmp(words[1], "TCP6") == 0)
@@ -381,10 +382,10 @@ proxy_protocol_parse_v1(struct proxy_protocol_info *ppi,
                 "PROXY protocol v1: could not parse destination address");
             return false;
         }
-        proxy_protocol_set_addr(ppi, version, AF_INET6, SOCK_STREAM,
-                                &ip6_src_addr, &ip6_dst_addr,
-                                ntohs(proxy_protocol_parse_port(words[4])),
-                                ntohs(proxy_protocol_parse_port(words[5])));
+        haproxy_protocol_set_addr(hpi, version, AF_INET6, SOCK_STREAM,
+                                  &ip6_src_addr, &ip6_dst_addr,
+                                  ntohs(haproxy_protocol_parse_port(words[4])),
+                                  ntohs(haproxy_protocol_parse_port(words[5])));
         return true;
     }
     else
@@ -397,14 +398,16 @@ proxy_protocol_parse_v1(struct proxy_protocol_info *ppi,
 /*
  * Parse a string based TLV and store the value in 'out'.
  *
- * @param ppi - The proxy protocol info structure used for memory allocation.
+ * @param tlv_info - The struct containing the garbage collector.
  * @param out - The output variable to store the parsed value.
  * @param type_str - A string representation of the TLV type (for logging).
  * @param len - The length of the TLV value.
  * @param value - The TLV value.
  */
 void
-proxy_protocol_parse_string_tlv(struct proxy_protocol_info *ppi, char **out, char *type_str, const uint16_t len, const uint8_t *value)
+haproxy_protocol_parse_string_tlv(struct haproxy_protocol_tlv_info *tlv_info,
+                                  char **out, char *type_str,
+                                  const uint16_t len, const uint8_t *value)
 {
     if (len == 0)
     {
@@ -412,7 +415,7 @@ proxy_protocol_parse_string_tlv(struct proxy_protocol_info *ppi, char **out, cha
         return;
     }
 
-    *out = (char *)gc_malloc(8, false, &ppi->gc);
+    *out = (char *)gc_malloc(len + 1, false, &tlv_info->gc);
     memcpy(*out, value, len);
     (*out)[len] = '\0';
 
@@ -424,8 +427,7 @@ proxy_protocol_parse_string_tlv(struct proxy_protocol_info *ppi, char **out, cha
 
 /*
  * Parse the CRC32C TLV and check if it matches the calculated CRC32C.
- * If there's a mismatch the parsing state is set to invalid so that the header
- * is dropped.
+ * If there's a mismatch set the parsing state to invalid to drop the header->
  *
  * @param len - The length of the TLV value.
  * @param value - The TLV value.
@@ -433,25 +435,25 @@ proxy_protocol_parse_string_tlv(struct proxy_protocol_info *ppi, char **out, cha
  * @return - true if the CRC32C value matches the calculated CRC32C.
  */
 bool
-proxy_protocol_parse_crc32c_tlv(const uint16_t len, const uint8_t *value)
+haproxy_protocol_parse_crc32c_tlv(const uint16_t len, const uint8_t *value)
 {
     if (len != 4)
     {
         msg(M_NONFATAL, "PROXY protocol v2: CRC32C TLV invalid length");
-        parsing_state = PROXY_PROTOCOL_PARSING_STATE_INVALID;
+        parsing_state = HAPROXY_PROTOCOL_PARSING_STATE_INVALID;
         return false;
     }
 
-    uint32_t expected_crc32c = ntohl(*(uint32_t *)value);
+    uint32_t expected = ntohl(*(uint32_t *)value);
 
-    /* fill with 0s the crc32 field to calculate the actual crc32 */
+    /* fill the crc32c field with 0s to calculate the crc32c */
     *(uint32_t *)value = 0;
-    uint32_t calculated_crc32c = proxy_protocol_crc32c((const uint8_t *)&header, header_len);
+    uint32_t calculated = haproxy_protocol_crc32c((const uint8_t *)header, header_len);
 
-    if (expected_crc32c != calculated_crc32c)
+    if (expected != calculated)
     {
-        msg(M_NONFATAL, "PROXY protocol v2: CRC32C mismatch, expected: 0x%08x calculated: 0x%08x. Dropping header", expected_crc32c, calculated_crc32c);
-        parsing_state = PROXY_PROTOCOL_PARSING_STATE_INVALID;
+        msg(M_NONFATAL, "PROXY protocol v2: CRC32C mismatch, expected: 0x%08x calculated: 0x%08x.", expected, calculated);
+        parsing_state = HAPROXY_PROTOCOL_PARSING_STATE_INVALID;
         return false;
     }
     msg(M_DEBUG, "PROXY protocol v2: CRC32C match");
@@ -459,126 +461,165 @@ proxy_protocol_parse_crc32c_tlv(const uint16_t len, const uint8_t *value)
 }
 
 /*
- * Parse the UNIQUE_ID TLV and store the value in ppi->unique_id
- * (and ppi->unique_id_len).
+ * Parse the UNIQUE_ID TLV and store the value in hpi->unique_id
+ * (and hpi->unique_id_len).
  *
- * @param ppi - The proxy protocol info structure to store the parsed data.
+ * @param tlv_info - The struct to store the parsed data.
  * @param len - The length of the TLV value.
  * @param value - The TLV value.
  */
 void
-proxy_protocol_parse_uid_tlv(struct proxy_protocol_info *ppi, const uint16_t len, const uint8_t *value)
+haproxy_protocol_parse_uid_tlv(struct haproxy_protocol_tlv_info *tlv_info,
+                               const uint16_t len, const uint8_t *value)
 {
     if (len == 0)
     {
         msg(M_NONFATAL, "PROXY protocol v2: UNIQUE_ID TLV empty");
         return;
     }
-    else if (len > PROXY_PROTOCOL_V2_TLV_UNIQUE_ID_MAX_LEN)
+    else if (len > HAPROXY_PROTOCOL_V2_TLV_UNIQUE_ID_MAX_LEN)
     {
         msg(M_NONFATAL, "PROXY protocol v2: UNIQUE_ID TLV too long");
         return;
     }
 
-    ppi->unique_id_len = len;
-    memcpy(ppi->unique_id, value, len);
-    msg(M_DEBUG, "PROXY protocol v2: UNIQUE_ID: %.*s", (int)ppi->unique_id_len, ppi->unique_id);
+    tlv_info->unique_id_len = len;
+    memcpy(tlv_info->unique_id, value, len);
+    msg(M_DEBUG, "PROXY protocol v2: UNIQUE_ID: %.*s", (int)tlv_info->unique_id_len, tlv_info->unique_id);
 }
 
 /*
- * Parse the SSL TLV and store the value in ppi->ssl_client and ppi->ssl_verify.
+ * Parse the SSL TLV (and eventually its sub-TLVs) and store the values in
+ * hpi->tlv_info.
  *
- * @param ppi - The proxy protocol info structure to store the parsed data.
+ * @param tlv_info - The struct to store the parsed data.
  * @param len - The length of the TLV value.
  * @param value - The TLV value.
  */
 void
-proxy_protocol_parse_ssl_tlv(struct proxy_protocol_info *ppi, const uint16_t len, const uint8_t *value)
+haproxy_protocol_parse_ssl_tlv(struct haproxy_protocol_tlv_info *tlv_info,
+                               const uint16_t len, const uint8_t *value)
 {
-    const struct proxy_protocol_tlv_ssl *ssl = (const struct proxy_protocol_tlv_ssl *)(value);
+    const struct haproxy_protocol_tlv_ssl *ssl = (const struct haproxy_protocol_tlv_ssl *)(value);
+    uint16_t pos = sizeof(*ssl);
 
-    if (!ssl->client)
+    if (len == 0)
     {
-        msg(M_NONFATAL, "PROXY protocol v2: SSL TLV invalid");
+        msg(M_NONFATAL, "PROXY protocol v2: SSL TLV empty");
         return;
     }
 
-    if (ssl->client & PROXY_PROTOCOL_V2_CLIENT_SSL)
+    if (!ssl->client)
+    {
+        msg(M_NONFATAL, "PROXY protocol v2: SSL TLV invalid client field");
+        return;
+    }
+    if (ssl->client & HAPROXY_PROTOCOL_V2_CLIENT_SSL)
     {
         msg(M_DEBUG, "PROXY protocol v2: client connected over SSL/TLS");
     }
-    if (ssl->client & PROXY_PROTOCOL_V2_CLIENT_CERT_CONN)
+    if (ssl->client & HAPROXY_PROTOCOL_V2_CLIENT_CERT_CONN)
     {
-        msg(M_DEBUG, "PROXY protocol v2: client provided a certificate over the current connection");
+        msg(M_DEBUG, "PROXY protocol v2: client provided a certificate over the "
+            "current connection");
     }
-    if (ssl->client & PROXY_PROTOCOL_V2_CLIENT_CERT_SESS)
+    if (ssl->client & HAPROXY_PROTOCOL_V2_CLIENT_CERT_SESS)
     {
-        msg(M_DEBUG, "PROXY protocol v2: client provided a certificate at least once over the TLS session this connection belongs to");
+        msg(M_DEBUG, "PROXY protocol v2: client provided a certificate at least "
+            "once over the TLS session this connection belongs to");
     }
 
-    msg(M_DEBUG, "PROXY protocol v2: client certificate verification stat: %s", ssl->verify ? "failure" : "success");
-    ppi->ssl_client = ssl->client;
-    ppi->ssl_verify = ssl->verify == 0;
+    msg(M_DEBUG, "PROXY protocol v2: client certificate verification status: %s",
+        ssl->verify ? "failure" : "success");
+    tlv_info->ssl_client = ssl->client;
+    tlv_info->ssl_verify = ssl->verify;
+
+    while (pos < len)
+    {
+        const struct haproxy_protocol_tlv *sub = (const struct haproxy_protocol_tlv *)(value + pos);
+        uint16_t sub_len = (sub->length_hi << 8) | sub->length_lo;
+        if (pos + sizeof(*sub) + sub_len > len)
+        {
+            msg(M_NONFATAL, "PROXY protocol v2: SSL sub-TLV length (%d) "
+                "exceeds buffer size (%d)",
+                sub_len, (int)(len - pos - sizeof(*sub)));
+            return;
+        }
+        switch (sub->type)
+        {
+            case HAPROXY_PROTOCOL_TLV_SUBTYPE_SSL_VERSION:
+                haproxy_protocol_parse_string_tlv(tlv_info, &tlv_info->ssl_version,
+                                                  "SSL_VERSION", sub_len, sub->value);
+                break;
+
+            case HAPROXY_PROTOCOL_TLV_SUBTYPE_SSL_CN:
+                haproxy_protocol_parse_string_tlv(tlv_info, &tlv_info->ssl_cn,
+                                                  "SSL_CN", sub_len, sub->value);
+                break;
+
+            case HAPROXY_PROTOCOL_TLV_SUBTYPE_SSL_CIPHER:
+                haproxy_protocol_parse_string_tlv(tlv_info, &tlv_info->ssl_cipher,
+                                                  "SSL_CIPHER", sub_len, sub->value);
+                break;
+
+            case HAPROXY_PROTOCOL_TLV_SUBTYPE_SSL_SIG_ALG:
+                haproxy_protocol_parse_string_tlv(tlv_info, &tlv_info->ssl_sig_alg,
+                                                  "SSL_SIG_ALG", sub_len, sub->value);
+                break;
+
+            case HAPROXY_PROTOCOL_TLV_SUBTYPE_SSL_KEY_ALG:
+                haproxy_protocol_parse_string_tlv(tlv_info, &tlv_info->ssl_key_alg,
+                                                  "SSL_KEY_ALG", sub_len, sub->value);
+                break;
+
+            default:
+                msg(M_NONFATAL, "PROXY protocol v2: SSL unknown sub-TLV type 0x%02x", sub->type);
+                break;
+        }
+        pos += sizeof(*sub) + sub_len;
+    }
 }
 
 /*
- * Parse a TLV and store the value in the proxy protocol info structure.
+ * Parse a TLV and store the value in the haproxy protocol info structure.
  *
- * @param ppi - The proxy protocol info structure to store the parsed data.
+ * @param hpi - The haproxy protocol info structure to store the parsed data.
  * @param type - The TLV type.
  * @param len - The length of the TLV value.
  * @param value - The TLV value.
  */
 void
-proxy_protocol_parse_tlv(struct proxy_protocol_info *ppi, const uint8_t type, const uint16_t len, const uint8_t *value)
+haproxy_protocol_parse_tlv(struct haproxy_protocol_tlv_info *tlv_info,
+                           const uint8_t type, const uint16_t len,
+                           const uint8_t *value)
 {
     switch (type)
     {
-        case PROXY_PROTOCOL_TLV_TYPE_ALPN:
-            proxy_protocol_parse_string_tlv(ppi, &ppi->alpn, "ALPN", len, value);
+        case HAPROXY_PROTOCOL_TLV_TYPE_ALPN:
+            haproxy_protocol_parse_string_tlv(tlv_info, &tlv_info->alpn, "ALPN", len, value);
             break;
 
-        case PROXY_PROTOCOL_TLV_TYPE_AUTHORITY:
-            proxy_protocol_parse_string_tlv(ppi, &ppi->authority, "AUTHORITY", len, value);
+        case HAPROXY_PROTOCOL_TLV_TYPE_AUTHORITY:
+            haproxy_protocol_parse_string_tlv(tlv_info, &tlv_info->authority, "AUTHORITY", len, value);
             break;
 
-        case PROXY_PROTOCOL_TLV_TYPE_CRC32C:
-            proxy_protocol_parse_crc32c_tlv(len, value);
+        case HAPROXY_PROTOCOL_TLV_TYPE_CRC32C:
+            haproxy_protocol_parse_crc32c_tlv(len, value);
             break;
 
-        case PROXY_PROTOCOL_TLV_TYPE_NOOP:
+        case HAPROXY_PROTOCOL_TLV_TYPE_NOOP:
             break;
 
-        case PROXY_PROTOCOL_TLV_TYPE_UNIQUE_ID:
-            proxy_protocol_parse_uid_tlv(ppi, len, value);
+        case HAPROXY_PROTOCOL_TLV_TYPE_UNIQUE_ID:
+            haproxy_protocol_parse_uid_tlv(tlv_info, len, value);
             break;
 
-        case PROXY_PROTOCOL_TLV_TYPE_SSL:
-            proxy_protocol_parse_ssl_tlv(ppi, len, value);
+        case HAPROXY_PROTOCOL_TLV_TYPE_SSL:
+            haproxy_protocol_parse_ssl_tlv(tlv_info, len, value);
             break;
 
-        case PROXY_PROTOCOL_TLV_SUBTYPE_SSL_VERSION:
-            proxy_protocol_parse_string_tlv(ppi, &ppi->ssl_version, "SSL_VERSION", len, value);
-            break;
-
-        case PROXY_PROTOCOL_TLV_SUBTYPE_SSL_CN:
-            proxy_protocol_parse_string_tlv(ppi, &ppi->ssl_cn, "SSL_CN", len, value);
-            break;
-
-        case PROXY_PROTOCOL_TLV_SUBTYPE_SSL_CIPHER:
-            proxy_protocol_parse_string_tlv(ppi, &ppi->ssl_cipher, "SSL_CIPHER", len, value);
-            break;
-
-        case PROXY_PROTOCOL_TLV_SUBTYPE_SSL_SIG_ALG:
-            proxy_protocol_parse_string_tlv(ppi, &ppi->ssl_sig_alg, "SSL_SIG_ALG", len, value);
-            break;
-
-        case PROXY_PROTOCOL_TLV_SUBTYPE_SSL_KEY_ALG:
-            proxy_protocol_parse_string_tlv(ppi, &ppi->ssl_key_alg, "SSL_KEY_ALG", len, value);
-            break;
-
-        case PROXY_PROTOCOL_TLV_TYPE_NETNS:
-            proxy_protocol_parse_string_tlv(ppi, &ppi->netns, "NETNS", len, value);
+        case HAPROXY_PROTOCOL_TLV_TYPE_NETNS:
+            haproxy_protocol_parse_string_tlv(tlv_info, &tlv_info->netns, "NETNS", len, value);
             break;
 
         default:
@@ -588,196 +629,195 @@ proxy_protocol_parse_tlv(struct proxy_protocol_info *ppi, const uint8_t type, co
 }
 
 /*
- * Parse the TLVs in the PROXY protocol v2 header.
+ * Parse the TLVs in the PROXY protocol v2 header->
  *
- * @param ppi - The proxy protocol info structure to store the parsed data.
+ * @param hpi - The haproxy protocol info structure to store the parsed data.
  * @param buf - The buffer containing the TLVs.
  * @param buf_len - The length of the buffer.
  *
  * @return - The number of bytes parsed or -1 if an error occurred.
  */
 int
-proxy_protocol_parse_tlvs(struct proxy_protocol_info *ppi, const uint8_t *buf,
-                          const int buf_len)
+haproxy_protocol_parse_tlvs(struct haproxy_protocol_tlv_info *tlv_info,
+                            const uint8_t *buf, const int buf_len)
 {
     const uint8_t *end = buf + buf_len;
     const uint8_t *start = buf;
 
-    ppi->gc = gc_new();
-    while (buf < end && parsing_state == PROXY_PROTOCOL_PARSING_STATE_OK)
+    tlv_info->gc = gc_new();
+    while (buf < end && parsing_state == HAPROXY_PROTOCOL_PARSING_STATE_OK)
     {
-        const struct proxy_protocol_tlv *tlv = (const struct proxy_protocol_tlv *)buf;
+        const struct haproxy_protocol_tlv *tlv = (const struct haproxy_protocol_tlv *)buf;
         uint16_t tlv_len = (tlv->length_hi << 8) | tlv->length_lo;
         if (buf + sizeof(*tlv) + tlv_len > end)
         {
             msg(M_NONFATAL, "PROXY protocol v2: TLV length exceeds buffer size");
             return -1;
         }
-        proxy_protocol_parse_tlv(ppi, tlv->type, tlv_len, tlv->value);
+        haproxy_protocol_parse_tlv(tlv_info, tlv->type, tlv_len, tlv->value);
         buf += sizeof(*tlv) + tlv_len;
     }
     return (int)(buf - start);
 }
 
 /*
- * Parse the PROXY protocol v2 header.
+ * Parse the PROXY protocol v2 header->
  *
- * @param ppi - The proxy protocol info structure to store the parsed data.
- * @param header - The header to parse.
+ * @param hpi - The haproxy protocol info structure to store the parsed data.
  *
- * @return - The number of bytes parsed or 0 if the header can be ignored.
+ * @return - The number of bytes parsed.
  */
 int
-proxy_protocol_parse_v2(struct proxy_protocol_info *ppi)
+haproxy_protocol_parse_v2(struct haproxy_protocol_info *hpi)
 {
     size_t addr_len = 0;
-    int pos = PROXY_PROTOCOL_V2_SIG_LEN + sizeof(header.v2.ver_cmd);
-    const proxy_protocol_version_t version = PROXY_PROTOCOL_VERSION_2;
+    int pos = HAPROXY_PROTOCOL_V2_SIG_LEN + sizeof(header->v2.ver_cmd);
+    const haproxy_protocol_version_t version = HAPROXY_PROTOCOL_VERSION_2;
 
-    switch (header.v2.ver_cmd & PROXY_PROTOCOL_V2_CMD_MASK)
+    switch (header->v2.ver_cmd & HAPROXY_PROTOCOL_V2_CMD_MASK)
     {
-        case PROXY_PROTOCOL_V2_LOCAL_CMD:
-            /* the receiver must accept this connection as valid and must use
-             * the real connection endpoints and discard the protocol block
-             * including the family which is ignored */
+        case HAPROXY_PROTOCOL_V2_LOCAL_CMD:
+            /*
+             * this command is sent by the proxy for health-checks and similar
+             * and it doesn't make much sense in the openvpn context, so we
+             * ignore the whole header
+             */
             msg(M_DEBUG, "PROXY protocol v2: LOCAL command");
-            parsing_state = PROXY_PROTOCOL_PARSING_STATE_IGNORE;
+            parsing_state = HAPROXY_PROTOCOL_PARSING_STATE_IGNORE;
             break;
 
-        case PROXY_PROTOCOL_V2_PROXY_CMD:
+        case HAPROXY_PROTOCOL_V2_PROXY_CMD:
             msg(M_DEBUG, "PROXY protocol v2: PROXY command");
             break;
 
         default:
-            msg(M_DEBUG, "PROXY protocol v2: UNSPEC or unknown command");
-            parsing_state = PROXY_PROTOCOL_PARSING_STATE_INVALID;
+            msg(M_DEBUG, "PROXY protocol v2: unknown command");
+            parsing_state = HAPROXY_PROTOCOL_PARSING_STATE_INVALID;
     }
 
-    if (parsing_state != PROXY_PROTOCOL_PARSING_STATE_OK)
+    if (parsing_state != HAPROXY_PROTOCOL_PARSING_STATE_OK)
     {
         return pos;
     }
-    pos += sizeof(header.v2.fam);
+    pos += sizeof(header->v2.fam);
 
-    switch (header.v2.fam)
+    switch (header->v2.fam)
     {
-        case PROXY_PROTOCOL_V2_AF_INET | PROXY_PROTOCOL_V2_TP_STREAM:
+        case HAPROXY_PROTOCOL_V2_AF_INET | HAPROXY_PROTOCOL_V2_TP_STREAM:
             msg(M_DEBUG, "PROXY protocol v2: TCP over IPv4.");
-            proxy_protocol_set_addr(ppi, version, AF_INET, SOCK_STREAM,
-                                    &header.v2.addr.ip4.src_addr,
-                                    &header.v2.addr.ip4.dst_addr,
-                                    header.v2.addr.ip4.src_port,
-                                    header.v2.addr.ip4.dst_port);
-            addr_len = PROXY_PROTOCOL_V2_ADDR_LEN_IPV4;
+            haproxy_protocol_set_addr(hpi, version, AF_INET, SOCK_STREAM,
+                                      &header->v2.addr.ip4.src_addr,
+                                      &header->v2.addr.ip4.dst_addr,
+                                      header->v2.addr.ip4.src_port,
+                                      header->v2.addr.ip4.dst_port);
+            addr_len = HAPROXY_PROTOCOL_V2_ADDR_LEN_IPV4;
             break;
 
-        case PROXY_PROTOCOL_V2_AF_INET | PROXY_PROTOCOL_V2_TP_DGRAM:
+        case HAPROXY_PROTOCOL_V2_AF_INET | HAPROXY_PROTOCOL_V2_TP_DGRAM:
             msg(M_DEBUG, "PROXY protocol v2: UDP over IPv4");
-            proxy_protocol_set_addr(ppi, version, AF_INET, SOCK_DGRAM,
-                                    &header.v2.addr.ip4.src_addr,
-                                    &header.v2.addr.ip4.dst_addr,
-                                    header.v2.addr.ip4.src_port,
-                                    header.v2.addr.ip4.dst_port);
-            addr_len = PROXY_PROTOCOL_V2_ADDR_LEN_IPV4;
+            haproxy_protocol_set_addr(hpi, version, AF_INET, SOCK_DGRAM,
+                                      &header->v2.addr.ip4.src_addr,
+                                      &header->v2.addr.ip4.dst_addr,
+                                      header->v2.addr.ip4.src_port,
+                                      header->v2.addr.ip4.dst_port);
+            addr_len = HAPROXY_PROTOCOL_V2_ADDR_LEN_IPV4;
             break;
 
-        case PROXY_PROTOCOL_V2_AF_INET6 | PROXY_PROTOCOL_V2_TP_STREAM:
+        case HAPROXY_PROTOCOL_V2_AF_INET6 | HAPROXY_PROTOCOL_V2_TP_STREAM:
             msg(M_DEBUG, "PROXY protocol v2: TCP over IPv6");
-            proxy_protocol_set_addr(ppi, version, AF_INET6, SOCK_STREAM,
-                                    header.v2.addr.ip6.src_addr,
-                                    header.v2.addr.ip6.dst_addr,
-                                    header.v2.addr.ip6.src_port,
-                                    header.v2.addr.ip6.dst_port);
-            addr_len = PROXY_PROTOCOL_V2_ADDR_LEN_IPV6;
+            haproxy_protocol_set_addr(hpi, version, AF_INET6, SOCK_STREAM,
+                                      header->v2.addr.ip6.src_addr,
+                                      header->v2.addr.ip6.dst_addr,
+                                      header->v2.addr.ip6.src_port,
+                                      header->v2.addr.ip6.dst_port);
+            addr_len = HAPROXY_PROTOCOL_V2_ADDR_LEN_IPV6;
             break;
 
-        case PROXY_PROTOCOL_V2_AF_INET6 | PROXY_PROTOCOL_V2_TP_DGRAM:
+        case HAPROXY_PROTOCOL_V2_AF_INET6 | HAPROXY_PROTOCOL_V2_TP_DGRAM:
             msg(M_DEBUG, "PROXY protocol v2: UDP over IPv6");
-            proxy_protocol_set_addr(ppi, version, AF_INET6, SOCK_DGRAM,
-                                    header.v2.addr.ip6.src_addr,
-                                    header.v2.addr.ip6.dst_addr,
-                                    header.v2.addr.ip6.src_port,
-                                    header.v2.addr.ip6.dst_port);
-            addr_len = PROXY_PROTOCOL_V2_ADDR_LEN_IPV6;
+            haproxy_protocol_set_addr(hpi, version, AF_INET6, SOCK_DGRAM,
+                                      header->v2.addr.ip6.src_addr,
+                                      header->v2.addr.ip6.dst_addr,
+                                      header->v2.addr.ip6.src_port,
+                                      header->v2.addr.ip6.dst_port);
+            addr_len = HAPROXY_PROTOCOL_V2_ADDR_LEN_IPV6;
             break;
 
-        case PROXY_PROTOCOL_V2_AF_UNIX | PROXY_PROTOCOL_V2_TP_STREAM:
+        case HAPROXY_PROTOCOL_V2_AF_UNIX | HAPROXY_PROTOCOL_V2_TP_STREAM:
             msg(M_DEBUG, "PROXY protocol v2: AF_UNIX stream");
-            proxy_protocol_set_addr(ppi, version, AF_UNIX, SOCK_STREAM,
-                                    header.v2.addr.unx.src_addr,
-                                    header.v2.addr.unx.dst_addr, 0, 0);
-            addr_len = PROXY_PROTOCOL_V2_ADDR_LEN_UNIX;
+            haproxy_protocol_set_addr(hpi, version, AF_UNIX, SOCK_STREAM,
+                                      header->v2.addr.unx.src_addr,
+                                      header->v2.addr.unx.dst_addr, 0, 0);
+            addr_len = HAPROXY_PROTOCOL_V2_ADDR_LEN_UNIX;
             break;
 
-        case PROXY_PROTOCOL_V2_AF_UNIX | PROXY_PROTOCOL_V2_TP_DGRAM:
+        case HAPROXY_PROTOCOL_V2_AF_UNIX | HAPROXY_PROTOCOL_V2_TP_DGRAM:
             msg(M_DEBUG, "PROXY protocol v2: AF_UNIX datagram");
-            proxy_protocol_set_addr(ppi, version, AF_UNIX, SOCK_DGRAM,
-                                    header.v2.addr.unx.src_addr,
-                                    header.v2.addr.unx.dst_addr, 0, 0);
-            addr_len = PROXY_PROTOCOL_V2_ADDR_LEN_UNIX;
+            haproxy_protocol_set_addr(hpi, version, AF_UNIX, SOCK_DGRAM,
+                                      header->v2.addr.unx.src_addr,
+                                      header->v2.addr.unx.dst_addr, 0, 0);
+            addr_len = HAPROXY_PROTOCOL_V2_ADDR_LEN_UNIX;
             break;
 
         default:
-            msg(M_DEBUG, "PROXY protocol v2: UNSPEC or unknown address family");
-            parsing_state = PROXY_PROTOCOL_PARSING_STATE_INVALID;
+            if ((header->v2.fam & HAPROXY_PROTOCOL_V2_AF_MASK) == HAPROXY_PROTOCOL_V2_AF_UNSPEC
+                || (header->v2.fam & HAPROXY_PROTOCOL_V2_TP_MASK) == HAPROXY_PROTOCOL_V2_TP_UNSPEC)
+            {
+                msg(M_DEBUG, "PROXY protocol v2: UNSPEC address family or transport protocol");
+                parsing_state = HAPROXY_PROTOCOL_PARSING_STATE_IGNORE;
+                break;
+            }
+            msg(M_DEBUG, "PROXY protocol v2: unknown address family (0x%02x) "
+                "or transport protocol (0x%02x)",
+                header->v2.fam & HAPROXY_PROTOCOL_V2_AF_MASK,
+                header->v2.fam & HAPROXY_PROTOCOL_V2_TP_MASK);
+            parsing_state = HAPROXY_PROTOCOL_PARSING_STATE_IGNORE;
             break;
     }
-    return (int)(pos + sizeof(header.v2.len) + addr_len);
+    return (int)(pos + sizeof(header->v2.len) + addr_len);
 }
 
 bool
-proxy_protocol_parse(struct proxy_protocol_info *ppi, const struct buffer *buf)
+haproxy_protocol_parse(struct haproxy_protocol_info *hpi, const uint8_t *buf, const int buf_len)
 {
-    const proxy_protocol_version_t version = proxy_protocol_version(BPTR(buf), BLEN(buf));
+    const haproxy_protocol_version_t version = haproxy_protocol_version(buf, buf_len);
+    header_len = buf_len;
+    header = (haproxy_protocol_header_t *)buf;
 
-    header_len = BLEN(buf);
-    memcpy(&header, BPTR(buf), header_len);
+    if (!hpi)
+    {
+        msg(M_NONFATAL, "PROXY protocol: invalid haproxy protocol info structure");
+        return false;
+    }
 
     switch (version)
     {
-        case PROXY_PROTOCOL_VERSION_2:
+        case HAPROXY_PROTOCOL_VERSION_2:
         {
-            if ((header.v2.ver_cmd & PROXY_PROTOCOL_V2_VER_MASK) == PROXY_PROTOCOL_V2_VER)
+            if ((header->v2.ver_cmd & HAPROXY_PROTOCOL_V2_VER_MASK) == HAPROXY_PROTOCOL_V2_VER)
             {
-                int pos = proxy_protocol_parse_v2(ppi);
-                if (parsing_state == PROXY_PROTOCOL_PARSING_STATE_IGNORE)
+                const int pos = haproxy_protocol_parse_v2(hpi);
+                haproxy_protocol_parse_tlvs(&hpi->tlv, buf + pos,
+                                            header_len - pos);
+                if (parsing_state != HAPROXY_PROTOCOL_PARSING_STATE_OK)
                 {
-                    msg(M_DEBUG, "PROXY protocol v2: ignoring header");
-                    return true;
-                }
-                else if (parsing_state == PROXY_PROTOCOL_PARSING_STATE_INVALID)
-                {
+                    msg(M_DEBUG, "PROXY protocol v2: %s header",
+                        parsing_state == HAPROXY_PROTOCOL_PARSING_STATE_IGNORE ? "ignoring" : "invalid");
                     return false;
                 }
-
-                if (pos < header_len) /* there's extra TLV data to parse */
-                {
-                    pos += proxy_protocol_parse_tlvs(ppi, (uint8_t *)(&header) + pos,
-                                                     header_len - pos);
-                    if (parsing_state == PROXY_PROTOCOL_PARSING_STATE_INVALID)
-                    {
-                        return false;
-                    }
-                    if (pos < header_len)
-                    {
-                        msg(M_NONFATAL, "PROXY protocol v2: could not correclty parse TLV data");
-                    }
-                }
-
-                msg(M_DEBUG, "PROXY protocol v2: header parsed");
                 return true;
             }
             else
             {
                 msg(M_NONFATAL, "PROXY protocol v2: expected version 2, got %d",
-                    header.v2.ver_cmd & PROXY_PROTOCOL_V2_VER_MASK);
+                    (header->v2.ver_cmd & HAPROXY_PROTOCOL_V2_VER_MASK) >> 4);
                 return false;
             }
         }
 
-        case PROXY_PROTOCOL_VERSION_1:
-            msg(M_DEBUG, "PROXY protocol header v1: %.*s", BLEN(buf) - 2, header.v1.line);
-            return proxy_protocol_parse_v1(ppi, header.v1.line, BLEN(buf));
+        case HAPROXY_PROTOCOL_VERSION_1:
+            msg(M_DEBUG, "PROXY protocol header v1: %.*s", header_len - 2, header->v1.line);
+            return haproxy_protocol_parse_v1(hpi, header->v1.line, header_len);
 
         default:
             return false;
@@ -785,7 +825,10 @@ proxy_protocol_parse(struct proxy_protocol_info *ppi, const struct buffer *buf)
 }
 
 void
-proxy_protocol_free(struct proxy_protocol_info *ppi)
+haproxy_protocol_reset(struct haproxy_protocol_info *hpi)
 {
-    gc_free(&ppi->gc);
+    header = NULL;
+    header_len = 0;
+    parsing_state = HAPROXY_PROTOCOL_PARSING_STATE_OK;
+    gc_free(&hpi->tlv.gc);
 }

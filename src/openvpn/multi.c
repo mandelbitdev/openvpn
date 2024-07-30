@@ -51,7 +51,7 @@
 #include "ssl_util.h"
 #include "dco.h"
 #include "reflect_filter.h"
-#include "proxy_protocol.h"
+#include "haproxy_protocol.h"
 
 /*#define MULTI_DEBUG_EVENT_LOOP*/
 
@@ -780,7 +780,7 @@ multi_create_instance(struct multi_context *m, const struct mroute_addr *real)
         goto err;
     }
 
-    ALLOC_OBJ_CLEAR(mi->context.c1.proxy_protocol, struct proxy_protocol_info);
+    ALLOC_OBJ_CLEAR(mi->context.c1.haproxy_protocol, struct haproxy_protocol_info);
 
     mi->context.c2.tls_multi->multi_state = CAS_NOT_CONNECTED;
 
@@ -792,6 +792,9 @@ multi_create_instance(struct multi_context *m, const struct mroute_addr *real)
 
     if (!real) /* TCP mode? */
     {
+        /* allow checking for HAProxy protocol header at the beginning of the connection */
+        mi->context.c2.link_socket->haproxy_protocol_allowed = true;
+
         if (!multi_tcp_instance_specific_init(m, mi))
         {
             goto err;
@@ -3217,7 +3220,7 @@ multi_replace_proxy_addr(struct multi_context *m, struct multi_instance *mi)
     struct hash *hash = m->hash;
     struct gc_arena gc = gc_new();
 
-    if (!mroute_extract_openvpn_sockaddr(&real, &mi->context.c1.proxy_protocol->src, true))
+    if (!mroute_extract_openvpn_sockaddr(&real, &mi->context.c1.haproxy_protocol->src, true))
     {
         goto done;
     }
@@ -3445,19 +3448,17 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
         lsi = get_link_socket_info(c);
 
         /* check for PROXY protocol */
-        if (lsi->proto == PROTO_TCP_SERVER && !c->c1.proxy_protocol->version && BLEN(&c->c2.buf) > 0)
+        if (lsi->proto == PROTO_TCP_SERVER && c->c2.link_socket->haproxy_protocol_allowed && BLEN(&c->c2.buf) > 0)
         {
-            if (!proxy_protocol_parse(c->c1.proxy_protocol, &c->c2.buf))
+            if (haproxy_protocol_parse(c->c1.haproxy_protocol, BPTR(&c->c2.buf), BLEN(&c->c2.buf)))
             {
-                /* set version to invalid to avoid checking again */
-                c->c1.proxy_protocol->version = PROXY_PROTOCOL_VERSION_INVALID;
-            }
-            else
-            {
+                /* replace proxy address with real address */
                 multi_replace_proxy_addr(m, m->pending);
                 /* avoid processing the packet as an openvpn one */
                 buf_reset_len(&c->c2.buf);
             }
+            /* stop checking for HAProxy protocol headers */
+            c->c2.link_socket->haproxy_protocol_allowed = false;
         }
 
         if (BLEN(&c->c2.buf) > 0)
