@@ -42,6 +42,7 @@
 #include "options.h"
 #include "networking.h"
 #include "integer.h"
+#include "openvpn.h"
 
 #include "memdbg.h"
 
@@ -1396,6 +1397,7 @@ setenv_route_ipv6(struct env_set *es, const struct route_ipv6 *r6, int i)
     }
     gc_free(&gc);
 }
+
 void
 setenv_routes_ipv6(struct env_set *es, const struct route_ipv6_list *rl6)
 {
@@ -1472,6 +1474,37 @@ is_on_link(const int is_local_route, const unsigned int flags, const struct rout
 }
 #endif
 
+static bool
+is_gateway_needed_ipv4(const struct route_ipv4 *r4,
+                       const struct route_gateway_info *rgi,
+                       const struct tuntap *tt)
+{
+#ifndef _WIN32
+    /* server told us which interface to use; pass gateway if it gave one */
+    if (rgi && (rgi->flags & RGI_IFACE_DEFINED) && rgi->iface[0] != 0)
+    {
+        if (rgi->flags & RGI_ADDR_DEFINED && r4->gateway != 0)
+        {
+            return true;
+        }
+    }
+#endif
+
+    /* TAP is an L2 device, so for destinations that are not explicitly
+     * on-link the kernel needs a gateway so it can ARP/ND for the
+     * MAC address. We make an exception only when the user explicitly sets
+     * metric 0, which is taken as a request for an on-link “route to
+     * interface” (no gateway). This keeps parity with the IPv6 code.
+     */
+    if (tt->type == DEV_TYPE_TAP
+        && !((r4->flags & RT_METRIC_DEFINED) && r4->metric == 0))
+    {
+        return true;
+    }
+
+    return false;
+}
+
 bool
 add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
           const struct route_gateway_info *rgi, /* may be NULL */
@@ -1503,28 +1536,7 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
         goto done;
     }
 
-#ifndef _WIN32
-    /* server told us which interface to use; pass gateway if it gave one */
-    if (rgi && (rgi->flags & RGI_IFACE_DEFINED) && rgi->iface[0] != 0)
-    {
-        if (rgi->flags & RGI_ADDR_DEFINED && r->gateway != 0)
-        {
-            gateway_needed = true;
-        }
-    }
-#endif
-
-    /* TAP is an L2 device, so for destinations that are not explicitly
-     * on-link the kernel needs a gateway so it can ARP/ND for the
-     * MAC address. We make an exception only when the user explicitly sets
-     * metric 0, which is taken as a request for an on-link “route to
-     * interface” (no gateway). This keeps parity with the IPv6 code.
-     */
-    if (tt->type == DEV_TYPE_TAP
-        && !((r->flags & RT_METRIC_DEFINED) && r->metric == 0))
-    {
-        gateway_needed = true;
-    }
+    gateway_needed = is_gateway_needed_ipv4(r, rgi, tt);
 
     if (gateway_needed && r->gateway == 0)
     {
@@ -1537,18 +1549,21 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
         goto done;
     }
 
-#if defined(TARGET_LINUX)
-    const char *iface = tt->actual_name;
+#if !defined(_WIN32) && !defined(TARGET_SOLARIS) \
+    && !defined(TARGET_AIX)
+    const char *device = tt->actual_name;
     if (!gateway_needed && rgi && (rgi->flags & RGI_IFACE_DEFINED) && rgi->iface[0] != 0) /* vpn server special route */
     {
-        iface = rgi->iface;
+        device = rgi->iface;
     }
+#endif
 
+#if defined(TARGET_LINUX)
     int metric = -1;
 
     if (is_on_link(is_local_route, flags, rgi))
     {
-        iface = rgi->iface;
+        device = rgi->iface;
     }
 
     if (r->flags & RT_METRIC_DEFINED)
@@ -1560,7 +1575,7 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
     status = RTA_SUCCESS;
     int ret = net_route_v4_add(ctx, &r->network, netmask_to_netbits2(r->netmask),
                                gateway_needed ? &r->gateway : NULL,
-                               iface, r->table_id, metric);
+                               device, r->table_id, metric);
     if (ret == -EEXIST)
     {
         msg(D_ROUTE, "NOTE: Linux route add command failed because route exists");
@@ -1577,7 +1592,7 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
 
     if (rgi)
     {
-        snprintf(out, sizeof(out), "%s %s %s dev %s", network, netmask, gateway, rgi->iface);
+        snprintf(out, sizeof(out), "%s %s %s dev %s", network, netmask, gateway, device);
     }
     else
     {
@@ -1672,7 +1687,7 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
     bool ret = openvpn_execve_check(&argv, es, 0, "ERROR: Solaris route add command failed");
     status = ret ? RTA_SUCCESS : RTA_ERROR;
 
-#elif defined(TARGET_FREEBSD)
+#elif defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY)
 
     argv_printf(&argv, "%s add", ROUTE_PATH);
 
@@ -1683,31 +1698,18 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
     }
 #endif
 
-    argv_printf_cat(&argv, "-net %s %s %s", network, gateway, netmask);
-
-    /* FIXME -- add on-link support for FreeBSD */
-
-    argv_msg(D_ROUTE, &argv);
-    bool ret = openvpn_execve_check(&argv, es, 0, "ERROR: FreeBSD route add command failed");
-    status = ret ? RTA_SUCCESS : RTA_ERROR;
-
-#elif defined(TARGET_DRAGONFLY)
-
-    argv_printf(&argv, "%s add", ROUTE_PATH);
-
-#if 0
-    if (r->flags & RT_METRIC_DEFINED)
+    if (gateway_needed)
     {
-        argv_printf_cat(&argv, "-rtt %d", r->metric);
+        argv_printf_cat(&argv, "-net %s %s %s", network, gateway, netmask);
     }
-#endif
-
-    argv_printf_cat(&argv, "-net %s %s %s", network, gateway, netmask);
-
-    /* FIXME -- add on-link support for Dragonfly */
+    else
+    {
+        argv_printf_cat(&argv, "-net %s -iface %s", network, device);
+    }
 
     argv_msg(D_ROUTE, &argv);
-    bool ret = openvpn_execve_check(&argv, es, 0, "ERROR: DragonFly route add command failed");
+    bool ret = openvpn_execve_check(&argv, es, 0,
+                                    "ERROR: BSD route add command failed");
     status = ret ? RTA_SUCCESS : RTA_ERROR;
 
 #elif defined(TARGET_DARWIN)
@@ -1730,7 +1732,14 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
     }
     else
     {
-        argv_printf_cat(&argv, "-net %s %s %s", network, gateway, netmask);
+        if (gateway_needed)
+        {
+            argv_printf_cat(&argv, "-net %s %s %s", network, gateway, netmask);
+        }
+        else
+        {
+            argv_printf_cat(&argv, "-net %s -interface %s", network, device);
+        }
     }
 
     argv_msg(D_ROUTE, &argv);
@@ -1748,9 +1757,14 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
     }
 #endif
 
-    argv_printf_cat(&argv, "-net %s %s -netmask %s", network, gateway, netmask);
-
-    /* FIXME -- add on-link support for OpenBSD/NetBSD */
+    if (gateway_needed)
+    {
+        argv_printf_cat(&argv, "-net %s %s -netmask %s", network, gateway, netmask);
+    }
+    else
+    {
+        argv_printf_cat(&argv, "-net %s -netmask %s -link -iface %s", network, netmask, device);
+    }
 
     argv_msg(D_ROUTE, &argv);
     bool ret = openvpn_execve_check(&argv, es, 0, "ERROR: OpenBSD/NetBSD route add command failed");
@@ -1827,6 +1841,47 @@ route_ipv6_clear_host_bits(struct route_ipv6 *r6)
     }
 }
 
+static bool
+is_gateway_needed_ipv6(const struct route_ipv6 *r6,
+                       const struct tuntap *tt,
+                       const char *network)
+{
+#ifndef _WIN32
+    if (r6->iface != NULL) /* VPN server special route */
+    {
+        if (!IN6_IS_ADDR_UNSPECIFIED(&r6->gateway))
+        {
+            return true;
+        }
+    }
+#endif
+
+    /*
+     * Filter out routes which are essentially no-ops
+     * (not currently done for IPv6)
+     */
+
+    /* On "tun" interface, we never set a gateway if the operating system
+     * can do "route to interface" - it does not add value, as the target
+     * dev already fully qualifies the route destination on point-to-point
+     * interfaces.   OTOH, on "tap" interface, we must always set the
+     * gateway unless the route is to be an on-link network
+     */
+    if (tt->type == DEV_TYPE_TAP
+        && !((r6->flags & RT_METRIC_DEFINED) && r6->metric == 0))
+    {
+        return true;
+    }
+
+    if (ipv6_net_contains_host(&tt->local_ipv6, tt->netbits_ipv6, &r6->gateway))
+    {
+        msg(D_ROUTE, "Ignoring gateway in VPN subnet for route %s/%d", network, r6->netbits);
+        return false;
+    }
+
+    return false;
+}
+
 bool
 add_route_ipv6(struct route_ipv6 *r6, const struct tuntap *tt, unsigned int flags,
                const struct env_set *es, openvpn_net_ctx_t *ctx)
@@ -1842,21 +1897,11 @@ add_route_ipv6(struct route_ipv6 *r6, const struct tuntap *tt, unsigned int flag
     struct argv argv = argv_new();
     struct gc_arena gc = gc_new();
 
-#ifndef _WIN32
-    const char *device = tt->actual_name;
-    if (r6->iface != NULL) /* vpn server special route */
-    {
-        device = r6->iface;
-        if (!IN6_IS_ADDR_UNSPECIFIED(&r6->gateway))
-        {
-            gateway_needed = true;
-        }
-    }
-#endif
-
     route_ipv6_clear_host_bits(r6);
     const char *network = print_in6_addr(r6->network, 0, &gc);
     const char *gateway = print_in6_addr(r6->gateway, 0, &gc);
+
+    gateway_needed = is_gateway_needed_ipv6(r6, tt, network);
 
 #if defined(TARGET_DARWIN) || defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY) \
     || defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)
@@ -1875,6 +1920,15 @@ add_route_ipv6(struct route_ipv6 *r6, const struct tuntap *tt, unsigned int flag
     }
 #endif
 
+#if !defined(_WIN32)
+
+    const char *device = tt->actual_name;
+    if (r6->iface != NULL)
+    {
+        device = r6->iface;
+    }
+#endif
+
 #ifndef _WIN32
     msg(D_ROUTE, "add_route_ipv6(%s/%d -> %s metric %d) dev %s", network, r6->netbits, gateway,
         r6->metric, device);
@@ -1882,22 +1936,6 @@ add_route_ipv6(struct route_ipv6 *r6, const struct tuntap *tt, unsigned int flag
     msg(D_ROUTE, "add_route_ipv6(%s/%d -> %s metric %d) IF %lu", network, r6->netbits, gateway,
         r6->metric, r6->adapter_index ? r6->adapter_index : tt->adapter_index);
 #endif
-
-    /*
-     * Filter out routes which are essentially no-ops
-     * (not currently done for IPv6)
-     */
-
-    /* On "tun" interface, we never set a gateway if the operating system
-     * can do "route to interface" - it does not add value, as the target
-     * dev already fully qualifies the route destination on point-to-point
-     * interfaces.   OTOH, on "tap" interface, we must always set the
-     * gateway unless the route is to be an on-link network
-     */
-    if (tt->type == DEV_TYPE_TAP && !((r6->flags & RT_METRIC_DEFINED) && r6->metric == 0))
-    {
-        gateway_needed = true;
-    }
 
     if (gateway_needed && IN6_IS_ADDR_UNSPECIFIED(&r6->gateway))
     {
@@ -1913,6 +1951,7 @@ add_route_ipv6(struct route_ipv6 *r6, const struct tuntap *tt, unsigned int flag
 
 #if defined(TARGET_LINUX)
     int metric = -1;
+
     if ((r6->flags & RT_METRIC_DEFINED) && (r6->metric > 0))
     {
         metric = r6->metric;
@@ -2008,21 +2047,21 @@ add_route_ipv6(struct route_ipv6 *r6, const struct tuntap *tt, unsigned int flag
     bool ret = openvpn_execve_check(&argv, es, 0, "ERROR: MacOS X route add -inet6 command failed");
     status = ret ? RTA_SUCCESS : RTA_ERROR;
 
-#elif defined(TARGET_OPENBSD)
+#elif defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)
 
-    argv_printf(&argv, "%s add -inet6 %s -prefixlen %d %s", ROUTE_PATH, network, r6->netbits,
-                gateway);
+    argv_printf(&argv, "%s add -inet6 %s -prefixlen %d ", ROUTE_PATH, network, r6->netbits);
+
+    if (gateway_needed)
+    {
+        argv_printf_cat(&argv, "%s", gateway);
+    }
+    else
+    {
+        argv_printf_cat(&argv, "-link -iface %s", device);
+    }
 
     argv_msg(D_ROUTE, &argv);
-    bool ret = openvpn_execve_check(&argv, es, 0, "ERROR: OpenBSD route add -inet6 command failed");
-    status = ret ? RTA_SUCCESS : RTA_ERROR;
-
-#elif defined(TARGET_NETBSD)
-
-    argv_printf(&argv, "%s add -inet6 %s/%d %s", ROUTE_PATH, network, r6->netbits, gateway);
-
-    argv_msg(D_ROUTE, &argv);
-    bool ret = openvpn_execve_check(&argv, es, 0, "ERROR: NetBSD route add -inet6 command failed");
+    bool ret = openvpn_execve_check(&argv, es, 0, "ERROR: OpenBSD/NetBSD route add -inet6 command failed");
     status = ret ? RTA_SUCCESS : RTA_ERROR;
 
 #elif defined(TARGET_AIX)
@@ -2080,6 +2119,21 @@ delete_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
 #endif
     int is_local_route;
 
+#if defined(TARGET_DARWIN) || defined(TARGET_LINUX)         \
+    || defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY) \
+    || defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)
+
+    bool gateway_needed = is_gateway_needed_ipv4(r, rgi, tt);
+
+#if !defined(TARGET_OPENBSD) && !defined(TARGET_NETBSD)
+    const char *device = tt->actual_name;
+    if (!gateway_needed && rgi && (rgi->flags & RGI_IFACE_DEFINED) && rgi->iface[0] != 0) /* vpn server special route */
+    {
+        device = rgi->iface;
+    }
+#endif
+#endif
+
     if ((r->flags & (RT_DEFINED | RT_ADDED)) != (RT_DEFINED | RT_ADDED))
     {
         return;
@@ -2106,12 +2160,19 @@ delete_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
 
 #if defined(TARGET_LINUX)
     metric = -1;
+
+    if (is_on_link(is_local_route, flags, rgi))
+    {
+        device = rgi->iface;
+    }
+
     if (r->flags & RT_METRIC_DEFINED)
     {
         metric = r->metric;
     }
 
-    if (net_route_v4_del(ctx, &r->network, netmask_to_netbits2(r->netmask), &r->gateway, NULL,
+    if (net_route_v4_del(ctx, &r->network, netmask_to_netbits2(r->netmask),
+                         gateway_needed ? &r->gateway : NULL, device,
                          r->table_id, metric)
         < 0)
     {
@@ -2165,19 +2226,21 @@ delete_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
     argv_msg(D_ROUTE, &argv);
     openvpn_execve_check(&argv, es, 0, "ERROR: Solaris route delete command failed");
 
-#elif defined(TARGET_FREEBSD)
+#elif defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY)
 
-    argv_printf(&argv, "%s delete -net %s %s %s", ROUTE_PATH, network, gateway, netmask);
+    argv_printf(&argv, "%s delete", ROUTE_PATH);
+
+    if (gateway_needed)
+    {
+        argv_printf_cat(&argv, "-net %s %s %s", network, gateway, netmask);
+    }
+    else
+    {
+        argv_printf_cat(&argv, "-net %s -iface %s", network, device);
+    }
 
     argv_msg(D_ROUTE, &argv);
-    openvpn_execve_check(&argv, es, 0, "ERROR: FreeBSD route delete command failed");
-
-#elif defined(TARGET_DRAGONFLY)
-
-    argv_printf(&argv, "%s delete -net %s %s %s", ROUTE_PATH, network, gateway, netmask);
-
-    argv_msg(D_ROUTE, &argv);
-    openvpn_execve_check(&argv, es, 0, "ERROR: DragonFly route delete command failed");
+    openvpn_execve_check(&argv, es, 0, "ERROR: BSD route delete command failed");
 
 #elif defined(TARGET_DARWIN)
 
@@ -2188,7 +2251,16 @@ delete_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
     }
     else
     {
-        argv_printf(&argv, "%s delete -net %s %s %s", ROUTE_PATH, network, gateway, netmask);
+        argv_printf(&argv, "%s delete ", ROUTE_PATH);
+
+        if (gateway_needed)
+        {
+            argv_printf_cat(&argv, "-net %s %s %s", network, gateway, netmask);
+        }
+        else
+        {
+            argv_printf_cat(&argv, "-net %s -interface %s", network, device);
+        }
     }
 
     argv_msg(D_ROUTE, &argv);
@@ -2196,7 +2268,16 @@ delete_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
 
 #elif defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)
 
-    argv_printf(&argv, "%s delete -net %s %s -netmask %s", ROUTE_PATH, network, gateway, netmask);
+    argv_printf(&argv, "%s delete ", ROUTE_PATH);
+
+    if (gateway_needed)
+    {
+        argv_printf_cat(&argv, "-net %s %s -netmask %s", network, gateway, netmask);
+    }
+    else
+    {
+        argv_printf_cat(&argv, "-net %s -netmask %s", network, netmask);
+    }
 
     argv_msg(D_ROUTE, &argv);
     openvpn_execve_check(&argv, es, 0, "ERROR: OpenBSD/NetBSD route delete command failed");
@@ -2250,23 +2331,16 @@ delete_route_ipv6(const struct route_ipv6 *r6, const struct tuntap *tt, const st
 #if !defined(TARGET_LINUX)
     const char *gateway;
 #endif
-#if !defined(TARGET_SOLARIS)
-    bool gateway_needed = false;
+#if defined(TARGET_DARWIN) || defined(TARGET_LINUX) \
+    || defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY)
+
     const char *device = tt->actual_name;
     if (r6->iface != NULL) /* vpn server special route */
     {
         device = r6->iface;
-        gateway_needed = true;
     }
     (void)device; /* unused on some platforms */
 
-    /* if we used a gateway on "add route", we also need to specify it on
-     * delete, otherwise some OSes will refuse to delete the route
-     */
-    if (tt->type == DEV_TYPE_TAP && !((r6->flags & RT_METRIC_DEFINED) && r6->metric == 0))
-    {
-        gateway_needed = true;
-    }
 #endif
 #endif
 
@@ -2276,6 +2350,15 @@ delete_route_ipv6(const struct route_ipv6 *r6, const struct tuntap *tt, const st
     network = print_in6_addr(r6->network, 0, &gc);
 #if !defined(TARGET_LINUX) && !defined(_WIN32)
     gateway = print_in6_addr(r6->gateway, 0, &gc);
+#endif
+
+#if defined(TARGET_DARWIN) || defined(TARGET_LINUX) || defined(TARGET_FREEBSD) \
+    || defined(TARGET_DRAGONFLY) || defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)
+    /* if we used a gateway on "add route", we also need to specify it on
+     * delete, otherwise some OSes will refuse to delete the route
+     */
+    bool gateway_needed = false;
+    gateway_needed = is_gateway_needed_ipv6(r6, tt, network);
 #endif
 
 #if defined(TARGET_DARWIN) || defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY) \
@@ -2362,20 +2445,17 @@ delete_route_ipv6(const struct route_ipv6 *r6, const struct tuntap *tt, const st
     argv_msg(D_ROUTE, &argv);
     openvpn_execve_check(&argv, es, 0, "ERROR: MacOS X route delete -inet6 command failed");
 
-#elif defined(TARGET_OPENBSD)
+#elif defined(TARGET_OPENBSD) || defined(TARGET_NETBSD)
 
-    argv_printf(&argv, "%s delete -inet6 %s -prefixlen %d %s", ROUTE_PATH, network, r6->netbits,
-                gateway);
+    argv_printf(&argv, "%s delete -inet6 %s -prefixlen %d", ROUTE_PATH, network, r6->netbits);
 
-    argv_msg(D_ROUTE, &argv);
-    openvpn_execve_check(&argv, es, 0, "ERROR: OpenBSD route delete -inet6 command failed");
-
-#elif defined(TARGET_NETBSD)
-
-    argv_printf(&argv, "%s delete -inet6 %s/%d %s", ROUTE_PATH, network, r6->netbits, gateway);
+    if (gateway_needed)
+    {
+        argv_printf_cat(&argv, "%s", gateway);
+    }
 
     argv_msg(D_ROUTE, &argv);
-    openvpn_execve_check(&argv, es, 0, "ERROR: NetBSD route delete -inet6 command failed");
+    openvpn_execve_check(&argv, es, 0, "ERROR: OpenBSD/NetBSD route delete -inet6 command failed");
 
 #elif defined(TARGET_AIX)
 

@@ -1383,7 +1383,7 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu, const struc
         add_route(&r, tt, 0, NULL, es, NULL);
     }
 
-#elif defined(TARGET_NETBSD)
+#elif defined(TARGET_NETBSD) || defined(TARGET_DRAGONFLY)
     in_addr_t remote_end = INADDR_ANY; /* for "virtual" subnet topology */
 
     if (tun_p2p)
@@ -1466,7 +1466,7 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu, const struc
         add_route(&r, tt, 0, NULL, es, NULL);
     }
 
-#elif defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY)
+#elif defined(TARGET_FREEBSD)
 
     /* example: ifconfig tun2 10.2.0.2 10.2.0.1 mtu 1450 netmask 255.255.255.255 up */
     if (tun_p2p) /* point-to-point tun */
