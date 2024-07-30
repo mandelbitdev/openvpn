@@ -1017,7 +1017,7 @@ init_tun_post(struct tuntap *tt,
  */
 static void
 add_route_connected_v6_net(struct tuntap *tt,
-                           const struct env_set *es)
+                           const struct env_set *es, const bool is_multipoint)
 {
     struct route_ipv6 r6;
 
@@ -1027,11 +1027,11 @@ add_route_connected_v6_net(struct tuntap *tt,
     r6.gateway = tt->local_ipv6;
     r6.metric  = 0;                     /* connected route */
     r6.flags   = RT_DEFINED | RT_METRIC_DEFINED;
-    add_route_ipv6(&r6, tt, 0, es, NULL);
+    add_route_ipv6(&r6, tt, 0, es, NULL, is_multipoint);
 }
 
 void
-delete_route_connected_v6_net(const struct tuntap *tt)
+delete_route_connected_v6_net(const struct tuntap *tt, const bool is_multipoint)
 {
     struct route_ipv6 r6;
 
@@ -1042,7 +1042,7 @@ delete_route_connected_v6_net(const struct tuntap *tt)
     r6.metric  = 0;                     /* connected route */
     r6.flags   = RT_DEFINED | RT_ADDED | RT_METRIC_DEFINED;
     route_ipv6_clear_host_bits(&r6);
-    delete_route_ipv6(&r6, tt, 0, NULL, NULL);
+    delete_route_ipv6(&r6, tt, 0, NULL, NULL, is_multipoint);
 }
 #endif /* if defined(_WIN32) || defined(TARGET_DARWIN) || defined(TARGET_NETBSD) || defined(TARGET_OPENBSD) */
 
@@ -1084,7 +1084,8 @@ create_arbitrary_remote( struct tuntap *tt )
  */
 static void
 do_ifconfig_ipv6(struct tuntap *tt, const char *ifname, int tun_mtu,
-                 const struct env_set *es, openvpn_net_ctx_t *ctx)
+                 const struct env_set *es, openvpn_net_ctx_t *ctx,
+                 const bool is_multipoint)
 {
 #if !defined(TARGET_LINUX)
     struct argv argv = argv_new();
@@ -1223,7 +1224,7 @@ do_ifconfig_ipv6(struct tuntap *tt, const char *ifname, int tun_mtu,
         do_address_service(true, AF_INET6, tt);
         if (tt->type == DEV_TYPE_TUN)
         {
-            add_route_connected_v6_net(tt, es);
+            add_route_connected_v6_net(tt, es, is_multipoint);
         }
         do_dns_service(true, AF_INET6, tt);
         do_set_mtu_service(tt, AF_INET6, tun_mtu);
@@ -1251,7 +1252,7 @@ do_ifconfig_ipv6(struct tuntap *tt, const char *ifname, int tun_mtu,
         netsh_command(&argv, 4, M_FATAL);
         if (tt->type == DEV_TYPE_TUN)
         {
-            add_route_connected_v6_net(tt, es);
+            add_route_connected_v6_net(tt, es, is_multipoint);
         }
         /* set ipv6 dns servers if any are specified */
         netsh_set_dns6_servers(tt->options.dns6, tt->options.dns6_len, tt->adapter_index);
@@ -1283,7 +1284,7 @@ do_ifconfig_ipv6(struct tuntap *tt, const char *ifname, int tun_mtu,
  */
 static void
 do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
-                 const struct env_set *es, openvpn_net_ctx_t *ctx)
+                 const struct env_set *es, openvpn_net_ctx_t *ctx, const bool is_multipoint)
 {
 #if !defined(_WIN32) && !defined(TARGET_ANDROID)
     /*
@@ -1388,7 +1389,7 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
         r.netmask = tt->remote_netmask;
         r.gateway = tt->local;
         r.metric = 0;
-        add_route(&r, tt, 0, NULL, es, NULL);
+        add_route(&r, tt, 0, NULL, es, NULL, is_multipoint);
     }
 
 #elif defined(TARGET_OPENBSD)
@@ -1435,7 +1436,7 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
         r.network = tt->local & tt->remote_netmask;
         r.netmask = tt->remote_netmask;
         r.gateway = remote_end;
-        add_route(&r, tt, 0, NULL, es, NULL);
+        add_route(&r, tt, 0, NULL, es, NULL, is_multipoint);
     }
 
 #elif defined(TARGET_NETBSD)
@@ -1477,7 +1478,7 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
         r.network = tt->local & tt->remote_netmask;
         r.netmask = tt->remote_netmask;
         r.gateway = remote_end;
-        add_route(&r, tt, 0, NULL, es, NULL);
+        add_route(&r, tt, 0, NULL, es, NULL, is_multipoint);
     }
 
 #elif defined(TARGET_DARWIN)
@@ -1524,7 +1525,7 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
         r.network = tt->local & tt->remote_netmask;
         r.netmask = tt->remote_netmask;
         r.gateway = tt->local;
-        add_route(&r, tt, 0, NULL, es, NULL);
+        add_route(&r, tt, 0, NULL, es, NULL, is_multipoint);
     }
 
 #elif defined(TARGET_FREEBSD) || defined(TARGET_DRAGONFLY)
@@ -1618,7 +1619,7 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
 /* execute the ifconfig command through the shell */
 void
 do_ifconfig(struct tuntap *tt, const char *ifname, int tun_mtu,
-            const struct env_set *es, openvpn_net_ctx_t *ctx)
+            const struct env_set *es, openvpn_net_ctx_t *ctx, const bool is_multipoint)
 {
     msg(D_LOW, "do_ifconfig, ipv4=%d, ipv6=%d", tt->did_ifconfig_setup,
         tt->did_ifconfig_ipv6_setup);
@@ -1638,12 +1639,12 @@ do_ifconfig(struct tuntap *tt, const char *ifname, int tun_mtu,
 
     if (tt->did_ifconfig_setup)
     {
-        do_ifconfig_ipv4(tt, ifname, tun_mtu, es, ctx);
+        do_ifconfig_ipv4(tt, ifname, tun_mtu, es, ctx, is_multipoint);
     }
 
     if (tt->did_ifconfig_ipv6_setup)
     {
-        do_ifconfig_ipv6(tt, ifname, tun_mtu, es, ctx);
+        do_ifconfig_ipv6(tt, ifname, tun_mtu, es, ctx, is_multipoint);
     }
 
     /* release resources potentially allocated during interface setup */
@@ -2108,12 +2109,13 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
 }
 
 void
-close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
+close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx, const bool is_multipoint)
 {
     ASSERT(tt);
 
     close_tun_generic(tt);
     free(tt);
+    (void)is_multipoint;
 }
 
 int
@@ -2277,7 +2279,8 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
 void
 tuncfg(const char *dev, const char *dev_type, const char *dev_node,
        int persist_mode, const char *username, const char *groupname,
-       const struct tuntap_options *options, openvpn_net_ctx_t *ctx)
+       const struct tuntap_options *options, openvpn_net_ctx_t *ctx,
+       const bool is_multipoint)
 {
     struct tuntap *tt;
 
@@ -2317,14 +2320,14 @@ tuncfg(const char *dev, const char *dev_type, const char *dev_node,
             msg(M_ERR, "Cannot ioctl TUNSETGROUP(%s) %s", groupname, dev);
         }
     }
-    close_tun(tt, ctx);
+    close_tun(tt, ctx, is_multipoint);
     msg(M_INFO, "Persist state set to: %s", (persist_mode ? "ON" : "OFF"));
 }
 
 #endif /* ENABLE_FEATURE_TUN_PERSIST */
 
 void
-close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
+close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx, const bool is_multipoint)
 {
     ASSERT(tt);
 
@@ -2336,6 +2339,7 @@ close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
 #endif
     close_tun_generic(tt);
     free(tt);
+    (void)is_multipoint;
 }
 
 int
@@ -2647,7 +2651,7 @@ solaris_close_tun(struct tuntap *tt)
  * Close TUN device.
  */
 void
-close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
+close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx, const bool is_multipoint)
 {
     ASSERT(tt);
 
@@ -2657,6 +2661,7 @@ close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
 
     clear_tuntap(tt);
     free(tt);
+    (void)is_multipoint;
 }
 
 static void
@@ -2680,7 +2685,7 @@ solaris_error_close(struct tuntap *tt, const struct env_set *es,
 
     argv_msg(M_INFO, &argv);
     openvpn_execve_check(&argv, es, 0, "Solaris ifconfig unplumb failed");
-    close_tun(tt, NULL);
+    close_tun(tt, NULL, false);
     msg(M_FATAL, "Solaris ifconfig failed");
     argv_free(&argv);
 }
@@ -2744,9 +2749,11 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
  */
 
 void
-close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
+close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx, const bool is_multipoint)
 {
     ASSERT(tt);
+
+    (void)is_multipoint;
 
     /* only *TAP* devices need destroying, tun devices auto-self-destruct
      */
@@ -2858,9 +2865,11 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
  * need to be explicitly destroyed
  */
 void
-close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
+close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx, const bool is_multipoint)
 {
     ASSERT(tt);
+
+    (void)is_multipoint;
 
     /* only tun devices need destroying, tap devices auto-self-destruct
      */
@@ -3014,9 +3023,11 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
  * we need to call "ifconfig ... destroy" for cleanup
  */
 void
-close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
+close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx, const bool is_multipoint)
 {
     ASSERT(tt);
+
+    (void)is_multipoint;
 
     if (tt->persistent_if)        /* keep pre-existing if around */
     {
@@ -3131,12 +3142,13 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
 }
 
 void
-close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
+close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx, const bool is_multipoint)
 {
     ASSERT(tt);
 
     close_tun_generic(tt);
     free(tt);
+    (void)is_multipoint;
 }
 
 int
@@ -3398,7 +3410,7 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
 }
 
 void
-close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
+close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx, const bool is_multipoint)
 {
     ASSERT(tt);
 
@@ -3420,6 +3432,7 @@ close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
     free(tt);
     argv_free(&argv);
     gc_free(&gc);
+    (void)is_multipoint;
 }
 
 int
@@ -3547,7 +3560,7 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
 /* tap devices need to be manually destroyed on AIX
  */
 void
-close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
+close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx, const bool is_multipoint)
 {
     ASSERT(tt);
 
@@ -3575,6 +3588,7 @@ close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
     free(tt);
     env_set_destroy(es);
     argv_free(&argv);
+    (void)is_multipoint;
 }
 
 int
@@ -6862,7 +6876,7 @@ tun_show_debug(struct tuntap *tt)
 }
 
 static void
-netsh_delete_address_dns(const struct tuntap *tt, bool ipv6, struct gc_arena *gc)
+netsh_delete_address_dns(const struct tuntap *tt, bool ipv6, struct gc_arena *gc, const bool is_multipoint)
 {
     const char *ifconfig_ip_local;
     struct argv argv = argv_new();
@@ -6892,7 +6906,7 @@ netsh_delete_address_dns(const struct tuntap *tt, bool ipv6, struct gc_arena *gc
 
     if (ipv6 && tt->type == DEV_TYPE_TUN)
     {
-        delete_route_connected_v6_net(tt);
+        delete_route_connected_v6_net(tt, is_multipoint);
     }
 
     /* "store=active" is needed in Windows 8(.1) to delete the
@@ -6962,7 +6976,7 @@ close_tun_handle(struct tuntap *tt)
 }
 
 void
-close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
+close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx, const bool is_multipoint)
 {
     ASSERT(tt);
 
@@ -6982,7 +6996,7 @@ close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
                 do_dns_domain_service(false, tt);
             }
             do_dns_service(false, AF_INET6, tt);
-            delete_route_connected_v6_net(tt);
+            delete_route_connected_v6_net(tt, is_multipoint);
             do_address_service(false, AF_INET6, tt);
         }
         else
@@ -6992,7 +7006,7 @@ close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
                 do_dns_domain_wmic(false, tt);
             }
 
-            netsh_delete_address_dns(tt, true, &gc);
+            netsh_delete_address_dns(tt, true, &gc, is_multipoint);
         }
     }
 
@@ -7019,7 +7033,7 @@ close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
 
             if (tt->options.ip_win32_type == IPW32_SET_NETSH)
             {
-                netsh_delete_address_dns(tt, false, &gc);
+                netsh_delete_address_dns(tt, false, &gc, is_multipoint);
             }
         }
     }
@@ -7140,12 +7154,13 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
 }
 
 void
-close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx)
+close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx, const bool is_multipoint)
 {
     ASSERT(tt);
 
     close_tun_generic(tt);
     free(tt);
+    (void)is_multipoint;
 }
 
 int

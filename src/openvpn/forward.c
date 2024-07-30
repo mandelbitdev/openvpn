@@ -421,7 +421,7 @@ static void
 check_add_routes_action(struct context *c, const bool errors)
 {
     bool route_status = do_route(&c->options, c->c1.route_list, c->c1.route_ipv6_list,
-                                 c->c1.tuntap, c->plugins, c->c2.es, &c->net_ctx);
+                                 c->c1.tuntap, c->plugins, c->c2.es, &c->net_ctx, c->mode == CM_TOP);
 
     int flags = (errors ? ISC_ERRORS : 0);
     flags |= (!route_status ? ISC_ROUTE_ERRORS : 0);
