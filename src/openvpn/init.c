@@ -1134,7 +1134,7 @@ do_persist_tuntap(struct options *options, openvpn_net_ctx_t *ctx)
     tuncfg(options->dev, options->dev_type, options->dev_node,
            options->persist_mode,
            options->username, options->groupname, &options->tuntap_options,
-           ctx);
+           ctx, options->mode == MODE_SERVER);
     if (options->persist_mode && options->lladdr)
     {
         set_lladdr(ctx, options->dev, options->lladdr, NULL);
@@ -1689,13 +1689,14 @@ do_route(const struct options *options,
          const struct tuntap *tt,
          const struct plugin_list *plugins,
          struct env_set *es,
-         openvpn_net_ctx_t *ctx)
+         openvpn_net_ctx_t *ctx,
+         const bool is_multipoint)
 {
     bool ret = true;
     if (!options->route_noexec && ( route_list || route_ipv6_list ) )
     {
         ret = add_routes(route_list, route_ipv6_list, tt, ROUTE_OPTION_FLAGS(options),
-                         es, ctx);
+                         es, ctx, is_multipoint);
         setenv_int(es, "redirect_gateway", route_did_redirect_default_gateway(route_list));
     }
 #ifdef ENABLE_MANAGEMENT
@@ -1898,7 +1899,7 @@ do_open_tun(struct context *c, int *error_flags)
                                                  c->options.dev_node,
                                                  &gc);
             do_ifconfig(c->c1.tuntap, guess, c->c2.frame.tun_mtu, c->c2.es,
-                        &c->net_ctx);
+                        &c->net_ctx, c->mode == CM_TOP);
         }
 
         /* possibly add routes */
@@ -1906,7 +1907,7 @@ do_open_tun(struct context *c, int *error_flags)
         {
             /* Ignore route_delay, would cause ROUTE_BEFORE_TUN to be ignored */
             bool status = do_route(&c->options, c->c1.route_list, c->c1.route_ipv6_list,
-                                   c->c1.tuntap, c->plugins, c->c2.es, &c->net_ctx);
+                                   c->c1.tuntap, c->plugins, c->c2.es, &c->net_ctx, c->mode == CM_TOP);
             *error_flags |= (status ? 0 : ISC_ROUTE_ERRORS);
         }
 #ifdef TARGET_ANDROID
@@ -1934,7 +1935,7 @@ do_open_tun(struct context *c, int *error_flags)
             && ifconfig_order() == IFCONFIG_AFTER_TUN_OPEN)
         {
             do_ifconfig(c->c1.tuntap, c->c1.tuntap->actual_name,
-                        c->c2.frame.tun_mtu, c->c2.es, &c->net_ctx);
+                        c->c2.frame.tun_mtu, c->c2.es, &c->net_ctx, c->mode == CM_TOP);
         }
 
         /* run the up script */
@@ -1960,7 +1961,7 @@ do_open_tun(struct context *c, int *error_flags)
         if ((route_order() == ROUTE_AFTER_TUN) && (!c->options.route_delay_defined))
         {
             int status = do_route(&c->options, c->c1.route_list, c->c1.route_ipv6_list,
-                                  c->c1.tuntap, c->plugins, c->c2.es, &c->net_ctx);
+                                  c->c1.tuntap, c->plugins, c->c2.es, &c->net_ctx, c->mode == CM_TOP);
             *error_flags |= (status ? 0 : ISC_ROUTE_ERRORS);
         }
 
@@ -2017,7 +2018,7 @@ do_close_tun_simple(struct context *c)
         {
             undo_ifconfig(c->c1.tuntap, &c->net_ctx);
         }
-        close_tun(c->c1.tuntap, &c->net_ctx);
+        close_tun(c->c1.tuntap, &c->net_ctx, c->mode == CM_TOP);
         c->c1.tuntap = NULL;
     }
     c->c1.tuntap_owned = false;
@@ -2086,7 +2087,7 @@ do_close_tun(struct context *c, bool force)
 
             delete_routes(c->c1.route_list, c->c1.route_ipv6_list,
                           c->c1.tuntap, ROUTE_OPTION_FLAGS(&c->options),
-                          c->c2.es, &c->net_ctx);
+                          c->c2.es, &c->net_ctx, c->mode == CM_TOP);
         }
 
         /* actually close tun/tap device based on --down-pre flag */

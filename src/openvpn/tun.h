@@ -266,7 +266,7 @@ tuntap_ring_empty(struct tuntap *tt)
 void open_tun(const char *dev, const char *dev_type, const char *dev_node,
               struct tuntap *tt, openvpn_net_ctx_t *ctx);
 
-void close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx);
+void close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx, const bool is_multipoint);
 
 void tun_open_device(struct tuntap *tt, const char *dev_node,
                      const char **device_guid, struct gc_arena *gc);
@@ -280,7 +280,7 @@ int read_tun(struct tuntap *tt, uint8_t *buf, int len);
 void tuncfg(const char *dev, const char *dev_type, const char *dev_node,
             int persist_mode, const char *username,
             const char *groupname, const struct tuntap_options *options,
-            openvpn_net_ctx_t *ctx);
+            openvpn_net_ctx_t *ctx, const bool is_multipoint);
 
 const char *guess_tuntap_dev(const char *dev,
                              const char *dev_type,
@@ -319,7 +319,7 @@ void do_ifconfig_setenv(const struct tuntap *tt,
  * @param ctx       the networking API opaque context
  */
 void do_ifconfig(struct tuntap *tt, const char *ifname, int tun_mtu,
-                 const struct env_set *es, openvpn_net_ctx_t *ctx);
+                 const struct env_set *es, openvpn_net_ctx_t *ctx, const bool is_multipoint);
 
 /**
  * undo_ifconfig - undo configuration of the tunnel interface
@@ -754,6 +754,7 @@ tun_set(struct tuntap *tt,
 }
 
 const char *tun_stat(const struct tuntap *tt, unsigned int rwflags, struct gc_arena *gc);
+
 bool tun_name_is_fixed(const char *dev);
 
 static inline bool
