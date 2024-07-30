@@ -5689,7 +5689,7 @@ remove_option(struct context *c, struct options *options, char *p[], bool is_inl
         if (c->c1.route_list)
         {
             delete_routes_v4(c->c1.route_list, c->c1.tuntap, ROUTE_OPTION_FLAGS(&c->options), es,
-                             &c->net_ctx);
+                             &c->net_ctx, c->mode == CM_TOP);
             RESET_OPTION_ROUTES(options->routes, routes);
         }
     }
@@ -5699,7 +5699,7 @@ remove_option(struct context *c, struct options *options, char *p[], bool is_inl
         if (c->c1.route_ipv6_list)
         {
             delete_routes_v6(c->c1.route_ipv6_list, c->c1.tuntap, ROUTE_OPTION_FLAGS(&c->options),
-                             es, &c->net_ctx);
+                             es, &c->net_ctx, c->mode == CM_TOP);
             RESET_OPTION_ROUTES(options->routes_ipv6, routes_ipv6);
         }
     }
@@ -6026,7 +6026,7 @@ update_option(struct context *c, struct options *options, char *p[], bool is_inl
             if (c->c1.route_list)
             {
                 delete_routes_v4(c->c1.route_list, c->c1.tuntap, ROUTE_OPTION_FLAGS(&c->options),
-                                 es, &c->net_ctx);
+                                 es, &c->net_ctx, c->mode == CM_TOP);
                 RESET_OPTION_ROUTES(options->routes, routes);
             }
             *update_options_found |= OPT_P_U_ROUTE;
@@ -6044,7 +6044,8 @@ update_option(struct context *c, struct options *options, char *p[], bool is_inl
             if (c->c1.route_ipv6_list)
             {
                 delete_routes_v6(c->c1.route_ipv6_list, c->c1.tuntap,
-                                 ROUTE_OPTION_FLAGS(&c->options), es, &c->net_ctx);
+                                 ROUTE_OPTION_FLAGS(&c->options), es, &c->net_ctx,
+                                 c->mode == CM_TOP);
                 RESET_OPTION_ROUTES(options->routes_ipv6, routes_ipv6);
             }
             *update_options_found |= OPT_P_U_ROUTE6;

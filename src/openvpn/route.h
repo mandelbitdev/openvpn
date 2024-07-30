@@ -300,14 +300,14 @@ void copy_route_ipv6_option_list(struct route_ipv6_option_list *dest,
 void route_ipv6_clear_host_bits(struct route_ipv6 *r6);
 
 bool add_route_ipv6(struct route_ipv6 *r, const struct tuntap *tt, unsigned int flags,
-                    const struct env_set *es, openvpn_net_ctx_t *ctx);
+                    const struct env_set *es, openvpn_net_ctx_t *ctx, const bool is_multipoint);
 
 void delete_route_ipv6(const struct route_ipv6 *r, const struct tuntap *tt,
-                       const struct env_set *es, openvpn_net_ctx_t *ctx);
+                       const struct env_set *es, openvpn_net_ctx_t *ctx, const bool is_multipoint);
 
 bool add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
                const struct route_gateway_info *rgi, const struct env_set *es,
-               openvpn_net_ctx_t *ctx);
+               openvpn_net_ctx_t *ctx, const bool is_multipoint);
 
 void add_route_to_option_list(struct route_option_list *l, const char *network, const char *netmask,
                               const char *gateway, const char *metric, int table_id);
@@ -327,16 +327,16 @@ bool init_route_ipv6_list(struct route_ipv6_list *rl6, const struct route_ipv6_o
 void route_list_add_vpn_gateway(struct route_list *rl, struct env_set *es, const in_addr_t addr);
 
 bool add_routes(struct route_list *rl, struct route_ipv6_list *rl6, const struct tuntap *tt,
-                unsigned int flags, const struct env_set *es, openvpn_net_ctx_t *ctx);
+                unsigned int flags, const struct env_set *es, openvpn_net_ctx_t *ctx, const bool is_multipoint);
 
 void delete_routes(struct route_list *rl, struct route_ipv6_list *rl6, const struct tuntap *tt,
-                   unsigned int flags, const struct env_set *es, openvpn_net_ctx_t *ctx);
+                   unsigned int flags, const struct env_set *es, openvpn_net_ctx_t *ctx, const bool is_multipoint);
 
 void delete_routes_v4(struct route_list *rl, const struct tuntap *tt, unsigned int flags,
-                      const struct env_set *es, openvpn_net_ctx_t *ctx);
+                      const struct env_set *es, openvpn_net_ctx_t *ctx, const bool is_multipoint);
 
 void delete_routes_v6(struct route_ipv6_list *rl6, const struct tuntap *tt, unsigned int flags,
-                      const struct env_set *es, openvpn_net_ctx_t *ctx);
+                      const struct env_set *es, openvpn_net_ctx_t *ctx, const bool is_multipoint);
 
 void setenv_routes(struct env_set *es, const struct route_list *rl);
 
