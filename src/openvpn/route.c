@@ -2245,9 +2245,6 @@ add_route_ipv6(struct route_ipv6 *r6, const struct tuntap *tt,
     {
         argv_printf_cat(&argv, "-link -iface %s", device);
     }
-    /* FIX ME: in NetBSD in TUN mode, the route is already added by ifconfig
-     * so add_route_ipv6 fail with 'Invalid argument' or 'File exists'
-     */
 
     argv_msg(D_ROUTE, &argv);
     bool ret = openvpn_execve_check(&argv, es, 0,

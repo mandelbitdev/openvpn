@@ -1010,8 +1010,7 @@ init_tun_post(struct tuntap *tt,
 #endif /* ifdef _WIN32 */
 }
 
-#if defined(_WIN32)    \
-    || defined(TARGET_DARWIN) || defined(TARGET_NETBSD) || defined(TARGET_OPENBSD)
+#if defined(_WIN32) || defined(TARGET_DARWIN)
 
 /* some of the platforms will auto-add a "network route" pointing
  * to the interface on "ifconfig tunX 2001:db8::1/64", others need
@@ -1203,8 +1202,7 @@ do_ifconfig_ipv6(struct tuntap *tt, const char *ifname, int tun_mtu,
                          "FreeBSD BSD 'ifconfig inet6 -ifdisabled' failed");
 #endif
 
-#if defined(TARGET_OPENBSD) || defined(TARGET_NETBSD) \
-    || defined(TARGET_DARWIN)
+#if defined(TARGET_DARWIN)
     /* and, hooray, we explicitly need to add a route... */
     add_route_connected_v6_net(tt, es, is_multipoint);
 #endif
