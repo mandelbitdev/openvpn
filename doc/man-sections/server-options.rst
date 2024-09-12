@@ -274,14 +274,16 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   ::
 
      ifconfig-push local remote-netmask [alias]
+     ifconfig-push local/bits [alias]
 
-  The parameters ``local`` and ``remote-netmask`` are set according to the
-  ``--ifconfig`` directive which you want to execute on the client machine
-  to configure the remote end of the tunnel. Note that the parameters
-  ``local`` and ``remote-netmask`` are from the perspective of the client,
-  not the server. They may be DNS names rather than IP addresses, in which
-  case they will be resolved on the server at the time of client
-  connection.
+  The parameters ``local`` and ``remote-netmask`` (or ``local/bits``) are
+  set according to the ``--ifconfig`` directive which you want to execute
+  on the client machine to configure the remote end of the tunnel. If the
+  first agument is specified in CIDR notation it will be converted to (and
+  interpreted as) a netmask. Note that the parameters ``local`` and
+  ``remote-netmask`` are from the perspective of the client, not the
+  server. They may be DNS names rather than IP addresses, in which case
+  they will be resolved on the server at the time of client connection.
 
   The optional ``alias`` parameter may be used in cases where NAT causes
   the client view of its local endpoint to differ from the server view. In
@@ -337,13 +339,15 @@ fast hardware. SSL/TLS authentication must be used in this mode.
        ported this to earlier kernel versions, though).
 
 --iroute args
-  Generate an internal route to a specific client. The ``netmask``
-  parameter, if omitted, defaults to :code:`255.255.255.255`.
+  Generate an internal route to a specific client. If both the ``netmask``
+  and the ``bits`` parameter are omitted, the subnet defaults to
+  :code:`255.255.255.255`.
 
   Valid syntax:
   ::
 
      iroute network [netmask]
+     iroute network[/bits]
 
   This directive can be used to route a fixed subnet from the server to a
   particular client, regardless of where the client is connecting from.
@@ -372,6 +376,9 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   this route to all clients EXCEPT for *A*, since the subnet is already
   owned by *A*. OpenVPN accomplishes this by not not pushing a route to
   a client if it matches one of the client's iroutes.
+
+  The ``network`` parameter may be specified using CIDR notation, thus
+  omitting the ``netmask`` parameter.
 
 --iroute-ipv6 args
   for ``--client-config-dir`` per-client static IPv6 route configuration,
@@ -504,8 +511,10 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   ::
 
       server network netmask [nopool]
+      server network/bits [nopool]
 
-  For example, ``--server 10.8.0.0 255.255.255.0`` expands as follows:
+  For example, ``--server 10.8.0.0 255.255.255.0`` or ``--server
+  10.8.0.0/24`` expands as follows:
   ::
 
      mode server
@@ -530,6 +539,9 @@ fast hardware. SSL/TLS authentication must be used in this mode.
        if route-gateway unset:
          route-gateway 10.8.0.2
 
+  The ``network`` parameter may be specified using CIDR notation, thus
+  omitting the ``netmask`` parameter.
+
   Don't use ``--server`` if you are ethernet bridging. Use
   ``--server-bridge`` instead.
 
@@ -542,6 +554,7 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   ::
 
       server-bridge gateway netmask pool-start-IP pool-end-IP
+      server-bridge gateway/bits pool-start-IP pool-end-IP
       server-bridge [nogw]
 
   If ``--server-bridge`` is used without any parameters, it will enable a
@@ -563,12 +576,16 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   set to either the IP/netmask of the bridge interface, or the IP/netmask
   of the default gateway/router on the bridged subnet.
 
+  The ``gateway`` parameter may be specified using CIDR notation, thus
+  omitting the ``netmask`` parameter.
+
   Finally, set aside a IP range in the bridged subnet, denoted by
   ``pool-start-IP`` and ``pool-end-IP``, for OpenVPN to allocate to
   connecting clients.
 
   For example, ``server-bridge 10.8.0.4 255.255.255.0 10.8.0.128
-  10.8.0.254`` expands as follows:
+  10.8.0.254`` or ``server-bridge 10.8.0.4/24 10.8.0.128`` expands as
+  follows:
   ::
 
     mode server

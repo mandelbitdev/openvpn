@@ -1075,7 +1075,7 @@ setenv_foreign_option(struct options *o, const char *argv[], int len, struct env
 #endif /* ifndef _WIN32 */
 
 static in_addr_t
-get_ip_addr(const char *ip_string, int msglevel, bool *error)
+get_ip_addr(const char *ip_string, unsigned int *netbits, int msglevel, bool *error)
 {
     unsigned int flags = GETADDR_HOST_ORDER;
     bool succeeded = false;
@@ -1086,7 +1086,7 @@ get_ip_addr(const char *ip_string, int msglevel, bool *error)
         flags |= GETADDR_FATAL;
     }
 
-    ret = getaddr(flags, ip_string, 0, &succeeded, NULL);
+    ret = getaddr(flags, ip_string, netbits, 0, &succeeded, NULL);
     if (!succeeded && error)
     {
         *error = true;
@@ -1333,7 +1333,7 @@ dhcp_option_address_parse(const char *name, const char *parm, in_addr_t *array, 
         if (ip_addr_dotted_quad_safe(parm)) /* FQDN -- IP address only */
         {
             bool error = false;
-            const in_addr_t addr = get_ip_addr(parm, msglevel, &error);
+            const in_addr_t addr = get_ip_addr(parm, NULL, msglevel, &error);
             if (!error)
             {
                 array[(*len)++] = addr;
@@ -1513,12 +1513,10 @@ show_p2mp_parms(const struct options *o)
 {
     struct gc_arena gc = gc_new();
 
-    msg(D_SHOW_PARMS, "  server_network = %s", print_in_addr_t(o->server_network, 0, &gc));
-    msg(D_SHOW_PARMS, "  server_netmask = %s", print_in_addr_t(o->server_netmask, 0, &gc));
+    msg(D_SHOW_PARMS, "  server_network = %s/%u", print_in_addr_t(o->server_network, 0, &gc), o->server_netbits);
     msg(D_SHOW_PARMS, "  server_network_ipv6 = %s", print_in6_addr(o->server_network_ipv6, 0, &gc) );
     SHOW_INT(server_netbits_ipv6);
-    msg(D_SHOW_PARMS, "  server_bridge_ip = %s", print_in_addr_t(o->server_bridge_ip, 0, &gc));
-    msg(D_SHOW_PARMS, "  server_bridge_netmask = %s", print_in_addr_t(o->server_bridge_netmask, 0, &gc));
+    msg(D_SHOW_PARMS, "  server_bridge_ip = %s/%u", print_in_addr_t(o->server_bridge_ip, 0, &gc), o->server_bridge_netbits);
     msg(D_SHOW_PARMS, "  server_bridge_pool_start = %s", print_in_addr_t(o->server_bridge_pool_start, 0, &gc));
     msg(D_SHOW_PARMS, "  server_bridge_pool_end = %s", print_in_addr_t(o->server_bridge_pool_end, 0, &gc));
     if (o->push_list.head)
@@ -1536,7 +1534,7 @@ show_p2mp_parms(const struct options *o)
     SHOW_BOOL(ifconfig_pool_defined);
     msg(D_SHOW_PARMS, "  ifconfig_pool_start = %s", print_in_addr_t(o->ifconfig_pool_start, 0, &gc));
     msg(D_SHOW_PARMS, "  ifconfig_pool_end = %s", print_in_addr_t(o->ifconfig_pool_end, 0, &gc));
-    msg(D_SHOW_PARMS, "  ifconfig_pool_netmask = %s", print_in_addr_t(o->ifconfig_pool_netmask, 0, &gc));
+    msg(D_SHOW_PARMS, "  ifconfig_pool_netmask = %s", print_in_addr_t(netbits_to_netmask(o->ifconfig_pool_netbits), 0, &gc));
     SHOW_STR(ifconfig_pool_persist_filename);
     SHOW_INT(ifconfig_pool_persist_refresh_freq);
     SHOW_BOOL(ifconfig_ipv6_pool_defined);
@@ -1597,14 +1595,15 @@ option_iroute(struct options *o,
               int msglevel)
 {
     struct iroute *ir;
+    unsigned int netbits = 0;
 
     ALLOC_OBJ_GC(ir, struct iroute, &o->gc);
-    ir->network = getaddr(GETADDR_HOST_ORDER, network_str, 0, NULL, NULL);
-    ir->netbits = 32;           /* host route if no netmask given */
+    ir->network = getaddr(GETADDR_HOST_ORDER, network_str, &netbits, 0, NULL, NULL);
+    ir->netbits = 32;           /* host route if no netmask or netbits given */
 
     if (netmask_str)
     {
-        const in_addr_t netmask = getaddr(GETADDR_HOST_ORDER, netmask_str, 0, NULL, NULL);
+        const in_addr_t netmask = getaddr(GETADDR_HOST_ORDER, netmask_str, NULL, 0, NULL, NULL);
         ir->netbits = netmask_to_netbits2(netmask);
 
         if (ir->netbits < 0)
@@ -1614,6 +1613,10 @@ option_iroute(struct options *o,
                 netmask_str);
             return;
         }
+    }
+    else if (netbits)
+    {
+        ir->netbits = (int)netbits;
     }
 
     ir->next = o->iroutes;
@@ -2631,9 +2634,9 @@ options_postprocess_verify_ce(const struct options *options,
         {
             msg(M_USAGE, "--connect-freq only works with --mode server --proto udp.  Try --max-clients instead.");
         }
-        if (!(dev == DEV_TYPE_TAP || (dev == DEV_TYPE_TUN && options->topology == TOP_SUBNET)) && options->ifconfig_pool_netmask)
+        if (!(dev == DEV_TYPE_TAP || (dev == DEV_TYPE_TUN && options->topology == TOP_SUBNET)) && options->ifconfig_pool_netbits > 0)
         {
-            msg(M_USAGE, "The third parameter to --ifconfig-pool (netmask) is only valid in --dev tap mode");
+            msg(M_USAGE, "The netbits parameter to --ifconfig-pool is only valid in --dev tap mode");
         }
         if (options->routes && (options->routes->flags & RG_ENABLE))
         {
@@ -6092,10 +6095,26 @@ add_option(struct options *options,
         iproute_path = p[1];
     }
 #endif
-    else if (streq(p[0], "ifconfig") && p[1] && p[2] && !p[3])
+    else if (streq(p[0], "ifconfig") && p[1] && !p[3])
     {
+        bool error = false;
+
         VERIFY_PERMISSION(OPT_P_UP);
-        if (ip_or_dns_addr_safe(p[1], options->allow_pull_fqdn) && ip_or_dns_addr_safe(p[2], options->allow_pull_fqdn)) /* FQDN -- may be DNS name */
+        if (!p[2]) /* p[1] must be in CIDR format */
+        {
+            unsigned int netbits = 0;
+            get_ip_addr(p[1], &netbits, msglevel, &error);
+            if (error || !netbits)
+            {
+                msg(msglevel, "ifconfig parm '%s' must be a valid address/bits", p[1]);
+                goto err;
+            }
+            options->ifconfig_local = strtok(p[1], "/");
+            /* convert netbits to netmask to unify the storage as string
+             * representation of in_addr_t variables and simplify parsing */
+            options->ifconfig_remote_netmask = print_in_addr_t(netbits_to_netmask((int)netbits), 0, &options->gc);
+        }
+        else if (ip_or_dns_addr_safe(p[1], options->allow_pull_fqdn) && ip_or_dns_addr_safe(p[2], options->allow_pull_fqdn)) /* FQDN -- may be DNS name */
         {
             options->ifconfig_local = p[1];
             options->ifconfig_remote_netmask = p[2];
@@ -6999,35 +7018,62 @@ add_option(struct options *options,
         VERIFY_PERMISSION(OPT_P_PERSIST_IP);
         options->persist_remote_ip = true;
     }
-    else if (streq(p[0], "client-nat") && p[1] && p[2] && p[3] && p[4] && !p[5])
+    else if (streq(p[0], "client-nat") && p[1] && p[2] && p[3] && !p[5])
     {
+        size_t i = 1;
+        const char *type = p[i++];
+        const char *network = p[i++];
+        const char *netmask = p[i+1] ? p[i++] : NULL;
+        const char *foreign_network = p[i];
+
         VERIFY_PERMISSION(OPT_P_ROUTE);
         cnol_check_alloc(options);
-        add_client_nat_to_option_list(options->client_nat, p[1], p[2], p[3], p[4], msglevel);
+        add_client_nat_to_option_list(options->client_nat, type, network, netmask, foreign_network, msglevel);
     }
     else if (streq(p[0], "route") && p[1] && !p[5])
     {
+        size_t i = 1;
+        char *cidr = strchr(p[i], '/');
+        if (cidr && !no_more_than_n_args(msglevel, p, 4, NM_QUOTE_HINT))
+        {
+            goto err;
+        }
+
         VERIFY_PERMISSION(OPT_P_ROUTE);
         rol_check_alloc(options);
         if (pull_mode)
         {
-            if (!ip_or_dns_addr_safe(p[1], options->allow_pull_fqdn) && !is_special_addr(p[1])) /* FQDN -- may be DNS name */
+
+            const char *network = strtok(p[i++], "/"); /* this modifies p[1] */
+            if (!ip_or_dns_addr_safe(network, options->allow_pull_fqdn) && !is_special_addr(p[1])) /* FQDN -- may be DNS name */
             {
-                msg(msglevel, "route parameter network/IP '%s' must be a valid address", p[1]);
+                msg(msglevel, "route parameter network/IP '%s' must be a valid address or address/bits", p[1]);
                 goto err;
             }
-            if (p[2] && !ip_addr_dotted_quad_safe(p[2])) /* FQDN -- must be IP address */
+            if (!cidr && p[i])
             {
-                msg(msglevel, "route parameter netmask '%s' must be an IP address", p[2]);
-                goto err;
+                if (!ip_addr_dotted_quad_safe(p[i++])) /* FQDN -- must be IP address */
+                {
+                    msg(msglevel, "route parameter netmask '%s' must be an IP address", p[2]);
+                    goto err;
+                }
             }
-            if (p[3] && !ip_or_dns_addr_safe(p[3], options->allow_pull_fqdn) && !is_special_addr(p[3])) /* FQDN -- may be DNS name */
+            if (p[i] && !ip_or_dns_addr_safe(p[i], options->allow_pull_fqdn) && !is_special_addr(p[i])) /* FQDN -- may be DNS name */
             {
-                msg(msglevel, "route parameter gateway '%s' must be a valid address", p[3]);
+                msg(msglevel, "route parameter gateway '%s' must be a valid address", p[i]);
                 goto err;
             }
         }
-        add_route_to_option_list(options->routes, p[1], p[2], p[3], p[4]);
+
+        if (cidr)
+        {
+            *cidr = (char)('/'); /* restore the original CIDR notation for p[1] */
+            add_route_to_option_list(options->routes, p[1], NULL, p[2], p[3]);
+        }
+        else
+        {
+            add_route_to_option_list(options->routes, p[1], p[2], p[3], p[4]);
+        }
     }
     else if (streq(p[0], "route-ipv6") && p[1] && !p[4])
     {
@@ -7348,33 +7394,56 @@ add_option(struct options *options,
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->occ = false;
     }
-    else if (streq(p[0], "server") && p[1] && p[2] && !p[4])
+    else if (streq(p[0], "server") && p[1] && !p[4])
     {
         const int lev = M_WARN;
         bool error = false;
-        in_addr_t network, netmask;
+        in_addr_t network;
+        unsigned int netbits = 0;
+        size_t i = 1;
 
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        network = get_ip_addr(p[1], lev, &error);
-        netmask = get_ip_addr(p[2], lev, &error);
-        if (error || !network || !netmask)
+        network = get_ip_addr(p[i++], &netbits, lev, &error);
+        if (netbits)
+        {
+            if (!no_more_than_n_args(msglevel, p, 3, NM_QUOTE_HINT))
+            {
+                goto err;
+            }
+        }
+        else
+        {
+            const in_addr_t netmask = get_ip_addr(p[i++], NULL, lev, &error);
+            const int nb = netmask_to_netbits2(netmask);
+            if (netmask && nb > 0)
+            {
+                netbits = nb;
+            }
+            else
+            {
+                msg(M_USAGE, "--server directive network/netmask combination is invalid");
+                goto err;
+            }
+        }
+
+        if (error || !network || !netbits)
         {
             msg(msglevel, "error parsing --server parameters");
             goto err;
         }
         options->server_defined = true;
         options->server_network = network;
-        options->server_netmask = netmask;
+        options->server_netbits = netbits;
 
-        if (p[3])
+        if (p[i])
         {
-            if (streq(p[3], "nopool"))
+            if (streq(p[i], "nopool"))
             {
                 options->server_flags |= SF_NOPOOL;
             }
             else
             {
-                msg(msglevel, "error parsing --server: %s is not a recognized flag", p[3]);
+                msg(msglevel, "error parsing --server: %s is not a recognized flag", p[i]);
                 goto err;
             }
         }
@@ -7403,25 +7472,42 @@ add_option(struct options *options,
         options->server_network_ipv6 = network;
         options->server_netbits_ipv6 = netbits;
     }
-    else if (streq(p[0], "server-bridge") && p[1] && p[2] && p[3] && p[4] && !p[5])
+    else if (streq(p[0], "server-bridge") && p[1] && p[2] && p[3] && !p[5])
     {
         const int lev = M_WARN;
         bool error = false;
-        in_addr_t ip, netmask, pool_start, pool_end;
+        in_addr_t ip, pool_start, pool_end;
+        unsigned int netbits = 0;
+        size_t i = 1;
 
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        ip = get_ip_addr(p[1], lev, &error);
-        netmask = get_ip_addr(p[2], lev, &error);
-        pool_start = get_ip_addr(p[3], lev, &error);
-        pool_end = get_ip_addr(p[4], lev, &error);
-        if (error || !ip || !netmask || !pool_start || !pool_end)
+        ip = get_ip_addr(p[i++], &netbits, lev, &error);
+        if (netbits)
+        {
+            if (!no_more_than_n_args(msglevel, p, 4, NM_QUOTE_HINT))
+            {
+                goto err;
+            }
+        }
+        else
+        {
+            const in_addr_t netmask = get_ip_addr(p[i++], NULL, lev, &error);
+            const int nb = netmask_to_netbits2(netmask);
+            if (netmask && nb > 0)
+            {
+                netbits = nb;
+            }
+        }
+        pool_start = get_ip_addr(p[i++], NULL, lev, &error);
+        pool_end = get_ip_addr(p[i], NULL, lev, &error);
+        if (error || !ip || !netbits || !pool_start || !pool_end)
         {
             msg(msglevel, "error parsing --server-bridge parameters");
             goto err;
         }
         options->server_bridge_defined = true;
         options->server_bridge_ip = ip;
-        options->server_bridge_netmask = netmask;
+        options->server_bridge_netbits = netbits;
         options->server_bridge_pool_start = pool_start;
         options->server_bridge_pool_end = pool_end;
     }
@@ -7459,11 +7545,11 @@ add_option(struct options *options,
         in_addr_t start, end, netmask = 0;
 
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        start = get_ip_addr(p[1], lev, &error);
-        end = get_ip_addr(p[2], lev, &error);
+        start = get_ip_addr(p[1], NULL, lev, &error);
+        end = get_ip_addr(p[2], NULL, lev, &error);
         if (p[3])
         {
-            netmask = get_ip_addr(p[3], lev, &error);
+            netmask = get_ip_addr(p[3], NULL, lev, &error);
         }
         if (error)
         {
@@ -7478,10 +7564,7 @@ add_option(struct options *options,
         options->ifconfig_pool_defined = true;
         options->ifconfig_pool_start = start;
         options->ifconfig_pool_end = end;
-        if (netmask)
-        {
-            options->ifconfig_pool_netmask = netmask;
-        }
+        options->ifconfig_pool_netbits = netmask_to_netbits2(netmask);
     }
     else if (streq(p[0], "ifconfig-pool-persist") && p[1] && !p[3])
     {
@@ -7802,45 +7885,74 @@ add_option(struct options *options,
         VERIFY_PERMISSION(OPT_P_INSTANCE);
         option_iroute_ipv6(options, p[1], msglevel);
     }
-    else if (streq(p[0], "ifconfig-push") && p[1] && p[2] && !p[4])
+    else if (streq(p[0], "ifconfig-push") && p[1] && !p[4])
     {
-        in_addr_t local, remote_netmask;
+        in_addr_t local, remote_netmask = 0;
+        unsigned int netbits;
+        size_t i = 1;
 
         VERIFY_PERMISSION(OPT_P_INSTANCE);
-        local = getaddr(GETADDR_HOST_ORDER|GETADDR_RESOLVE, p[1], 0, NULL, NULL);
-        remote_netmask = getaddr(GETADDR_HOST_ORDER|GETADDR_RESOLVE, p[2], 0, NULL, NULL);
+        local = getaddr(GETADDR_HOST_ORDER|GETADDR_RESOLVE, p[i++], &netbits, 0, NULL, NULL);
+        if (netbits) /* convert netbits to netmask */
+        {
+            if (!no_more_than_n_args(msglevel, p, 3, NM_QUOTE_HINT))
+            {
+                goto err;
+            }
+            remote_netmask = netbits_to_netmask((int)netbits);
+        }
+        else if (p[i])
+        {
+            remote_netmask = getaddr(GETADDR_HOST_ORDER|GETADDR_RESOLVE, p[i++], NULL, 0, NULL, NULL);
+        }
+
         if (local && remote_netmask)
         {
             options->push_ifconfig_defined = true;
             options->push_ifconfig_local = local;
             options->push_ifconfig_remote_netmask = remote_netmask;
-            if (p[3])
+            if (p[i])
             {
-                options->push_ifconfig_local_alias = getaddr(GETADDR_HOST_ORDER|GETADDR_RESOLVE, p[3], 0, NULL, NULL);
+                options->push_ifconfig_local_alias = getaddr(GETADDR_HOST_ORDER|GETADDR_RESOLVE, p[i], NULL, 0, NULL, NULL);
             }
         }
         else
         {
-            msg(msglevel, "cannot parse --ifconfig-push addresses");
+            msg(msglevel, "cannot parse --ifconfig-push parameters");
             goto err;
         }
     }
-    else if (streq(p[0], "ifconfig-push-constraint") && p[1] && p[2] && !p[3])
+    else if (streq(p[0], "ifconfig-push-constraint") && p[1] && !p[3])
     {
-        in_addr_t network, netmask;
+        in_addr_t network;
+        unsigned int netbits = 0;
+        size_t i = 1;
 
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        network = getaddr(GETADDR_HOST_ORDER|GETADDR_RESOLVE, p[1], 0, NULL, NULL);
-        netmask = getaddr(GETADDR_HOST_ORDER, p[2], 0, NULL, NULL);
-        if (network && netmask)
+        network = getaddr(GETADDR_HOST_ORDER|GETADDR_RESOLVE, p[i++], &netbits, 0, NULL, NULL);
+        if (!netbits && p[i])
+        {
+            const in_addr_t netmask = getaddr(GETADDR_HOST_ORDER, p[2], NULL, 0, NULL, NULL);
+            const int nb = netmask_to_netbits2(netmask);
+            if (netmask && nb > 0)
+            {
+                netbits = nb;
+            }
+        }
+        else if (netbits && !no_more_than_n_args(msglevel, p, 2, NM_QUOTE_HINT))
+        {
+            goto err;
+        }
+
+        if (network && netbits)
         {
             options->push_ifconfig_constraint_defined = true;
             options->push_ifconfig_constraint_network = network;
-            options->push_ifconfig_constraint_netmask = netmask;
+            options->push_ifconfig_constraint_netbits = netbits;
         }
         else
         {
-            msg(msglevel, "cannot parse --ifconfig-push-constraint addresses");
+            msg(msglevel, "cannot parse --ifconfig-push-constraint parameters");
             goto err;
         }
     }

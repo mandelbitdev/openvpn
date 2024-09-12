@@ -1433,7 +1433,8 @@ ifconfig_push_constraint_satisfied(const struct context *c)
     const struct options *o = &c->options;
     if (o->push_ifconfig_constraint_defined && c->c2.push_ifconfig_defined)
     {
-        return (o->push_ifconfig_constraint_netmask & c->c2.push_ifconfig_local) == o->push_ifconfig_constraint_network;
+        const unsigned int var = 32 - o->push_ifconfig_constraint_netbits;
+        return (c->c2.push_ifconfig_local >> var) == (o->push_ifconfig_constraint_network >> var);
     }
     else
     {
@@ -1512,10 +1513,10 @@ multi_select_virtual_addr(struct multi_context *m, struct multi_instance *mi)
                 mi->context.c2.push_ifconfig_local = remote;
                 if (tunnel_type == DEV_TYPE_TAP || (tunnel_type == DEV_TYPE_TUN && tunnel_topology == TOP_SUBNET))
                 {
-                    mi->context.c2.push_ifconfig_remote_netmask = mi->context.options.ifconfig_pool_netmask;
+                    mi->context.c2.push_ifconfig_remote_netmask = netbits_to_netmask(mi->context.options.ifconfig_pool_netbits);
                     if (!mi->context.c2.push_ifconfig_remote_netmask)
                     {
-                        mi->context.c2.push_ifconfig_remote_netmask = mi->context.c1.tuntap->remote_netmask;
+                        mi->context.c2.push_ifconfig_remote_netmask = netbits_to_netmask((int)mi->context.c1.tuntap->netbits);
                     }
                 }
                 else if (tunnel_type == DEV_TYPE_TUN)
@@ -2425,15 +2426,14 @@ multi_client_connect_late_setup(struct multi_context *m,
     {
         const char *ifconfig_constraint_network =
             print_in_addr_t(mi->context.options.push_ifconfig_constraint_network, 0, &gc);
-        const char *ifconfig_constraint_netmask =
-            print_in_addr_t(mi->context.options.push_ifconfig_constraint_netmask, 0, &gc);
 
         /* JYFIXME -- this should cause the connection to fail */
         msg(D_MULTI_ERRORS, "MULTI ERROR: primary virtual IP for %s (%s) "
-            "violates tunnel network/netmask constraint (%s/%s)",
+            "violates tunnel network/subnet constraint (%s/%u)",
             multi_instance_string(mi, false, &gc),
             print_in_addr_t(mi->context.c2.push_ifconfig_local, 0, &gc),
-            ifconfig_constraint_network, ifconfig_constraint_netmask);
+            ifconfig_constraint_network,
+            mi->context.options.push_ifconfig_constraint_netbits);
     }
 
     /*

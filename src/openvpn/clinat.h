@@ -36,7 +36,7 @@ struct client_nat_entry {
 #define CN_DNAT 1
     int type;
     in_addr_t network;
-    in_addr_t netmask;
+    unsigned int netbits;
     in_addr_t foreign_network;
 };
 

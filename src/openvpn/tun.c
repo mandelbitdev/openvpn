@@ -113,7 +113,7 @@ do_address_service(const bool add, const short family, const struct tuntap *tt)
     if (addr.family == AF_INET)
     {
         addr.address.ipv4.s_addr = htonl(tt->local);
-        addr.prefix_len = netmask_to_netbits2(tt->adapter_netmask);
+        addr.prefix_len = tt->netbits;
         msg(D_IFCONFIG, "INET address service: %s %s/%d",
             add ? "add" : "remove",
             print_in_addr_t(tt->local, 0, &gc), addr.prefix_len);
@@ -499,17 +499,17 @@ guess_tuntap_dev(const char *dev,
 static const char ifconfig_warn_how_to_silence[] = "(silence this warning with --ifconfig-nowarn)";
 
 /*
- * If !tun_p2p, make sure ifconfig_remote_netmask looks
- *  like a netmask.
+ * If !tun_p2p, make sure either ifconfig_netbits is
+ * set or ifconfig_remote looks like a netmask.
  *
- * If tun_p2p, make sure ifconfig_remote_netmask looks
+ * If tun_p2p, make sure ifconfig_remote looks
  *  like an IPv4 address.
  */
 static void
-ifconfig_sanity_check(bool tun_p2p, in_addr_t addr)
+ifconfig_sanity_check(bool tun_p2p, in_addr_t addr, int netbits)
 {
     struct gc_arena gc = gc_new();
-    const bool looks_like_netmask = ((addr & 0xFF000000) == 0xFF000000);
+    const bool looks_like_netmask = addr && ((addr & 0xFF000000) == 0xFF000000);
     if (tun_p2p)
     {
         if (looks_like_netmask)
@@ -521,9 +521,11 @@ ifconfig_sanity_check(bool tun_p2p, in_addr_t addr)
     }
     else
     {
-        if (!looks_like_netmask)
+        if (netbits < 0 || !looks_like_netmask)
         {
-            msg(M_WARN, "WARNING: Since you are using subnet topology, the second argument to --ifconfig must be a netmask, for example something like 255.255.255.0. %s",
+            msg(M_WARN, "WARNING: Since you are using topology subnet, you must either "
+                "provide a valid prefix length in the first argument of --ifconfig (eg. 10.8.0.0/24) "
+                "or a valid netmask as the second argument (eg. 255.255.255.0). %s",
                 ifconfig_warn_how_to_silence);
         }
     }
@@ -539,34 +541,36 @@ check_addr_clash(const char *name,
                  int type,
                  in_addr_t public,
                  in_addr_t local,
-                 in_addr_t remote_netmask)
+                 in_addr_t remote,
+                 int netbits)
 {
     struct gc_arena gc = gc_new();
 #if 0
-    msg(M_INFO, "CHECK_ADDR_CLASH type=%d public=%s local=%s, remote_netmask=%s",
+    msg(M_INFO, "CHECK_ADDR_CLASH type=%d public=%s local=%s, netbits=%d, remote=%s",
         type,
         print_in_addr_t(public, 0, &gc),
         print_in_addr_t(local, 0, &gc),
-        print_in_addr_t(remote_netmask, 0, &gc));
+        netbits,
+        print_in_addr_t(remote, 0, &gc));
 #endif
 
     if (public)
     {
         if (type == DEV_TYPE_TUN)
         {
-            const in_addr_t test_netmask = 0xFFFFFF00;
-            const in_addr_t public_net = public &test_netmask;
-            const in_addr_t local_net = local & test_netmask;
-            const in_addr_t remote_net = remote_netmask & test_netmask;
+            const in_addr_t netmask = netbits < 0 ? 0xFFFFFF00 : netbits_to_netmask(netbits);
+            const in_addr_t public_net = public &netmask;
+            const in_addr_t local_net = local & netmask;
+            const in_addr_t remote_net = remote & netmask;
 
-            if (public == local || public == remote_netmask)
+            if (public == local || public == remote)
             {
                 msg(M_WARN,
                     "WARNING: --%s address [%s] conflicts with --ifconfig address pair [%s, %s]. %s",
                     name,
                     print_in_addr_t(public, 0, &gc),
                     print_in_addr_t(local, 0, &gc),
-                    print_in_addr_t(remote_netmask, 0, &gc),
+                    print_in_addr_t(remote, 0, &gc),
                     ifconfig_warn_how_to_silence);
             }
 
@@ -577,22 +581,23 @@ check_addr_clash(const char *name,
                     name,
                     print_in_addr_t(public, 0, &gc),
                     print_in_addr_t(local, 0, &gc),
-                    print_in_addr_t(remote_netmask, 0, &gc),
+                    print_in_addr_t(remote ? remote : netmask, 0, &gc),
                     ifconfig_warn_how_to_silence);
             }
         }
         else if (type == DEV_TYPE_TAP)
         {
-            const in_addr_t public_network = public &remote_netmask;
-            const in_addr_t virtual_network = local & remote_netmask;
-            if (public_network == virtual_network)
+            const in_addr_t netmask = netbits_to_netmask(netbits);
+            const in_addr_t public_network = public &netmask;
+            const in_addr_t virtual_network = local & netmask;
+            if (netmask && public_network == virtual_network)
             {
                 msg(M_WARN,
-                    "WARNING: --%s address [%s] conflicts with --ifconfig subnet [%s, %s] -- local and remote addresses cannot be inside of the --ifconfig subnet. %s",
+                    "WARNING: --%s address [%s] conflicts with --ifconfig subnet [%s/%d] -- local and remote addresses cannot be inside of the --ifconfig subnet. %s",
                     name,
                     print_in_addr_t(public, 0, &gc),
                     print_in_addr_t(local, 0, &gc),
-                    print_in_addr_t(remote_netmask, 0, &gc),
+                    netbits,
                     ifconfig_warn_how_to_silence);
             }
         }
@@ -669,9 +674,10 @@ ifconfig_options_string(const struct tuntap *tt, bool remote, bool disable, stru
     {
         if (!is_tun_p2p(tt))
         {
+            const in_addr_t netmask = netbits_to_netmask(tt->netbits);
             buf_printf(&out, "%s %s",
-                       print_in_addr_t(tt->local & tt->remote_netmask, 0, gc),
-                       print_in_addr_t(tt->remote_netmask, 0, gc));
+                       print_in_addr_t(tt->local & netmask, 0, gc),
+                       print_in_addr_t(netmask, 0, gc));
         }
         else if (tt->type == DEV_TYPE_TUN) /* tun p2p topology */
         {
@@ -679,12 +685,12 @@ ifconfig_options_string(const struct tuntap *tt, bool remote, bool disable, stru
             if (remote)
             {
                 r = print_in_addr_t(tt->local, 0, gc);
-                l = print_in_addr_t(tt->remote_netmask, 0, gc);
+                l = print_in_addr_t(tt->remote, 0, gc);
             }
             else
             {
                 l = print_in_addr_t(tt->local, 0, gc);
-                r = print_in_addr_t(tt->remote_netmask, 0, gc);
+                r = print_in_addr_t(tt->remote, 0, gc);
             }
             buf_printf(&out, "%s %s", r, l);
         }
@@ -765,7 +771,8 @@ do_ifconfig_setenv(const struct tuntap *tt, struct env_set *es)
 {
     struct gc_arena gc = gc_new();
     const char *ifconfig_local = print_in_addr_t(tt->local, 0, &gc);
-    const char *ifconfig_remote_netmask = print_in_addr_t(tt->remote_netmask, 0, &gc);
+    const char *ifconfig_remote = tt->remote ? print_in_addr_t(tt->remote, 0, &gc) : NULL;
+    const char *ifconfig_netmask = tt->netbits >= 0 ? print_in_addr_t(netbits_to_netmask(tt->netbits), 0, &gc) : NULL;
 
     /*
      * Set environmental variables with ifconfig parameters.
@@ -777,11 +784,12 @@ do_ifconfig_setenv(const struct tuntap *tt, struct env_set *es)
         setenv_str(es, "ifconfig_local", ifconfig_local);
         if (tun)
         {
-            setenv_str(es, "ifconfig_remote", ifconfig_remote_netmask);
+            setenv_str(es, "ifconfig_remote", ifconfig_remote);
         }
         else
         {
-            setenv_str(es, "ifconfig_netmask", ifconfig_remote_netmask);
+            setenv_int(es, "ifconfig_netbits", tt->netbits);
+            setenv_str(es, "ifconfig_netmask", ifconfig_netmask);
         }
     }
 
@@ -837,7 +845,7 @@ init_tun(const char *dev,        /* --dev option */
         bool tun_p2p = is_tun_p2p(tt);
 
         /*
-         * Convert arguments to binary IPv4 addresses.
+         * Convert arguments to binary IPv4 addresses and netbits.
          */
 
         tt->local = getaddr(
@@ -846,19 +854,40 @@ init_tun(const char *dev,        /* --dev option */
             | GETADDR_FATAL_ON_SIGNAL
             | GETADDR_FATAL,
             ifconfig_local_parm,
+            NULL,
             0,
             NULL,
             NULL);
 
-        tt->remote_netmask = getaddr(
+        tt->remote = getaddr(
             (tun_p2p ? GETADDR_RESOLVE : 0)
             | GETADDR_HOST_ORDER
             | GETADDR_FATAL_ON_SIGNAL
             | GETADDR_FATAL,
             ifconfig_remote_netmask_parm,
+            NULL,
             0,
             NULL,
             NULL);
+
+        /* in p2p mode discard the netbits otherwise discard the remote */
+        if (!tun_p2p)
+        {
+            if (tt->remote)
+            {
+                tt->netbits = netmask_to_netbits2(tt->remote);
+                tt->remote = 0;
+            }
+            else
+            {
+                msg(M_FATAL, "init_tun: can not figure out the subnet from the remote parameter (%s)", ifconfig_remote_netmask_parm);
+            }
+            tt->remote = 0;
+        }
+        else
+        {
+            tt->netbits = -1;
+        }
 
         /*
          * Look for common errors in --ifconfig parms
@@ -866,7 +895,7 @@ init_tun(const char *dev,        /* --dev option */
         if (strict_warn)
         {
             struct addrinfo *curele;
-            ifconfig_sanity_check(tun_p2p, tt->remote_netmask);
+            ifconfig_sanity_check(tun_p2p, tt->remote, tt->netbits);
 
             /*
              * If local_public or remote_public addresses are defined,
@@ -877,11 +906,13 @@ init_tun(const char *dev,        /* --dev option */
             {
                 if (curele->ai_family == AF_INET)
                 {
+                    const in_addr_t local = ntohl(((struct sockaddr_in *)curele->ai_addr)->sin_addr.s_addr);
                     check_addr_clash("local",
                                      tt->type,
-                                     ((struct sockaddr_in *)curele->ai_addr)->sin_addr.s_addr,
+                                     local,
                                      tt->local,
-                                     tt->remote_netmask);
+                                     tt->remote,
+                                     tt->netbits);
                 }
             }
 
@@ -889,17 +920,19 @@ init_tun(const char *dev,        /* --dev option */
             {
                 if (curele->ai_family == AF_INET)
                 {
+                    const in_addr_t remote = ntohl(((struct sockaddr_in *)curele->ai_addr)->sin_addr.s_addr);
                     check_addr_clash("remote",
                                      tt->type,
-                                     ((struct sockaddr_in *)curele->ai_addr)->sin_addr.s_addr,
+                                     remote,
                                      tt->local,
-                                     tt->remote_netmask);
+                                     tt->remote,
+                                     tt->netbits);
                 }
             }
 
             if (!tun_p2p)
             {
-                check_subnet_conflict(tt->local, tt->remote_netmask, "TUN/TAP adapter");
+                check_subnet_conflict(tt->local, netbits_to_netmask(tt->netbits), "TUN/TAP adapter");
             }
             else
             {
@@ -914,12 +947,12 @@ init_tun(const char *dev,        /* --dev option */
          */
         if (tun_p2p)
         {
-            verify_255_255_255_252(tt->local, tt->remote_netmask);
+            verify_255_255_255_252(tt->local, tt->remote);
             tt->adapter_netmask = ~3;
         }
         else
         {
-            tt->adapter_netmask = tt->remote_netmask;
+            tt->adapter_netmask = netbits_to_netmask(tt->netbits);
         }
 #endif
 
@@ -1061,8 +1094,9 @@ in_addr_t
 create_arbitrary_remote( struct tuntap *tt )
 {
     in_addr_t remote;
+    const in_addr_t netmask = netbits_to_netmask(tt->netbits);
 
-    remote = (tt->local & tt->remote_netmask) +1;
+    remote = (tt->local & netmask) +1;
 
     if (remote == tt->local)
     {
@@ -1294,7 +1328,13 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
 
 #if !defined(TARGET_LINUX)
     const char *ifconfig_local = NULL;
-    const char *ifconfig_remote_netmask = NULL;
+#if !defined(_WIN32)
+    const char *ifconfig_remote = NULL;
+#endif
+#if !defined(TARGET_FREEBSD) && !defined(TARGET_DRAGONFLY)
+    const char *ifconfig_netmask = NULL;
+    const in_addr_t netmask = netbits_to_netmask(tt->netbits);
+#endif
     struct argv argv = argv_new();
     struct gc_arena gc = gc_new();
 
@@ -1302,7 +1342,12 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
      * Set ifconfig parameters
      */
     ifconfig_local = print_in_addr_t(tt->local, 0, &gc);
-    ifconfig_remote_netmask = print_in_addr_t(tt->remote_netmask, 0, &gc);
+#if !defined(_WIN32)
+    ifconfig_remote = print_in_addr_t(tt->remote, 0, &gc);
+#endif
+#if !defined(TARGET_FREEBSD) && !defined(TARGET_DRAGONFLY)
+    ifconfig_netmask = print_in_addr_t(netmask, 0, &gc);
+#endif
 #endif
 
 #if defined(TARGET_LINUX)
@@ -1318,16 +1363,14 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
 
     if (tun_p2p)
     {
-        if (net_addr_ptp_v4_add(ctx, ifname, &tt->local,
-                                &tt->remote_netmask) < 0)
+        if (net_addr_ptp_v4_add(ctx, ifname, &tt->local, &tt->remote) < 0)
         {
             msg(M_FATAL, "Linux can't add IP to interface %s", ifname);
         }
     }
     else
     {
-        if (net_addr_v4_add(ctx, ifname, &tt->local,
-                            netmask_to_netbits2(tt->remote_netmask)) < 0)
+        if (net_addr_v4_add(ctx, ifname, &tt->local, tt->netbits) < 0)
         {
             msg(M_FATAL, "Linux can't add IP to interface %s", ifname);
         }
@@ -1335,9 +1378,14 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
 #elif defined(TARGET_ANDROID)
     char out[64];
 
-    snprintf(out, sizeof(out), "%s %s %d %s", ifconfig_local,
-             ifconfig_remote_netmask, tun_mtu, print_topology(tt->topology));
+    snprintf(out, sizeof(out), "%s %s %d %s",
+             ifconfig_local,
+             ifconfig_remote ? ifconfig_remote : ifconfig_netmask,
+             tun_mtu,
+             print_topology(tt->topology));
     management_android_control(management, "IFCONFIG", out);
+    (void)ifconfig_netmask;
+    (void)netmask;
 
 #elif defined(TARGET_SOLARIS)
     /* Solaris 2.6 (and 7?) cannot set all parameters in one go...
@@ -1348,7 +1396,7 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
     if (tun_p2p)
     {
         argv_printf(&argv, "%s %s %s %s mtu %d up", IFCONFIG_PATH, ifname,
-                    ifconfig_local, ifconfig_remote_netmask, tun_mtu);
+                    ifconfig_local, ifconfig_remote, tun_mtu);
 
         argv_msg(M_INFO, &argv);
         if (!openvpn_execve_check(&argv, es, 0, "Solaris ifconfig phase-1 failed"))
@@ -1363,13 +1411,13 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
     {
         argv_printf(&argv, "%s %s %s %s netmask %s mtu %d up", IFCONFIG_PATH,
                     ifname, ifconfig_local, ifconfig_local,
-                    ifconfig_remote_netmask, tun_mtu);
+                    ifconfig_netmask, tun_mtu);
     }
     else /* tap */
     {
         argv_printf(&argv, "%s %s %s netmask %s up",
                     IFCONFIG_PATH, ifname, ifconfig_local,
-                    ifconfig_remote_netmask);
+                    ifconfig_netmask);
     }
 
     argv_msg(M_INFO, &argv);
@@ -1384,8 +1432,8 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
         struct route_ipv4 r;
         CLEAR(r);
         r.flags = RT_DEFINED | RT_METRIC_DEFINED;
-        r.network = tt->local & tt->remote_netmask;
-        r.netmask = tt->remote_netmask;
+        r.network = tt->local & netmask;
+        r.netbits = tt->netbits;
         r.gateway = tt->local;
         r.metric = 0;
         add_route(&r, tt, 0, NULL, es, NULL);
@@ -1407,7 +1455,7 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
         argv_printf(&argv,
                     "%s %s %s %s mtu %d netmask 255.255.255.255 up -link0",
                     IFCONFIG_PATH, ifname, ifconfig_local,
-                    ifconfig_remote_netmask, tun_mtu);
+                    ifconfig_remote, tun_mtu);
     }
     else if (tt->type == DEV_TYPE_TUN)
     {
@@ -1415,13 +1463,13 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
         argv_printf(&argv, "%s %s %s %s mtu %d netmask %s up -link0",
                     IFCONFIG_PATH, ifname, ifconfig_local,
                     print_in_addr_t(remote_end, 0, &gc), tun_mtu,
-                    ifconfig_remote_netmask);
+                    ifconfig_netmask);
     }
     else /* tap */
     {
         argv_printf(&argv, "%s %s %s netmask %s mtu %d link0",
                     IFCONFIG_PATH, ifname, ifconfig_local,
-                    ifconfig_remote_netmask, tun_mtu);
+                    ifconfig_netmask, tun_mtu);
     }
     argv_msg(M_INFO, &argv);
     openvpn_execve_check(&argv, es, S_FATAL, "OpenBSD ifconfig failed");
@@ -1432,8 +1480,8 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
         struct route_ipv4 r;
         CLEAR(r);
         r.flags = RT_DEFINED;
-        r.network = tt->local & tt->remote_netmask;
-        r.netmask = tt->remote_netmask;
+        r.network = tt->local & netmask;
+        r.netbits = tt->netbits;
         r.gateway = remote_end;
         add_route(&r, tt, 0, NULL, es, NULL);
     }
@@ -1445,14 +1493,14 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
     {
         argv_printf(&argv, "%s %s %s %s mtu %d netmask 255.255.255.255 up",
                     IFCONFIG_PATH, ifname, ifconfig_local,
-                    ifconfig_remote_netmask, tun_mtu);
+                    ifconfig_remote, tun_mtu);
     }
     else if (tt->type == DEV_TYPE_TUN)
     {
         remote_end = create_arbitrary_remote(tt);
         argv_printf(&argv, "%s %s %s %s mtu %d netmask %s up", IFCONFIG_PATH,
                     ifname, ifconfig_local, print_in_addr_t(remote_end, 0, &gc),
-                    tun_mtu, ifconfig_remote_netmask);
+                    tun_mtu, ifconfig_netmask);
     }
     else /* tap */
     {
@@ -1463,7 +1511,7 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
          */
         argv_printf(&argv, "%s %s %s netmask %s mtu %d",
                     IFCONFIG_PATH, ifname, ifconfig_local,
-                    ifconfig_remote_netmask, tun_mtu);
+                    ifconfig_netmask, tun_mtu);
     }
     argv_msg(M_INFO, &argv);
     openvpn_execve_check(&argv, es, S_FATAL, "NetBSD ifconfig failed");
@@ -1474,8 +1522,8 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
         struct route_ipv4 r;
         CLEAR(r);
         r.flags = RT_DEFINED;
-        r.network = tt->local & tt->remote_netmask;
-        r.netmask = tt->remote_netmask;
+        r.network = tt->local & netmask;
+        r.netbits = tt->netbits;
         r.gateway = remote_end;
         add_route(&r, tt, 0, NULL, es, NULL);
     }
@@ -1497,18 +1545,18 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
     {
         argv_printf(&argv, "%s %s %s %s mtu %d netmask 255.255.255.255 up",
                     IFCONFIG_PATH, ifname, ifconfig_local,
-                    ifconfig_remote_netmask, tun_mtu);
+                    ifconfig_remote, tun_mtu);
     }
     else if (tt->type == DEV_TYPE_TUN)
     {
         argv_printf(&argv, "%s %s %s %s netmask %s mtu %d up",
                     IFCONFIG_PATH, ifname, ifconfig_local, ifconfig_local,
-                    ifconfig_remote_netmask, tun_mtu);
+                    ifconfig_netmask, tun_mtu);
     }
     else /* tap */
     {
         argv_printf(&argv, "%s %s %s netmask %s mtu %d up", IFCONFIG_PATH,
-                    ifname, ifconfig_local, ifconfig_remote_netmask,
+                    ifname, ifconfig_local, ifconfig_netmask,
                     tun_mtu);
     }
 
@@ -1521,8 +1569,8 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
         struct route_ipv4 r;
         CLEAR(r);
         r.flags = RT_DEFINED;
-        r.network = tt->local & tt->remote_netmask;
-        r.netmask = tt->remote_netmask;
+        r.network = tt->local & netmask;
+        r.netbits = tt->netbits;
         r.gateway = tt->local;
         add_route(&r, tt, 0, NULL, es, NULL);
     }
@@ -1534,13 +1582,12 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
     {
         argv_printf(&argv, "%s %s %s %s mtu %d netmask 255.255.255.255 up",
                     IFCONFIG_PATH, ifname, ifconfig_local,
-                    ifconfig_remote_netmask, tun_mtu);
+                    ifconfig_remote, tun_mtu);
     }
     else            /* tun with topology subnet and tap mode (always subnet) */
     {
-        int netbits = netmask_to_netbits2(tt->remote_netmask);
         argv_printf(&argv, "%s %s %s/%d mtu %d up", IFCONFIG_PATH,
-                    ifname, ifconfig_local, netbits, tun_mtu );
+                    ifname, ifconfig_local, tt->netbits, tun_mtu );
     }
 
     argv_msg(M_INFO, &argv);
@@ -1559,7 +1606,7 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
 
         /* example: ifconfig tap0 172.30.1.1 netmask 255.255.254.0 up */
         argv_printf(&argv, "%s %s %s netmask %s mtu %d up", IFCONFIG_PATH,
-                    ifname, ifconfig_local, ifconfig_remote_netmask, tun_mtu);
+                    ifname, ifconfig_local, ifconfig_netmask, tun_mtu);
 
         argv_msg(M_INFO, &argv);
         openvpn_execve_check(&argv, aix_es, S_FATAL, "AIX ifconfig failed");
@@ -1572,7 +1619,7 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu,
         msg(M_INFO,
             "******** NOTE:  Please manually set the IP/netmask of '%s' to %s/%s (if it is not already set)",
             ifname, ifconfig_local,
-            ifconfig_remote_netmask);
+            ifconfig_netmask);
     }
     else if (tt->options.ip_win32_type == IPW32_SET_DHCP_MASQ || tt->options.ip_win32_type == IPW32_SET_ADAPTIVE)
     {
@@ -1654,12 +1701,10 @@ static void
 undo_ifconfig_ipv4(struct tuntap *tt, openvpn_net_ctx_t *ctx)
 {
 #if defined(TARGET_LINUX)
-    int netbits = netmask_to_netbits2(tt->remote_netmask);
-
     if (is_tun_p2p(tt))
     {
         if (net_addr_ptp_v4_del(ctx, tt->actual_name, &tt->local,
-                                &tt->remote_netmask) < 0)
+                                &tt->remote) < 0)
         {
             msg(M_WARN, "Linux can't del IP from iface %s",
                 tt->actual_name);
@@ -1667,7 +1712,7 @@ undo_ifconfig_ipv4(struct tuntap *tt, openvpn_net_ctx_t *ctx)
     }
     else
     {
-        if (net_addr_v4_del(ctx, tt->actual_name, &tt->local, netbits) < 0)
+        if (net_addr_v4_del(ctx, tt->actual_name, &tt->local, tt->netbits) < 0)
         {
             msg(M_WARN, "Linux can't del IP from iface %s",
                 tt->actual_name);
@@ -4677,8 +4722,8 @@ get_adapter_ip_netmask(const IP_ADAPTER_INFO *ai, const int n, in_addr_t *ip, in
 
             if (ip_str && netmask_str && strlen(ip_str) && strlen(netmask_str))
             {
-                *ip = getaddr(getaddr_flags, ip_str, 0, &succeed1, NULL);
-                *netmask = getaddr(getaddr_flags, netmask_str, 0, &succeed2, NULL);
+                *ip = getaddr(getaddr_flags, ip_str, NULL, 0, &succeed1, NULL);
+                *netmask = getaddr(getaddr_flags, netmask_str, NULL, 0, &succeed2, NULL);
                 ret = (succeed1 == true && succeed2 == true);
             }
         }
@@ -5364,7 +5409,7 @@ ip_addr_string_to_array(in_addr_t *dest, int *dest_len, const IP_ADDR_STRING *sr
             break;
         }
 
-        ip = getaddr(getaddr_flags, ip_str, 0, &succeed, NULL);
+        ip = getaddr(getaddr_flags, ip_str, NULL, 0, &succeed, NULL);
         if (!succeed)
         {
             break;
@@ -6422,11 +6467,12 @@ tuntap_set_ptp(const struct tuntap *tt)
     if (!tt->did_ifconfig_setup || tt->topology == TOP_SUBNET)
     {
         in_addr_t ep[3];
+        const in_addr_t netmask = netbits_to_netmask(tt->netbits);
         BOOL status;
 
         ep[0] = htonl(tt->local);
-        ep[1] = htonl(tt->local & tt->remote_netmask);
-        ep[2] = htonl(tt->remote_netmask);
+        ep[1] = htonl(tt->local & netmask);
+        ep[2] = htonl(netmask);
 
         status = DeviceIoControl(tt->hand, TAP_WIN_IOCTL_CONFIG_TUN,
                                  ep, sizeof(ep),
@@ -6450,7 +6496,7 @@ tuntap_set_ptp(const struct tuntap *tt)
     {
         in_addr_t ep[2];
         ep[0] = htonl(tt->local);
-        ep[1] = htonl(tt->remote_netmask);
+        ep[1] = htonl(tt->remote);
 
         if (!DeviceIoControl(tt->hand, TAP_WIN_IOCTL_CONFIG_POINT_TO_POINT,
                              ep, sizeof(ep),
@@ -6479,11 +6525,11 @@ tuntap_dhcp_mask(const struct tuntap *tt, const char *device_guid)
     {
         if (tt->topology == TOP_SUBNET)
         {
-            ep[2] = dhcp_masq_addr(tt->local, tt->remote_netmask, tt->options.dhcp_masq_custom_offset ? tt->options.dhcp_masq_offset : 0);
+            ep[2] = dhcp_masq_addr(tt->local, netbits_to_netmask(tt->netbits), tt->options.dhcp_masq_custom_offset ? tt->options.dhcp_masq_offset : 0);
         }
         else
         {
-            ep[2] = htonl(tt->remote_netmask);
+            ep[2] = htonl(tt->remote);
         }
     }
     else

@@ -188,7 +188,8 @@ struct tuntap
 
     /* ifconfig parameters */
     in_addr_t local;
-    in_addr_t remote_netmask;
+    in_addr_t remote;
+    int netbits;
 
     struct in6_addr local_ipv6;
     struct in6_addr remote_ipv6;

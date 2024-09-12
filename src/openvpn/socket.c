@@ -179,6 +179,7 @@ out:
 in_addr_t
 getaddr(unsigned int flags,
         const char *hostname,
+        unsigned int *netbits,
         int resolve_retry_seconds,
         bool *succeeded,
         struct signal_info *sig_info)
@@ -186,7 +187,7 @@ getaddr(unsigned int flags,
     in_addr_t addr;
     int status;
 
-    status = get_addr_generic(AF_INET, flags, hostname, &addr, NULL,
+    status = get_addr_generic(AF_INET, flags, hostname, &addr, netbits,
                               resolve_retry_seconds, sig_info,
                               M_WARN);
     if (status==0)

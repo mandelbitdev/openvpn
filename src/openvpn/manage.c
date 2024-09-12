@@ -554,7 +554,7 @@ man_kill(struct management *man, const char *victim)
         {
             /* IP:port specified */
             bool status;
-            const in_addr_t addr = getaddr(GETADDR_HOST_ORDER|GETADDR_MSG_VIRT_OUT, p1, 0, &status, NULL);
+            const in_addr_t addr = getaddr(GETADDR_HOST_ORDER|GETADDR_MSG_VIRT_OUT, p1, NULL, 0, &status, NULL);
             if (status)
             {
                 const int port = atoi(p2);
@@ -2803,6 +2803,7 @@ env_filter_match(const char *env_str, const int env_filter_level)
         "untrusted_ip=",
         "ifconfig_local=",
         "ifconfig_netmask=",
+        "ifconfig_netbits=",
         "daemon_start_time=",
         "daemon_pid=",
         "dev=",

@@ -524,6 +524,7 @@ bool unix_socket_get_peer_uid_gid(const socket_descriptor_t sd, int *uid, int *g
  */
 in_addr_t getaddr(unsigned int flags,
                   const char *hostname,
+                  unsigned int *netbits,
                   int resolve_retry_seconds,
                   bool *succeeded,
                   struct signal_info *sig_info);

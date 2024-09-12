@@ -135,13 +135,17 @@ configuration.
   Examples:
   ::
 
-      client-nat snat 192.168.0.0/255.255.0.0
-      client-nat dnat 10.64.0.0/255.255.0.0
+      client-nat snat 192.168.0.0 255.255.0.0 10.64.0.0
+      client-nat dnat 192.168.0.0/16 10.64.0.0
 
-  ``network/netmask`` (for example :code:`192.168.0.0/255.255.0.0`) defines
-  the local view of a resource from the client perspective, while
-  ``alias/netmask`` (for example :code:`10.64.0.0/255.255.0.0`) defines the
-  remote view from the server perspective.
+  ``snat network netmask alias`` or ``snat network/bits alias`` (for
+  example :code:`192.168.0.0 255.255.0.0 10.64.0.0` or
+  :code:`192.168.0.0/16 10.64.0.0`) translates outgoing traffic from the
+  client’s local network (192.168.0.0/16), making it appear to the server
+  as though it is originating from the 10.64.0.0/16 network. In this
+  example, 192.168.0.0/16 defines the local view of a resource from the
+  client perspective, while 10.64.0.0/16 defines the remote view from the
+  server perspective.
 
   Use :code:`snat` (source NAT) for resources owned by the client and
   :code:`dnat` (destination NAT) for remote resources.

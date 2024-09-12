@@ -117,7 +117,7 @@ struct route_ipv4 {
     unsigned int flags;
     const struct route_option *option;
     in_addr_t network;
-    in_addr_t netmask;
+    unsigned int netbits;
     in_addr_t gateway;
     int metric;
 };

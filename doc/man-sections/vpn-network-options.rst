@@ -214,20 +214,27 @@ routing.
         Android 10 or later.
 
 --ifconfig args
+  Valid syntaxes:
+  ::
+
+     ifconfig local rn
+     ifconfig local/bits
+
   Set TUN/TAP adapter parameters. It requires the *IP address* of the local
   VPN endpoint. For TUN devices in point-to-point mode, the next argument
   must be the VPN IP address of the remote VPN endpoint. For TAP devices,
   or TUN devices used with ``--topology subnet``, the second argument
   is the subnet mask of the virtual network segment which is being created
-  or connected to.
+  or connected to. Alternatively, the second argument can be omitted if the
+  first argument is an IPv4 address in CIDR notation.
 
   For TUN devices, which facilitate virtual point-to-point IP connections
   (when used in ``--topology net30`` or ``p2p`` mode), the proper usage of
   ``--ifconfig`` is to use two private IP addresses which are not a member
-  of any existing subnet which is in use. The IP addresses may be
-  consecutive and should have their order reversed on the remote peer.
-  After the VPN is established, by pinging ``rn``, you will be pinging
-  across the VPN.
+  of any existing subnet which is in use (CIDR notation is not applicable
+  in this case). The IP addresses may be consecutive and should have their
+  order reversed on the remote peer. After the VPN is established, by
+  pinging ``rn``, you will be pinging across the VPN.
 
   For TAP devices, which provide the ability to create virtual ethernet
   segments, or TUN devices in ``--topology subnet`` mode (which create
@@ -379,17 +386,16 @@ routing.
   Valid syntaxes:
   ::
 
-      route network/IP
-      route network/IP netmask
-      route network/IP netmask gateway
-      route network/IP netmask gateway metric
+      route network|ipv4addr [netmask] [gateway] [metric]
+      route network|ipv4addr/bits [gateway] [metric]
 
   This option is intended as a convenience proxy for the ``route``\(8)
   shell command, while at the same time providing portable semantics
   across OpenVPN's platform space.
 
-  ``netmask``
-        defaults to :code:`255.255.255.255` when not given
+  ``netmask`` (or ``bits``)
+        defaults to :code:`255.255.255.255` (or :code:`32`) when not
+        given
 
   ``gateway``
         default taken from ``--route-gateway`` or the second
@@ -417,6 +423,9 @@ routing.
   :code:`remote_host`
       The ``--remote`` address if OpenVPN is being run in
       client mode, and is undefined in server mode.
+
+  When the ``network`` parameter is an IPv4 address, it may be specified
+  using CIDR notation, thus omitting the ``netmask`` parameter.
 
 --route-delay args
   Valid syntaxes:

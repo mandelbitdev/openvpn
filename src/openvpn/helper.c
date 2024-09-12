@@ -64,21 +64,20 @@ print_opt_route_gateway_dhcp(struct gc_arena *gc)
 }
 
 static const char *
-print_opt_route(const in_addr_t network, const in_addr_t netmask, struct gc_arena *gc)
+print_opt_route(const in_addr_t network, const int netbits, struct gc_arena *gc)
 {
     struct buffer out = alloc_buf_gc(128, gc);
     ASSERT(network);
 
-    if (netmask)
-    {
-        buf_printf(&out, "route %s %s",
-                   print_in_addr_t(network, 0, gc),
-                   print_in_addr_t(netmask, 0, gc));
-    }
-    else
+    if (netbits < 0)
     {
         buf_printf(&out, "route %s",
                    print_in_addr_t(network, 0, gc));
+    }
+    else
+    {
+        buf_printf(&out, "route %s/%d",
+                   print_in_addr_t(network, 0, gc), netbits);
     }
 
     return BSTR(&out);
@@ -111,27 +110,28 @@ print_str(const char *str, struct gc_arena *gc)
 }
 
 static void
-helper_add_route(const in_addr_t network, const in_addr_t netmask, struct options *o)
+helper_add_route(const in_addr_t network, const int netbits, struct options *o)
 {
     rol_check_alloc(o);
     add_route_to_option_list(o->routes,
                              print_in_addr_t(network, 0, &o->gc),
-                             print_in_addr_t(netmask, 0, &o->gc),
+                             print_in_addr_t(netbits_to_netmask(netbits), 0, &o->gc),
                              NULL,
                              NULL);
 }
 
 static void
-verify_common_subnet(const char *opt, const in_addr_t a, const in_addr_t b, const in_addr_t subnet)
+verify_common_subnet(const char *opt, const in_addr_t a, const in_addr_t b, const unsigned int netbits)
 {
     struct gc_arena gc = gc_new();
-    if ((a & subnet) != (b & subnet))
+    const unsigned int var = 32 - netbits;
+    if ((a >> var) != (b >> var))
     {
         msg(M_USAGE, "%s IP addresses %s and %s are not in the same %s subnet",
             opt,
             print_in_addr_t(a, 0, &gc),
             print_in_addr_t(b, 0, &gc),
-            print_in_addr_t(subnet, 0, &gc));
+            print_netmask((int)netbits, &gc));
     }
     gc_free(&gc);
 }
@@ -268,9 +268,6 @@ helper_client_server(struct options *o)
 
     if (o->server_defined)
     {
-        int netbits = -2;
-        bool status = false;
-
         if (o->client)
         {
             msg(M_USAGE, "--server and --client cannot be used together");
@@ -296,34 +293,24 @@ helper_client_server(struct options *o)
             msg(M_USAGE, "--server directive only makes sense with --dev tun or --dev tap");
         }
 
-        status = netmask_to_netbits(o->server_network, o->server_netmask, &netbits);
-        if (!status)
-        {
-            msg(M_USAGE, "--server directive network/netmask combination is invalid");
-        }
-
-        if (netbits < 0)
-        {
-            msg(M_USAGE, "--server directive netmask is invalid");
-        }
-
-        if (netbits < IFCONFIG_POOL_MIN_NETBITS)
+        if (o->server_netbits < IFCONFIG_POOL_MIN_NETBITS)
         {
             msg(M_USAGE, "--server directive netmask allows for too many host addresses (subnet must be %s or higher)",
                 print_netmask(IFCONFIG_POOL_MIN_NETBITS, &gc));
         }
 
+        const in_addr_t server_netmask = netbits_to_netmask((int)o->server_netbits);
         if (dev == DEV_TYPE_TUN)
         {
             int pool_end_reserve = 4;
 
-            if (netbits > 29)
+            if (o->server_netbits > 29)
             {
                 msg(M_USAGE, "--server directive when used with --dev tun must define a subnet of %s or lower",
                     print_netmask(29, &gc));
             }
 
-            if (netbits == 29)
+            if (o->server_netbits == 29)
             {
                 pool_end_reserve = 0;
             }
@@ -342,14 +329,14 @@ helper_client_server(struct options *o)
                 {
                     o->ifconfig_pool_defined = true;
                     o->ifconfig_pool_start = o->server_network + 4;
-                    o->ifconfig_pool_end = (o->server_network | ~o->server_netmask) - pool_end_reserve;
+                    o->ifconfig_pool_end = (o->server_network | ~server_netmask) - pool_end_reserve;
                     ifconfig_pool_verify_range(M_USAGE, o->ifconfig_pool_start, o->ifconfig_pool_end);
                 }
 
-                helper_add_route(o->server_network, o->server_netmask, o);
+                helper_add_route(o->server_network, (int)o->server_netbits, o);
                 if (o->enable_c2c)
                 {
-                    push_option(o, print_opt_route(o->server_network, o->server_netmask, &o->gc), M_USAGE);
+                    push_option(o, print_opt_route(o->server_network, (int)o->server_netbits, &o->gc), M_USAGE);
                 }
                 else if (o->topology == TOP_NET30)
                 {
@@ -359,16 +346,16 @@ helper_client_server(struct options *o)
             else if (o->topology == TOP_SUBNET)
             {
                 o->ifconfig_local = print_in_addr_t(o->server_network + 1, 0, &o->gc);
-                o->ifconfig_remote_netmask = print_in_addr_t(o->server_netmask, 0, &o->gc);
+                o->ifconfig_remote_netmask = print_in_addr_t(server_netmask, 0, &o->gc);
 
                 if (!(o->server_flags & SF_NOPOOL))
                 {
                     o->ifconfig_pool_defined = true;
                     o->ifconfig_pool_start = o->server_network + 2;
-                    o->ifconfig_pool_end = (o->server_network | ~o->server_netmask) - 1;
+                    o->ifconfig_pool_end = (o->server_network | ~server_netmask) - 1;
                     ifconfig_pool_verify_range(M_USAGE, o->ifconfig_pool_start, o->ifconfig_pool_end);
                 }
-                o->ifconfig_pool_netmask = o->server_netmask;
+                o->ifconfig_pool_netbits = (int)o->server_netbits;
 
                 push_option(o, print_opt_route_gateway(o->server_network + 1, &o->gc), M_USAGE);
                 if (!o->route_default_gateway)
@@ -393,7 +380,7 @@ helper_client_server(struct options *o)
         }
         else if (dev == DEV_TYPE_TAP)
         {
-            if (netbits > 30)
+            if (o->server_netbits > 30)
             {
                 msg(M_USAGE, "--server directive when used with --dev tap must define a subnet of %s or lower",
                     print_netmask(30, &gc));
@@ -402,16 +389,16 @@ helper_client_server(struct options *o)
             o->mode = MODE_SERVER;
             o->tls_server = true;
             o->ifconfig_local = print_in_addr_t(o->server_network + 1, 0, &o->gc);
-            o->ifconfig_remote_netmask = print_in_addr_t(o->server_netmask, 0, &o->gc);
+            o->ifconfig_remote_netmask = print_in_addr_t(server_netmask, 0, &o->gc);
 
             if (!(o->server_flags & SF_NOPOOL))
             {
                 o->ifconfig_pool_defined = true;
                 o->ifconfig_pool_start = o->server_network + 2;
-                o->ifconfig_pool_end = (o->server_network | ~o->server_netmask) - 1;
+                o->ifconfig_pool_end = (o->server_network | ~server_netmask) - 1;
                 ifconfig_pool_verify_range(M_USAGE, o->ifconfig_pool_start, o->ifconfig_pool_end);
             }
-            o->ifconfig_pool_netmask = o->server_netmask;
+            o->ifconfig_pool_netbits = (int)o->server_netbits;
 
             push_option(o, print_opt_route_gateway(o->server_network + 1, &o->gc), M_USAGE);
         }
@@ -425,7 +412,7 @@ helper_client_server(struct options *o)
         {
             o->push_ifconfig_constraint_defined = true;
             o->push_ifconfig_constraint_network = o->server_network;
-            o->push_ifconfig_constraint_netmask = o->server_netmask;
+            o->push_ifconfig_constraint_netbits = o->server_netbits;
         }
     }
 
@@ -478,9 +465,9 @@ helper_client_server(struct options *o)
 
         if (o->server_bridge_defined)
         {
-            verify_common_subnet("--server-bridge", o->server_bridge_ip, o->server_bridge_pool_start, o->server_bridge_netmask);
-            verify_common_subnet("--server-bridge", o->server_bridge_pool_start, o->server_bridge_pool_end, o->server_bridge_netmask);
-            verify_common_subnet("--server-bridge", o->server_bridge_ip, o->server_bridge_pool_end, o->server_bridge_netmask);
+            verify_common_subnet("--server-bridge", o->server_bridge_ip, o->server_bridge_pool_start, o->server_bridge_netbits);
+            verify_common_subnet("--server-bridge", o->server_bridge_pool_start, o->server_bridge_pool_end, o->server_bridge_netbits);
+            verify_common_subnet("--server-bridge", o->server_bridge_ip, o->server_bridge_pool_end, o->server_bridge_netbits);
         }
 
         o->mode = MODE_SERVER;
@@ -492,7 +479,7 @@ helper_client_server(struct options *o)
             o->ifconfig_pool_start = o->server_bridge_pool_start;
             o->ifconfig_pool_end = o->server_bridge_pool_end;
             ifconfig_pool_verify_range(M_USAGE, o->ifconfig_pool_start, o->ifconfig_pool_end);
-            o->ifconfig_pool_netmask = o->server_bridge_netmask;
+            o->ifconfig_pool_netbits = (int)o->server_bridge_netbits;
             push_option(o, print_opt_route_gateway(o->server_bridge_ip, &o->gc), M_USAGE);
         }
         else if (o->server_bridge_proxy_dhcp && !(o->server_flags & SF_NO_PUSH_ROUTE_GATEWAY))

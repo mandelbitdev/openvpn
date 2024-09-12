@@ -1136,9 +1136,20 @@ remove_iroutes_from_push_route_list(struct options *o)
                 if (p[0] && !strcmp(p[0], "route") && !p[3] && o->iroutes)
                 {
                     /* get route parameters */
-                    bool status1, status2;
-                    const in_addr_t network = getaddr(GETADDR_HOST_ORDER, p[1], 0, &status1, NULL);
-                    const in_addr_t netmask = getaddr(GETADDR_HOST_ORDER, p[2] ? p[2] : "255.255.255.255", 0, &status2, NULL);
+                    bool status1, status2 = true;
+                    int netbits = -1;
+
+                    /* get netbits from CIDR or convert netmask to netbits */
+                    const in_addr_t network = getaddr(GETADDR_HOST_ORDER, p[1], (unsigned int *)&netbits, 0, &status1, NULL);
+                    if (p[2])
+                    {
+                        const in_addr_t netmask = getaddr(GETADDR_HOST_ORDER, p[2], NULL, 0, &status2, NULL);
+                        netbits = netmask_to_netbits2(netmask);
+                    }
+                    if (netbits <= 0)
+                    {
+                        netbits = 32;
+                    }
 
                     /* did route parameters parse correctly? */
                     if (status1 && status2)
@@ -1148,7 +1159,7 @@ remove_iroutes_from_push_route_list(struct options *o)
                         /* does route match an iroute? */
                         for (ir = o->iroutes; ir != NULL; ir = ir->next)
                         {
-                            if (network == ir->network && netmask == netbits_to_netmask(ir->netbits >= 0 ? ir->netbits : 32))
+                            if (network == ir->network && netbits == (ir->netbits >= 0 ? ir->netbits : 32))
                             {
                                 enable = false;
                                 break;

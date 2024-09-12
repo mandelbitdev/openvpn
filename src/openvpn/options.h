@@ -450,7 +450,7 @@ struct options
     const char *tmp_dir;
     bool server_defined;
     in_addr_t server_network;
-    in_addr_t server_netmask;
+    unsigned int server_netbits;
     bool server_ipv6_defined;                           /* IPv6 */
     struct in6_addr server_network_ipv6;                /* IPv6 */
     unsigned int server_netbits_ipv6;                   /* IPv6 */
@@ -464,7 +464,7 @@ struct options
 
     bool server_bridge_defined;
     in_addr_t server_bridge_ip;
-    in_addr_t server_bridge_netmask;
+    unsigned int server_bridge_netbits;
     in_addr_t server_bridge_pool_start;
     in_addr_t server_bridge_pool_end;
 
@@ -472,7 +472,7 @@ struct options
     bool ifconfig_pool_defined;
     in_addr_t ifconfig_pool_start;
     in_addr_t ifconfig_pool_end;
-    in_addr_t ifconfig_pool_netmask;
+    int ifconfig_pool_netbits;
     const char *ifconfig_pool_persist_filename;
     int ifconfig_pool_persist_refresh_freq;
 
@@ -499,7 +499,7 @@ struct options
     in_addr_t push_ifconfig_local_alias;
     bool push_ifconfig_constraint_defined;
     in_addr_t push_ifconfig_constraint_network;
-    in_addr_t push_ifconfig_constraint_netmask;
+    unsigned int push_ifconfig_constraint_netbits;
     bool push_ifconfig_ipv4_blocked;                    /* IPv4 */
     bool push_ifconfig_ipv6_defined;                    /* IPv6 */
     struct in6_addr push_ifconfig_ipv6_local;           /* IPv6 */

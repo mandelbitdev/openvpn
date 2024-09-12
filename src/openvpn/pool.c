@@ -652,8 +652,8 @@ ifconfig_pool_read(struct ifconfig_pool_persist *persist, struct ifconfig_pool *
             if (strlen(ip_buf) > 0)
             {
                 bool v4_ok = true;
-                in_addr_t addr = getaddr(GETADDR_HOST_ORDER, ip_buf, 0, &v4_ok,
-                                         NULL);
+                in_addr_t addr = getaddr(GETADDR_HOST_ORDER, ip_buf, NULL, 0,
+                                         &v4_ok, NULL);
 
                 if (!v4_ok)
                 {

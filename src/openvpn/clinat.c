@@ -31,6 +31,7 @@
 #include "proto.h"
 #include "socket.h"
 #include "memdbg.h"
+#include "route.h"
 
 static bool
 add_entry(struct client_nat_option_list *dest,
@@ -60,11 +61,11 @@ print_client_nat_list(const struct client_nat_option_list *list, int msglevel)
         for (i = 0; i < list->n; ++i)
         {
             const struct client_nat_entry *e = &list->entries[i];
-            msg(msglevel, "  CNAT[%d] t=%d %s/%s/%s",
+            msg(msglevel, "  CNAT[%d] t=%d %s/%u %s",
                 i,
                 e->type,
                 print_in_addr_t(e->network, IA_NET_ORDER, &gc),
-                print_in_addr_t(e->netmask, IA_NET_ORDER, &gc),
+                e->netbits,
                 print_in_addr_t(e->foreign_network, IA_NET_ORDER, &gc));
         }
     }
@@ -111,6 +112,7 @@ add_client_nat_to_option_list(struct client_nat_option_list *dest,
                               int msglevel)
 {
     struct client_nat_entry e;
+    unsigned int netbits = 0;
     bool ok;
 
     if (!strcmp(type, "snat"))
@@ -127,19 +129,34 @@ add_client_nat_to_option_list(struct client_nat_option_list *dest,
         return;
     }
 
-    e.network = getaddr(0, network, 0, &ok, NULL);
+    e.network = getaddr(0, network, &netbits, 0, &ok, NULL);
     if (!ok)
     {
         msg(msglevel, "client-nat: bad network: %s", network);
         return;
     }
-    e.netmask = getaddr(0, netmask, 0, &ok, NULL);
-    if (!ok)
+    if (netmask)
     {
-        msg(msglevel, "client-nat: bad netmask: %s", netmask);
+        const in_addr_t mask = getaddr(0, netmask, NULL, 0, &ok, NULL);
+        const int bits = netmask_to_netbits2(mask);
+
+        if (!ok || bits <= 0)
+        {
+            msg(msglevel, "client-nat: bad netmask: %s", netmask);
+            return;
+        }
+        e.netbits = bits;
+    }
+    else if (netbits > 0)
+    {
+        e.netbits = netbits;
+    }
+    else
+    {
+        msg(msglevel, "client-nat: netmask or bits must be specified");
         return;
     }
-    e.foreign_network = getaddr(0, foreign_network, 0, &ok, NULL);
+    e.foreign_network = getaddr(0, foreign_network, NULL, 0, &ok, NULL);
     if (!ok)
     {
         msg(msglevel, "client-nat: bad foreign network: %s", foreign_network);
@@ -210,6 +227,7 @@ client_nat_transform(const struct client_nat_option_list *list,
     for (i = 0; i < list->n; ++i)
     {
         const struct client_nat_entry *e = &list->entries[i]; /* current NAT rule */
+        const in_addr_t netmask = netbits_to_netmask((int)e->netbits);
         if (e->type ^ direction)
         {
             addr = *(addr_ptr = &h->ip.daddr);
@@ -231,13 +249,13 @@ client_nat_transform(const struct client_nat_option_list *list,
             to = &e->foreign_network;
         }
 
-        if (((addr & e->netmask) == *from) && !(amask & alog))
+        if (((addr & netmask) == *from) && !(amask & alog))
         {
             /* pre-adjust IP checksum */
             ADD_CHECKSUM_32(accumulate, addr);
 
             /* do NAT transform */
-            addr = (addr & ~e->netmask) | *to;
+            addr = (addr & ~netmask) | *to;
 
             /* post-adjust IP checksum */
             SUB_CHECKSUM_32(accumulate, addr);

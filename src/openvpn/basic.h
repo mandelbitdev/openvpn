@@ -33,5 +33,6 @@
 #define CLEAR(x) memset(&(x), 0, sizeof(x))
 
 #define IPV4_NETMASK_HOST 0xffffffffU
+#define IPV4_NETBITS_HOST 32U
 
 #endif

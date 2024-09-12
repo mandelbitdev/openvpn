@@ -115,6 +115,7 @@ run_up_down(const char *command,
             const char *dev_type,
             int tun_mtu,
             const char *ifconfig_local,
+            const int ifconfig_netbits,
             const char *ifconfig_remote,
             const char *context,
             const char *signal_text,
@@ -144,7 +145,14 @@ run_up_down(const char *command,
     }
     if (!ifconfig_remote)
     {
-        ifconfig_remote = "";
+        if (ifconfig_netbits > 0)
+        {
+            ifconfig_remote = print_in_addr_t(netbits_to_netmask(ifconfig_netbits), 0, &gc);
+        }
+        else
+        {
+            ifconfig_remote = "";
+        }
     }
     if (!context)
     {
@@ -1948,7 +1956,8 @@ do_open_tun(struct context *c, int *error_flags)
                     dev_type_string(c->options.dev, c->options.dev_type),
                     c->c2.frame.tun_mtu,
                     print_in_addr_t(c->c1.tuntap->local, IA_EMPTY_IF_UNDEF, &gc),
-                    print_in_addr_t(c->c1.tuntap->remote_netmask, IA_EMPTY_IF_UNDEF, &gc),
+                    c->c1.tuntap->netbits,
+                    print_in_addr_t(c->c1.tuntap->remote, IA_EMPTY_IF_UNDEF, &gc),
                     "init",
                     NULL,
                     "up",
@@ -1988,7 +1997,8 @@ do_open_tun(struct context *c, int *error_flags)
                         dev_type_string(c->options.dev, c->options.dev_type),
                         c->c2.frame.tun_mtu,
                         print_in_addr_t(c->c1.tuntap->local, IA_EMPTY_IF_UNDEF, &gc),
-                        print_in_addr_t(c->c1.tuntap->remote_netmask, IA_EMPTY_IF_UNDEF, &gc),
+                        c->c1.tuntap->netbits,
+                        print_in_addr_t(c->c1.tuntap->remote, IA_EMPTY_IF_UNDEF, &gc),
                         "restart",
                         NULL,
                         "up",
@@ -2045,7 +2055,8 @@ do_close_tun(struct context *c, bool force)
     struct gc_arena gc = gc_new();
     const char *tuntap_actual = string_alloc(c->c1.tuntap->actual_name, &gc);
     const in_addr_t local = c->c1.tuntap->local;
-    const in_addr_t remote_netmask = c->c1.tuntap->remote_netmask;
+    const int netbits = c->c1.tuntap->netbits;
+    const in_addr_t remote = c->c1.tuntap->remote;
     unsigned long adapter_index = 0;
 #ifdef _WIN32
     adapter_index = c->c1.tuntap->adapter_index;
@@ -2077,7 +2088,8 @@ do_close_tun(struct context *c, bool force)
                         NULL,
                         c->c2.frame.tun_mtu,
                         print_in_addr_t(local, IA_EMPTY_IF_UNDEF, &gc),
-                        print_in_addr_t(remote_netmask, IA_EMPTY_IF_UNDEF, &gc),
+                        netbits,
+                        print_in_addr_t(remote, IA_EMPTY_IF_UNDEF, &gc),
                         "init",
                         signal_description(c->sig->signal_received,
                                            c->sig->signal_text),
@@ -2107,7 +2119,8 @@ do_close_tun(struct context *c, bool force)
                     NULL,
                     c->c2.frame.tun_mtu,
                     print_in_addr_t(local, IA_EMPTY_IF_UNDEF, &gc),
-                    print_in_addr_t(remote_netmask, IA_EMPTY_IF_UNDEF, &gc),
+                    netbits,
+                    print_in_addr_t(remote, IA_EMPTY_IF_UNDEF, &gc),
                     "init",
                     signal_description(c->sig->signal_received,
                                        c->sig->signal_text),
@@ -2137,7 +2150,8 @@ do_close_tun(struct context *c, bool force)
                         NULL,
                         c->c2.frame.tun_mtu,
                         print_in_addr_t(local, IA_EMPTY_IF_UNDEF, &gc),
-                        print_in_addr_t(remote_netmask, IA_EMPTY_IF_UNDEF, &gc),
+                        netbits,
+                        print_in_addr_t(remote, IA_EMPTY_IF_UNDEF, &gc),
                         "restart",
                         signal_description(c->sig->signal_received,
                                            c->sig->signal_text),

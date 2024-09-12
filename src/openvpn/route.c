@@ -189,9 +189,9 @@ static const char *
 route_string(const struct route_ipv4 *r, struct gc_arena *gc)
 {
     struct buffer out = alloc_buf_gc(256, gc);
-    buf_printf(&out, "ROUTE network %s netmask %s gateway %s",
+    buf_printf(&out, "ROUTE network %s/%u gateway %s",
                print_in_addr_t(r->network, 0, gc),
-               print_in_addr_t(r->netmask, 0, gc),
+               r->netbits,
                print_in_addr_t(r->gateway, 0, gc)
                );
     if (r->flags & RT_METRIC_DEFINED)
@@ -321,10 +321,16 @@ init_route(struct route_ipv4 *r,
            const struct route_option *ro,
            const struct route_list *rl)
 {
-    const in_addr_t default_netmask = IPV4_NETMASK_HOST;
+    const in_addr_t default_netbits = IPV4_NETBITS_HOST;
     bool status;
     int ret;
     struct in_addr special = {0};
+
+    /* separate address and prefix if present */
+    char *network = strdup(ro->network);
+    const char *cidr = strchr(network, '/');
+    const char *addr = strtok(network, "/");
+    const char *prefix = strtok(NULL, "/");
 
     CLEAR(*r);
     r->option = ro;
@@ -355,7 +361,7 @@ init_route(struct route_ipv4 *r,
     else
     {
         ret = openvpn_getaddrinfo(GETADDR_RESOLVE | GETADDR_WARN_ON_SIGNAL,
-                                  ro->network, NULL, 0, NULL, AF_INET, network_list);
+                                  addr, NULL, 0, NULL, AF_INET, network_list);
     }
 
     status = (ret == 0);
@@ -365,25 +371,40 @@ init_route(struct route_ipv4 *r,
         goto fail;
     }
 
-    /* netmask */
+    /* netbits */
 
+    r->netbits = default_netbits;
     if (is_route_parm_defined(ro->netmask))
     {
-        r->netmask = getaddr(
+        const in_addr_t netmask = getaddr(
             GETADDR_HOST_ORDER
             | GETADDR_WARN_ON_SIGNAL,
             ro->netmask,
+            NULL,
             0,
             &status,
             NULL);
-        if (!status)
+        const int netbits = netmask_to_netbits2(netmask);
+
+        if (!status || netbits < 0)
         {
             goto fail;
         }
+        r->netbits = netbits;
     }
-    else
+    else if (cidr)
     {
-        r->netmask = default_netmask;
+        if (!prefix) /* handle 'aa.bb.cc.dd/' case */
+        {
+            goto fail;
+        }
+        char *endp = NULL;
+        const unsigned long netbits = strtoul(prefix, &endp, 10);
+        if ((*endp != '\0') || (netbits > sizeof(in_addr_t) * 8))
+        {
+            goto fail;
+        }
+        r->netbits = netbits;
     }
 
     /* gateway */
@@ -397,6 +418,7 @@ init_route(struct route_ipv4 *r,
                 | GETADDR_HOST_ORDER
                 | GETADDR_WARN_ON_SIGNAL,
                 ro->gateway,
+                NULL,
                 0,
                 &status,
                 NULL);
@@ -428,7 +450,7 @@ init_route(struct route_ipv4 *r,
         if (r->metric < 0)
         {
             msg(M_WARN, PACKAGE_NAME " ROUTE: route metric for network %s (%s) must be >= 0",
-                ro->network,
+                addr,
                 ro->metric);
             goto fail;
         }
@@ -442,11 +464,13 @@ init_route(struct route_ipv4 *r,
 
     r->flags |= RT_DEFINED;
 
+    free(network);
     return true;
 
 fail:
     msg(M_WARN, PACKAGE_NAME " ROUTE: failed to parse/resolve route for host/network: %s",
         ro->network);
+    free(network);
     return false;
 }
 
@@ -516,7 +540,7 @@ add_route_to_option_list(struct route_option_list *l,
     struct route_option *ro;
     ALLOC_OBJ_GC(ro, struct route_option, l->gc);
     ro->network = network;
-    ro->netmask = netmask;
+    ro->netmask = netmask; /* NULL if network has CIDR notation */
     ro->gateway = gateway;
     ro->metric = metric;
     ro->next = l->routes;
@@ -582,7 +606,7 @@ add_block_local_item(struct route_list *rl,
         r1->flags = RT_DEFINED;
         r1->gateway = target;
         r1->network = gateway->addr & gateway->netmask;
-        r1->netmask = ~(l2-1);
+        r1->netbits = netmask_to_netbits2(gateway->netmask) + 1;
         r1->next = rl->routes;
         rl->routes = r1;
 
@@ -681,6 +705,7 @@ init_route_list(struct route_list *rl,
             | GETADDR_HOST_ORDER
             | GETADDR_WARN_ON_SIGNAL,
             remote_endpoint,
+            NULL,
             0,
             &defined,
             NULL);
@@ -921,7 +946,7 @@ init_route_ipv6_list(struct route_ipv6_list *rl6,
 
 static bool
 add_route3(in_addr_t network,
-           in_addr_t netmask,
+           unsigned int netbits,
            in_addr_t gateway,
            const struct tuntap *tt,
            unsigned int flags,
@@ -933,14 +958,14 @@ add_route3(in_addr_t network,
     CLEAR(r);
     r.flags = RT_DEFINED;
     r.network = network;
-    r.netmask = netmask;
+    r.netbits = netbits;
     r.gateway = gateway;
     return add_route(&r, tt, flags, rgi, es, ctx);
 }
 
 static void
 del_route3(in_addr_t network,
-           in_addr_t netmask,
+           unsigned int netbits,
            in_addr_t gateway,
            const struct tuntap *tt,
            unsigned int flags,
@@ -952,7 +977,7 @@ del_route3(in_addr_t network,
     CLEAR(r);
     r.flags = RT_DEFINED|RT_ADDED;
     r.network = network;
-    r.netmask = netmask;
+    r.netbits = netbits;
     r.gateway = gateway;
     delete_route(&r, tt, flags, rgi, es, ctx);
 }
@@ -971,7 +996,7 @@ add_bypass_routes(struct route_bypass *rb,
     {
         if (rb->bypass[i])
         {
-            ret = add_route3(rb->bypass[i], IPV4_NETMASK_HOST, gateway, tt,
+            ret = add_route3(rb->bypass[i], IPV4_NETBITS_HOST, gateway, tt,
                              flags | ROUTE_REF_GW, rgi, es, ctx) && ret;
         }
     }
@@ -993,7 +1018,7 @@ del_bypass_routes(struct route_bypass *rb,
         if (rb->bypass[i])
         {
             del_route3(rb->bypass[i],
-                       IPV4_NETMASK_HOST,
+                       IPV4_NETBITS_HOST,
                        gateway,
                        tt,
                        flags | ROUTE_REF_GW,
@@ -1057,7 +1082,7 @@ redirect_default_route_to_vpn(struct route_list *rl, const struct tuntap *tt,
                 if ((rl->spec.flags & RTSA_REMOTE_HOST)
                     && rl->spec.remote_host != IPV4_INVALID_ADDR)
                 {
-                    ret = add_route3(rl->spec.remote_host, IPV4_NETMASK_HOST,
+                    ret = add_route3(rl->spec.remote_host, IPV4_NETBITS_HOST,
                                      rl->rgi.gateway.addr, tt, flags | ROUTE_REF_GW,
                                      &rl->rgi, es, ctx);
                     rl->iflags |= RL_DID_LOCAL;
@@ -1078,11 +1103,11 @@ redirect_default_route_to_vpn(struct route_list *rl, const struct tuntap *tt,
                 if (rl->flags & RG_DEF1)
                 {
                     /* add new default route (1st component) */
-                    ret = add_route3(0x00000000, 0x80000000, rl->spec.remote_endpoint,
+                    ret = add_route3(0x00000000, 1, rl->spec.remote_endpoint,
                                      tt, flags, &rl->rgi, es, ctx) && ret;
 
                     /* add new default route (2nd component) */
-                    ret = add_route3(0x80000000, 0x80000000, rl->spec.remote_endpoint,
+                    ret = add_route3(0x80000000, 1, rl->spec.remote_endpoint,
                                      tt, flags, &rl->rgi, es, ctx) && ret;
                 }
                 else
@@ -1120,7 +1145,7 @@ undo_redirect_default_route_to_vpn(struct route_list *rl,
         if (rl->iflags & RL_DID_LOCAL)
         {
             del_route3(rl->spec.remote_host,
-                       IPV4_NETMASK_HOST,
+                       IPV4_NETBITS_HOST,
                        rl->rgi.gateway.addr,
                        tt,
                        flags | ROUTE_REF_GW,
@@ -1140,7 +1165,7 @@ undo_redirect_default_route_to_vpn(struct route_list *rl,
             {
                 /* delete default route (1st component) */
                 del_route3(0x00000000,
-                           0x80000000,
+                           1,
                            rl->spec.remote_endpoint,
                            tt,
                            flags,
@@ -1150,7 +1175,7 @@ undo_redirect_default_route_to_vpn(struct route_list *rl,
 
                 /* delete default route (2nd component) */
                 del_route3(0x80000000,
-                           0x80000000,
+                           1,
                            rl->spec.remote_endpoint,
                            tt,
                            flags,
@@ -1215,7 +1240,7 @@ add_routes(struct route_list *rl, struct route_ipv6_list *rl6,
 
         for (r = rl->routes; r; r = r->next)
         {
-            check_subnet_conflict(r->network, r->netmask, "route");
+            check_subnet_conflict(r->network, netbits_to_netmask((int)r->netbits), "route");
             if (flags & ROUTE_DELETE_FIRST)
             {
                 delete_route(r, tt, flags, &rl->rgi, es, ctx);
@@ -1432,14 +1457,18 @@ setenv_route(struct env_set *es, const struct route_ipv4 *r, int i)
     if (r->flags & RT_DEFINED)
     {
         setenv_route_addr(es, "network", r->network, i);
-        setenv_route_addr(es, "netmask", r->netmask, i);
+        setenv_route_addr(es, "netmask", netbits_to_netmask(r->netbits), i);
         setenv_route_addr(es, "gateway", r->gateway, i);
+
+        struct buffer name1 = alloc_buf_gc(256, &gc);
+        buf_printf(&name1, "route_netbits_%d", i);
+        setenv_int(es, BSTR(&name1), (int)r->netbits);
 
         if (r->flags & RT_METRIC_DEFINED)
         {
-            struct buffer name = alloc_buf_gc(256, &gc);
-            buf_printf(&name, "route_metric_%d", i);
-            setenv_int(es, BSTR(&name), r->metric);
+            struct buffer name2 = alloc_buf_gc(256, &gc);
+            buf_printf(&name2, "route_metric_%d", i);
+            setenv_int(es, BSTR(&name2), r->metric);
         }
     }
     gc_free(&gc);
@@ -1519,7 +1548,7 @@ setenv_routes_ipv6(struct env_set *es, const struct route_ipv6_list *rl6)
 
 static int
 local_route(in_addr_t network,
-            in_addr_t netmask,
+            unsigned int netbits,
             in_addr_t gateway,
             const struct route_gateway_info *rgi)
 {
@@ -1528,7 +1557,7 @@ local_route(in_addr_t network,
     if (rgi
         && (rgi->flags & rgi_needed) == rgi_needed
         && gateway == rgi->gateway.addr
-        && netmask == 0xFFFFFFFF)
+        && netbits == IPV4_NETBITS_HOST)
     {
         if (((network ^  rgi->gateway.addr) & rgi->gateway.netmask) == 0)
         {
@@ -1583,12 +1612,12 @@ add_route(struct route_ipv4 *r,
 #if !defined(TARGET_LINUX)
     const char *network = print_in_addr_t(r->network, 0, &gc);
 #if !defined(TARGET_AIX)
-    const char *netmask = print_in_addr_t(r->netmask, 0, &gc);
+    const char *netmask = print_in_addr_t(netbits_to_netmask((int)r->netbits), 0, &gc);
 #endif
     const char *gateway = print_in_addr_t(r->gateway, 0, &gc);
 #endif
 
-    is_local_route = local_route(r->network, r->netmask, r->gateway, rgi);
+    is_local_route = local_route(r->network, r->netbits, r->gateway, rgi);
     if (is_local_route == LR_ERROR)
     {
         goto done;
@@ -1609,7 +1638,7 @@ add_route(struct route_ipv4 *r,
     }
 
     status = RTA_SUCCESS;
-    int ret = net_route_v4_add(ctx, &r->network, netmask_to_netbits2(r->netmask),
+    int ret = net_route_v4_add(ctx, &r->network, (int)r->netbits,
                                &r->gateway, iface, 0, metric);
     if (ret == -EEXIST)
     {
@@ -1840,10 +1869,9 @@ add_route(struct route_ipv4 *r,
 #elif defined(TARGET_AIX)
 
     {
-        int netbits = netmask_to_netbits2(r->netmask);
-        argv_printf(&argv, "%s add -net %s/%d %s",
+        argv_printf(&argv, "%s add -net %s/%u %s",
                     ROUTE_PATH,
-                    network, netbits, gateway);
+                    network, r->netbits, gateway);
         argv_msg(D_ROUTE, &argv);
         bool ret = openvpn_execve_check(&argv, es, 0,
                                         "ERROR: AIX route add command failed");
@@ -2176,14 +2204,14 @@ delete_route(struct route_ipv4 *r,
 #if !defined(TARGET_LINUX)
     network = print_in_addr_t(r->network, 0, &gc);
 #if !defined(TARGET_AIX)
-    netmask = print_in_addr_t(r->netmask, 0, &gc);
+    netmask = print_in_addr_t(netbits_to_netmask((int)r->netbits), 0, &gc);
 #endif
 #if !defined(TARGET_ANDROID)
     gateway = print_in_addr_t(r->gateway, 0, &gc);
 #endif
 #endif
 
-    is_local_route = local_route(r->network, r->netmask, r->gateway, rgi);
+    is_local_route = local_route(r->network, r->netbits, r->gateway, rgi);
     if (is_local_route == LR_ERROR)
     {
         goto done;
@@ -2196,7 +2224,7 @@ delete_route(struct route_ipv4 *r,
         metric = r->metric;
     }
 
-    if (net_route_v4_del(ctx, &r->network, netmask_to_netbits2(r->netmask),
+    if (net_route_v4_del(ctx, &r->network, (int)r->netbits,
                          &r->gateway, NULL, 0, metric) < 0)
     {
         msg(M_WARN, "ERROR: Linux route delete command failed");
@@ -2318,10 +2346,9 @@ delete_route(struct route_ipv4 *r,
 #elif defined(TARGET_AIX)
 
     {
-        int netbits = netmask_to_netbits2(r->netmask);
-        argv_printf(&argv, "%s delete -net %s/%d %s",
+        argv_printf(&argv, "%s delete -net %s/%u %s",
                     ROUTE_PATH,
-                    network, netbits, gateway);
+                    network, r->netbits, gateway);
         argv_msg(D_ROUTE, &argv);
         openvpn_execve_check(&argv, es, 0, "ERROR: AIX route delete command failed");
     }
@@ -2840,13 +2867,14 @@ add_route_ipapi(const struct route_ipv4 *r, const struct tuntap *tt, DWORD adapt
     int ret = RTA_ERROR;
     DWORD status;
     const DWORD if_index = (adapter_index == TUN_ADAPTER_INDEX_INVALID) ? windows_route_find_if_index(r, tt) : adapter_index;
+    const in_addr_t netmask = netbits_to_netmask((int)r->netbits);
 
     if (if_index != TUN_ADAPTER_INDEX_INVALID)
     {
         MIB_IPFORWARDROW fr;
         CLEAR(fr);
         fr.dwForwardDest = htonl(r->network);
-        fr.dwForwardMask = htonl(r->netmask);
+        fr.dwForwardMask = htonl(netmask);
         fr.dwForwardPolicy = 0;
         fr.dwForwardNextHop = htonl(r->gateway);
         fr.dwForwardIfIndex = if_index;
@@ -2860,11 +2888,11 @@ add_route_ipapi(const struct route_ipv4 *r, const struct tuntap *tt, DWORD adapt
         fr.dwForwardMetric4 = METRIC_NOT_USED;
         fr.dwForwardMetric5 = METRIC_NOT_USED;
 
-        if ((r->network & r->netmask) != r->network)
+        if ((r->network & netmask) != r->network)
         {
             msg(M_WARN, "Warning: address %s is not a network address in relation to netmask %s",
                 print_in_addr_t(r->network, 0, &gc),
-                print_in_addr_t(r->netmask, 0, &gc));
+                print_in_addr_t(netmask, 0, &gc));
         }
 
         status = CreateIpForwardEntry(&fr);
@@ -2932,6 +2960,7 @@ del_route_ipapi(const struct route_ipv4 *r, const struct tuntap *tt)
     bool ret = false;
     DWORD status;
     const DWORD if_index = windows_route_find_if_index(r, tt);
+    const in_addr_t netmask = netbits_to_netmask((int)r->netbits);
 
     if (if_index != TUN_ADAPTER_INDEX_INVALID)
     {
@@ -2939,7 +2968,7 @@ del_route_ipapi(const struct route_ipv4 *r, const struct tuntap *tt)
         CLEAR(fr);
 
         fr.dwForwardDest = htonl(r->network);
-        fr.dwForwardMask = htonl(r->netmask);
+        fr.dwForwardMask = htonl(netmask);
         fr.dwForwardPolicy = 0;
         fr.dwForwardNextHop = htonl(r->gateway);
         fr.dwForwardIfIndex = if_index;
@@ -3016,7 +3045,7 @@ do_route_ipv4_service(const bool add, const struct route_ipv4 *r, const struct t
         .metric = (r->flags & RT_METRIC_DEFINED ? r->metric : -1)
     };
 
-    netmask_to_netbits(r->network, r->netmask, &msg.prefix_len);
+    msg.prefix_len = r->netbits;
     if (msg.prefix_len == -1)
     {
         msg.prefix_len = 32;
@@ -3996,7 +4025,7 @@ add_host_route_array(struct route_bypass *rb, const IP_ADDR_STRING *iplist)
     while (iplist)
     {
         bool succeed = false;
-        const in_addr_t ip = getaddr(GETADDR_HOST_ORDER, iplist->IpAddress.String, 0, &succeed, NULL);
+        const in_addr_t ip = getaddr(GETADDR_HOST_ORDER, iplist->IpAddress.String, NULL, 0, &succeed, NULL);
         if (succeed)
         {
             add_host_route_if_nonlocal(rb, ip);
@@ -4096,7 +4125,7 @@ test_local_addr(const in_addr_t addr, const struct route_gateway_info *rgi)  /* 
 {
     if (rgi)
     {
-        if (local_route(addr, 0xFFFFFFFF, rgi->gateway.addr, rgi))
+        if (local_route(addr, IPV4_NETBITS_HOST, rgi->gateway.addr, rgi))
         {
             return TLA_LOCAL;
         }
