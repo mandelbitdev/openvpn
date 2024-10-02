@@ -40,6 +40,7 @@
 #include "options_util.h"
 
 static char push_reply_cmd[] = "PUSH_REPLY";
+static char push_update_cmd[] = "PUSH_UPDATE";
 
 /*
  * Auth username/password
@@ -519,12 +520,12 @@ incoming_push_message(struct context *c, const struct buffer *buffer)
     {
         msg(D_PUSH_ERRORS, "WARNING: Received bad push/pull message: %s", sanitize_control_message(BSTR(buffer), &gc));
     }
-    else if (status == PUSH_MSG_REPLY || status == PUSH_MSG_CONTINUATION)
+    else if (status == PUSH_MSG_REPLY || status == PUSH_MSG_UPDATE || status == PUSH_MSG_CONTINUATION)
     {
         c->options.push_option_types_found |= option_types_found;
 
         /* delay bringing tun/tap up until --push parms received from remote */
-        if (status == PUSH_MSG_REPLY)
+        if (status == PUSH_MSG_REPLY || status == PUSH_MSG_UPDATE)
         {
             if (!options_postprocess_pull(&c->options, c->c2.es))
             {
@@ -1032,10 +1033,11 @@ push_update_digest(md_ctx_t *ctx, struct buffer *buf, const struct options *opt)
 }
 
 static int
-process_incoming_push_reply(struct context *c,
-                            unsigned int permission_mask,
-                            unsigned int *option_types_found,
-                            struct buffer *buf)
+process_incoming_push_reply_update(struct context *c,
+                                   unsigned int permission_mask,
+                                   unsigned int *option_types_found,
+                                   struct buffer *buf,
+                                   unsigned int msg_type)
 {
     int ret = PUSH_MSG_ERROR;
     const uint8_t ch = buf_read_u8(buf);
@@ -1052,7 +1054,8 @@ process_incoming_push_reply(struct context *c,
                                buf,
                                permission_mask,
                                option_types_found,
-                               c->c2.es))
+                               c->c2.es,
+                               msg_type == PUSH_MSG_UPDATE))
         {
             push_update_digest(c->c2.pulled_options_state, &buf_orig,
                                &c->options);
@@ -1066,7 +1069,7 @@ process_incoming_push_reply(struct context *c,
                     md_ctx_free(c->c2.pulled_options_state);
                     c->c2.pulled_options_state = NULL;
                     c->c2.pulled_options_digest_init_done = false;
-                    ret = PUSH_MSG_REPLY;
+                    ret = msg_type;
                     break;
 
                 case 2:
@@ -1077,7 +1080,7 @@ process_incoming_push_reply(struct context *c,
     }
     else if (ch == '\0')
     {
-        ret = PUSH_MSG_REPLY;
+        ret = msg_type;
     }
     /* show_settings (&c->options); */
     return ret;
@@ -1100,8 +1103,16 @@ process_incoming_push_msg(struct context *c,
     else if (honor_received_options
              && buf_string_compare_advance(&buf, push_reply_cmd))
     {
-        return process_incoming_push_reply(c, permission_mask,
-                                           option_types_found, &buf);
+        return process_incoming_push_reply_update(c, permission_mask,
+                                                  option_types_found, &buf,
+                                                  PUSH_MSG_REPLY);
+    }
+    else if (honor_received_options
+             && buf_string_compare_advance(&buf, push_update_cmd))
+    {
+        return process_incoming_push_reply_update(c, permission_mask,
+                                                  option_types_found, &buf,
+                                                  PUSH_MSG_UPDATE);
     }
     else
     {

@@ -33,6 +33,12 @@
 #define PUSH_MSG_AUTH_FAILURE     4
 #define PUSH_MSG_CONTINUATION     5
 #define PUSH_MSG_ALREADY_REPLIED  6
+#define PUSH_MSG_UPDATE           7
+
+/* Push-update options flags */
+#define PUSH_OPT_UPDATABLE (1<<0)
+#define PUSH_OPT_TO_REMOVE (1<<1)
+#define PUSH_OPT_OPTIONAL (1<<2)
 
 int process_incoming_push_request(struct context *c);
 

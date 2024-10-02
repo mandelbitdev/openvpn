@@ -782,6 +782,25 @@ static const char usage_message[] =
 
 #endif /* !ENABLE_SMALL */
 
+static const char *updatable_options[] = {
+    "block-ipv4",
+    "block-ipv6",
+    "block-outside-dns",
+    "dhcp-options",
+    "dns",
+    "ifconfig",
+    "ifconfig-ipv6",
+    "push-continuation",
+    "redirect-gateway",
+    "redirect-private",
+    "route",
+    "route-gateway",
+    "route-ipv6",
+    "route-metric",
+    "topology",
+    "tun-mtu"
+};
+
 /*
  * This is where the options defaults go.
  * Any option not explicitly set here
@@ -5469,6 +5488,71 @@ parse_argv(struct options *options,
     }
 }
 
+static bool
+check_push_update_option_flags(char **line, unsigned int *opt_flags)
+{
+    unsigned int flags = *opt_flags;
+    char *str = *line;
+    char c = **line;
+
+    while (c == '?' || c == '-')
+    {
+        if (c == '?' && !(flags & PUSH_OPT_OPTIONAL))
+        {
+            flags |= PUSH_OPT_OPTIONAL;
+            c = *(++str);
+        }
+        else if (c == '-' && !(flags & PUSH_OPT_TO_REMOVE))
+        {
+            flags |= PUSH_OPT_TO_REMOVE;
+            c = *(++str);
+        }
+        else
+        {
+            msg(M_WARN, "Pushed option bad formatting: '%s'. Restarting.", *line);
+            *str = '\0';
+            throw_signal_soft(SIGUSR1, "Offending option received from server");
+            return false;
+        }
+    }
+
+    /* Skip '?' and '-' if they are present */
+    unsigned int len = strlen(str);
+    memcpy(*line, str, len);
+    (*line)[len] = '\0';
+    str = *line;
+
+    for (int i = 0; updatable_options[i]; i++)
+    {
+        if (strncmp(str, updatable_options[i], strlen(updatable_options[i])) == 0)
+        {
+            flags |= PUSH_OPT_UPDATABLE;
+            break;
+        }
+    }
+
+    if (!(flags & PUSH_OPT_UPDATABLE))
+    {
+        if (flags & PUSH_OPT_OPTIONAL)
+        {
+            msg(D_PUSH, "Pushed option is not updatable: '%s'", *line);
+            *str = '\0';
+            return true;
+        }
+        else
+        {
+            msg(M_WARN, "Pushed option is not updatable: '%s'. Restarting.", *line);
+            *str = '\0';
+            throw_signal_soft(SIGUSR1, "Offending option received from server");
+            return false;
+        }
+    }
+
+    *line = str;
+    *opt_flags = flags;
+    return true;
+}
+
 /**
  * Filter an option line by all pull filters.
  *
@@ -5478,11 +5562,12 @@ parse_argv(struct options *options,
  * In that case the caller must end the push processing.
  */
 static bool
-apply_pull_filter(const struct options *o, char *line)
+apply_pull_filter(const struct options *o, char *line, unsigned int *push_update_option_flags)
 {
     struct pull_filter *f;
+    bool is_update = *push_update_option_flags != 0;
 
-    if (!o->pull_filter_list)
+    if (!o->pull_filter_list && !(is_update))
     {
         return true;
     }
@@ -5491,6 +5576,15 @@ apply_pull_filter(const struct options *o, char *line)
     while (isspace(*line))
     {
         line++;
+    }
+
+    if (is_update)
+    {
+        *push_update_option_flags = 0;
+        if (!check_push_update_option_flags(&line, push_update_option_flags))
+        {
+            return false;
+        }
     }
 
     for (f = o->pull_filter_list->head; f; f = f->next)
@@ -5508,10 +5602,19 @@ apply_pull_filter(const struct options *o, char *line)
         }
         else if (f->type == PUF_TYPE_REJECT && strncmp(line, f->pattern, f->size) == 0)
         {
-            msg(M_WARN, "Pushed option rejected by filter: '%s'. Restarting.", line);
-            *line = '\0';
-            throw_signal_soft(SIGUSR1, "Offending option received from server");
-            return false;
+            if (is_update && (*push_update_option_flags & PUSH_OPT_OPTIONAL))
+            {
+                msg(D_PUSH, "Pushed option removed by filter: '%s'", line);
+                *line = '\0';
+                return true;
+            }
+            else
+            {
+                msg(M_WARN, "Pushed option rejected by filter: '%s'. Restarting.", line);
+                *line = '\0';
+                throw_signal_soft(SIGUSR1, "Offending option received from server");
+                return false;
+            }
         }
     }
     return true;
@@ -5522,7 +5625,8 @@ apply_push_options(struct options *options,
                    struct buffer *buf,
                    unsigned int permission_mask,
                    unsigned int *option_types_found,
-                   struct env_set *es)
+                   struct env_set *es,
+                   bool is_update)
 {
     char line[OPTION_PARM_SIZE];
     int line_num = 0;
@@ -5534,14 +5638,25 @@ apply_push_options(struct options *options,
         char *p[MAX_PARMS+1];
         CLEAR(p);
         ++line_num;
-        if (!apply_pull_filter(options, line))
+        unsigned int push_update_option_flags = is_update;
+
+        /*
+         * 'push_update_option_flags' parameter in apply_pull_filter() is used as a flag to
+         * let the function know if it's used in the scope of a push-update, if the
+         * content is != 0 then it trigger the push-update logic and put inside the variable
+         * the flags related to push-update option (OPTIONAL, TO_REMOVE, UPDATABLE).
+         */
+        if (!apply_pull_filter(options, line, &push_update_option_flags))
         {
             return false; /* Cause push/pull error and stop push processing */
         }
         if (parse_line(line, p, SIZE(p)-1, file, line_num, msglevel, &options->gc))
         {
-            add_option(options, p, false, file, line_num, 0, msglevel,
-                       permission_mask, option_types_found, es);
+            if (!(push_update_option_flags & PUSH_OPT_TO_REMOVE))
+            {
+                add_option(options, p, false, file, line_num, 0, msglevel,
+                           permission_mask, option_types_found, es);
+            }
         }
     }
     return true;

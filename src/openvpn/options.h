@@ -849,7 +849,8 @@ bool apply_push_options(struct options *options,
                         struct buffer *buf,
                         unsigned int permission_mask,
                         unsigned int *option_types_found,
-                        struct env_set *es);
+                        struct env_set *es,
+                        bool is_update);
 
 void options_detach(struct options *o);
 
