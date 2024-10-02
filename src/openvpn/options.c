@@ -5860,6 +5860,334 @@ key_is_external(const struct options *options)
 }
 
 static void
+remove_option(struct options *options,
+           char *p[],
+           bool is_inline,
+           const char *file,
+           int line,
+           const int level,
+           const int msglevel,
+           const unsigned int permission_mask,
+           unsigned int *option_types_found,
+           struct env_set *es)
+{
+    struct gc_arena gc = gc_new();
+    const bool pull_mode = BOOL_CAST(permission_mask & OPT_P_PULL_MODE);
+    int msglevel_fc = msglevel_forward_compatible(options, msglevel);
+
+    ASSERT(MAX_PARMS >= 7);
+//block-ipv4 ?
+    if (streq(p[0], "ifconfig") && p[1] && p[2] && !p[3])
+    {
+        VERIFY_PERMISSION(OPT_P_UP);
+        if (ip_or_dns_addr_safe(p[1], options->allow_pull_fqdn) && ip_or_dns_addr_safe(p[2], options->allow_pull_fqdn)) /* FQDN -- may be DNS name */
+        {
+            options->ifconfig_local = p[1];
+            options->ifconfig_remote_netmask = p[2];
+        }
+        else
+        {
+            msg(msglevel, "ifconfig parms '%s' and '%s' must be valid addresses", p[1], p[2]);
+            goto err;
+        }
+    }
+    else if (streq(p[0], "ifconfig-ipv6") && p[1] && p[2] && !p[3])
+    {
+        unsigned int netbits;
+
+        VERIFY_PERMISSION(OPT_P_UP);
+        if (get_ipv6_addr( p[1], NULL, &netbits, msglevel )
+            && ipv6_addr_safe( p[2] ) )
+        {
+            if (netbits < 64 || netbits > 124)
+            {
+                msg( msglevel, "ifconfig-ipv6: /netbits must be between 64 and 124, not '/%d'", netbits );
+                goto err;
+            }
+
+            options->ifconfig_ipv6_local = get_ipv6_addr_no_netbits(p[1], &options->gc);
+            options->ifconfig_ipv6_netbits = netbits;
+            options->ifconfig_ipv6_remote = p[2];
+        }
+        else
+        {
+            msg(msglevel, "ifconfig-ipv6 parms '%s' and '%s' must be valid addresses", p[1], p[2]);
+            goto err;
+        }
+    }
+    else if (streq(p[0], "route") && p[1] && !p[5])
+    {
+        VERIFY_PERMISSION(OPT_P_ROUTE);
+        rol_check_alloc(options);
+        if (pull_mode)
+        {
+            if (!ip_or_dns_addr_safe(p[1], options->allow_pull_fqdn) && !is_special_addr(p[1])) /* FQDN -- may be DNS name */
+            {
+                msg(msglevel, "route parameter network/IP '%s' must be a valid address", p[1]);
+                goto err;
+            }
+            if (p[2] && !ip_addr_dotted_quad_safe(p[2])) /* FQDN -- must be IP address */
+            {
+                msg(msglevel, "route parameter netmask '%s' must be an IP address", p[2]);
+                goto err;
+            }
+            if (p[3] && !ip_or_dns_addr_safe(p[3], options->allow_pull_fqdn) && !is_special_addr(p[3])) /* FQDN -- may be DNS name */
+            {
+                msg(msglevel, "route parameter gateway '%s' must be a valid address", p[3]);
+                goto err;
+            }
+        }
+        add_route_to_option_list(options->routes, p[1], p[2], p[3], p[4]);
+    }
+    else if (streq(p[0], "route-ipv6") && p[1] && !p[4])
+    {
+        VERIFY_PERMISSION(OPT_P_ROUTE);
+        rol6_check_alloc(options);
+        if (pull_mode)
+        {
+            if (!ipv6_addr_safe_hexplusbits(p[1]))
+            {
+                msg(msglevel, "route-ipv6 parameter network/IP '%s' must be a valid address", p[1]);
+                goto err;
+            }
+            if (p[2] && !ipv6_addr_safe(p[2]))
+            {
+                msg(msglevel, "route-ipv6 parameter gateway '%s' must be a valid address", p[2]);
+                goto err;
+            }
+            /* p[3] is metric, if present */
+        }
+        add_route_ipv6_to_option_list(options->routes_ipv6, p[1], p[2], p[3]);
+    }
+    else if (streq(p[0], "route-gateway") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_ROUTE_EXTRAS);
+        if (streq(p[1], "dhcp"))
+        {
+            options->route_gateway_via_dhcp = true;
+        }
+        else
+        {
+            if (ip_or_dns_addr_safe(p[1], options->allow_pull_fqdn) || is_special_addr(p[1])) /* FQDN -- may be DNS name */
+            {
+                options->route_default_gateway = p[1];
+            }
+            else
+            {
+                msg(msglevel, "route-gateway parm '%s' must be a valid address", p[1]);
+                goto err;
+            }
+        }
+    }
+    else if (streq(p[0], "route-metric") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_ROUTE);
+        options->route_default_metric = positive_atoi(p[1]);
+    }
+    else if (streq(p[0], "push-continuation") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_PULL_MODE);
+        options->push_continuation = atoi(p[1]);
+    }
+    else if (streq(p[0], "redirect-gateway") || streq(p[0], "redirect-private"))
+    {
+        int j;
+        VERIFY_PERMISSION(OPT_P_ROUTE);
+        rol_check_alloc(options);
+
+        if (options->routes->flags & RG_ENABLE)
+        {
+            msg(M_WARN,
+                "WARNING: You have specified redirect-gateway and "
+                "redirect-private at the same time (or the same option "
+                "multiple times). This is not well supported and may lead to "
+                "unexpected results");
+        }
+
+        options->routes->flags |= RG_ENABLE;
+
+        if (streq(p[0], "redirect-gateway"))
+        {
+            options->routes->flags |= RG_REROUTE_GW;
+        }
+        for (j = 1; j < MAX_PARMS && p[j] != NULL; ++j)
+        {
+            if (streq(p[j], "local"))
+            {
+                options->routes->flags |= RG_LOCAL;
+            }
+            else if (streq(p[j], "autolocal"))
+            {
+                options->routes->flags |= RG_AUTO_LOCAL;
+            }
+            else if (streq(p[j], "def1"))
+            {
+                options->routes->flags |= RG_DEF1;
+            }
+            else if (streq(p[j], "bypass-dhcp"))
+            {
+                options->routes->flags |= RG_BYPASS_DHCP;
+            }
+            else if (streq(p[j], "bypass-dns"))
+            {
+                options->routes->flags |= RG_BYPASS_DNS;
+            }
+            else if (streq(p[j], "block-local"))
+            {
+                options->routes->flags |= RG_BLOCK_LOCAL;
+            }
+            else if (streq(p[j], "ipv6"))
+            {
+                rol6_check_alloc(options);
+                options->routes_ipv6->flags |= RG_REROUTE_GW;
+            }
+            else if (streq(p[j], "!ipv4"))
+            {
+                options->routes->flags &= ~(RG_REROUTE_GW | RG_ENABLE);
+            }
+            else
+            {
+                msg(msglevel, "unknown --%s flag: %s", p[0], p[j]);
+                goto err;
+            }
+        }
+#ifdef _WIN32
+        /* we need this here to handle pushed --redirect-gateway */
+        remap_redirect_gateway_flags(options);
+#endif
+    }
+    else if (streq(p[0], "dns") && p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_DHCPDNS);
+
+        if (streq(p[1], "search-domains") && p[2])
+        {
+            dns_domain_list_append(&options->dns_options.search_domains, &p[2], &options->dns_options.gc);
+        }
+        else if (streq(p[1], "server") && p[2] && p[3] && p[4])
+        {
+            long priority;
+            if (!dns_server_priority_parse(&priority, p[2], pull_mode))
+            {
+                msg(msglevel, "--dns server: invalid priority value '%s'", p[2]);
+                goto err;
+            }
+
+            struct dns_server *server = dns_server_get(&options->dns_options.servers, priority, &options->dns_options.gc);
+
+            if (streq(p[3], "address") && p[4])
+            {
+                for (int i = 4; p[i]; ++i)
+                {
+                    if (!dns_server_addr_parse(server, p[i]))
+                    {
+                        msg(msglevel, "--dns server %ld: malformed address or maximum exceeded '%s'", priority, p[i]);
+                        goto err;
+                    }
+                }
+            }
+            else if (streq(p[3], "resolve-domains"))
+            {
+                dns_domain_list_append(&server->domains, &p[4], &options->dns_options.gc);
+            }
+            else if (streq(p[3], "dnssec") && !p[5])
+            {
+                if (streq(p[4], "yes"))
+                {
+                    server->dnssec = DNS_SECURITY_YES;
+                }
+                else if (streq(p[4], "no"))
+                {
+                    server->dnssec = DNS_SECURITY_NO;
+                }
+                else if (streq(p[4], "optional"))
+                {
+                    server->dnssec = DNS_SECURITY_OPTIONAL;
+                }
+                else
+                {
+                    msg(msglevel, "--dns server %ld: malformed dnssec value '%s'", priority, p[4]);
+                    goto err;
+                }
+            }
+            else if (streq(p[3], "transport") && !p[5])
+            {
+                if (streq(p[4], "plain"))
+                {
+                    server->transport = DNS_TRANSPORT_PLAIN;
+                }
+                else if (streq(p[4], "DoH"))
+                {
+                    server->transport = DNS_TRANSPORT_HTTPS;
+                }
+                else if (streq(p[4], "DoT"))
+                {
+                    server->transport = DNS_TRANSPORT_TLS;
+                }
+                else
+                {
+                    msg(msglevel, "--dns server %ld: malformed transport value '%s'", priority, p[4]);
+                    goto err;
+                }
+            }
+            else if (streq(p[3], "sni") && !p[5])
+            {
+                server->sni = p[4];
+            }
+            else
+            {
+                msg(msglevel, "--dns server %ld: unknown option type '%s' or missing or unknown parameter", priority, p[3]);
+                goto err;
+            }
+        }
+        else
+        {
+            msg(msglevel, "--dns: unknown option type '%s' or missing or unknown parameter", p[1]);
+            goto err;
+        }
+    }
+    else if (streq(p[0], "topology") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_UP);
+        options->topology = parse_topology(p[1], msglevel);
+    }
+    else if (streq(p[0], "tun-mtu") && p[1] && !p[3])
+    {
+        VERIFY_PERMISSION(OPT_P_PUSH_MTU|OPT_P_CONNECTION);
+        options->ce.tun_mtu = positive_atoi(p[1]);
+        options->ce.tun_mtu_defined = true;
+        if (p[2])
+        {
+            options->ce.occ_mtu = positive_atoi(p[2]);
+        }
+        else
+        {
+            options->ce.occ_mtu = 0;
+        }
+    }
+    else if (streq(p[0], "block-ipv6") && !p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_ROUTE);
+        options->block_ipv6 = true;
+    }
+#ifdef _WIN32
+    else if (streq(p[0], "block-outside-dns") && !p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_DHCPDNS);
+        options->block_outside_dns = true;
+    }
+#else /* ifdef _WIN32 */
+    else if (streq(p[0], "dhcp-options") && p[1] && !p[3])
+    {
+        VERIFY_PERMISSION(OPT_P_DHCPDNS);
+        setenv_foreign_option(options, (const char **)p, 3, es);
+    }
+#endif
+    err:
+        gc_free(&gc);
+}
+
+static void
 add_option(struct options *options,
            char *p[],
            bool is_inline,
