@@ -33,6 +33,7 @@
 
 /* Defines to avoid mismatching with other platforms */
 #define OVPN_CMD_DEL_PEER OVPN_CMD_PEER_DEL_NTF
+#define OVPN_CMD_FLOAT_PEER OVPN_CMD_PEER_FLOAT_NTF
 #define OVPN_CMD_SWAP_KEYS OVPN_CMD_KEY_SWAP_NTF
 
 typedef enum ovpn_key_slot dco_key_slot_t;
@@ -56,6 +57,7 @@ typedef struct
     int dco_message_peer_id;
     int dco_message_key_id;
     int dco_del_peer_reason;
+    struct sockaddr dco_float_peer_sa;
     uint64_t dco_read_bytes;
     uint64_t dco_write_bytes;
 } dco_context_t;
