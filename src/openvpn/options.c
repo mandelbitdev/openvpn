@@ -6119,7 +6119,7 @@ apply_push_options(struct context *c,
          * 'push_update_option_flags' parameter in apply_pull_filter() is used as a flag to
          * let the function know if it's used in the scope of a push-update, if the
          * content is != 0 then it trigger the push-update logic and put inside the variable
-         * the flags related to push-update option (OPTIONAL, TO_REMOVE, UPDATABLE).
+         * the flags related to push-update option (PUSH_OPT_OPTIONAL, PUSH_OPT_TO_REMOVE, PUSH_OPT_UPDATABLE).
          */
         if (!apply_pull_filter(options, line, &push_update_option_flags))
         {

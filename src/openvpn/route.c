@@ -4225,10 +4225,10 @@ extract_route_ipv6_in_list(const struct route_ipv6 *r6, struct route_ipv6_list *
     CLEAR(zero_addr);
     while(curr)
     {
-        if (!memcmp(&r6->network, &curr->network, sizeof(struct in6_addr))
+        if (!memcmp(&r6->network, &curr->network, (size_t)sizeof(struct in6_addr))
             && r6->netbits == curr->netbits
-            && (!memcmp(&r6->gateway, &zero_addr, sizeof(struct in6_addr) ||
-            !memcmp(&r6->gateway, &curr->gateway, sizeof(struct in6_addr))))
+            && (!memcmp(&r6->gateway, &zero_addr, (size_t)sizeof(struct in6_addr)) ||
+            !memcmp(&r6->gateway, &curr->gateway, (size_t)sizeof(struct in6_addr)))
             && (r6->metric == curr->metric ||
             r6->metric == -1))
         {
