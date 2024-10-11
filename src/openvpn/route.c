@@ -450,7 +450,7 @@ fail:
     return false;
 }
 
-static bool
+bool
 init_route_ipv6(struct route_ipv6 *r6,
                 const struct route_ipv6_option *r6o,
                 const struct route_ipv6_list *rl6 )
@@ -4112,3 +4112,187 @@ test_local_addr(const in_addr_t addr, const struct route_gateway_info *rgi)  /* 
 }
 
 #endif /* if defined(_WIN32) */
+
+static bool equals_ro(int params, const struct route_option *first, const struct route_option *second)
+{
+    switch(params)
+    {
+        case 1:
+            if (!strcmp(first->network, second->network))
+                return true;
+            break;
+        case 2:
+            if (!strcmp(first->network, second->network)
+                && !strcmp(first->netmask, second->netmask))
+                return true;
+            break;
+        case 3:
+            if (!strcmp(first->network, second->network)
+                && !strcmp(first->netmask, second->netmask)
+                && !strcmp(first->gateway, second->gateway))
+                return true;
+            break;
+        case 4:
+            if (!strcmp(first->network, second->network)
+                && !strcmp(first->netmask, second->netmask)
+                && !strcmp(first->gateway, second->gateway)
+                && !strcmp(first->metric, second->metric))
+                return true;
+    }
+    return false;         
+}
+
+static void
+search_and_destroy_ro(int params, const struct route_option *ro, struct route_option_list *rol)
+{
+    struct route_option *prev = NULL;
+    struct route_option *curr = rol->routes;
+    
+    while(curr)
+    {
+        if (equals_ro(params, curr, ro))
+        {
+            if (!prev)
+                rol->routes = curr->next;
+            else
+                prev->next = curr->next;
+            return ;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+}
+
+static struct route_ipv4 *
+extract_route_option_from_list(const struct route_option *ro, struct route_list *rl, struct route_option_list *rol)
+{
+    int params = (ro->network != 0) + (ro->netmask != 0) + (ro->gateway != 0) + (ro->metric != 0);
+    struct route_ipv4 *r = rl->routes;
+    struct route_ipv4 *prev = NULL;
+
+    while(r)
+    {
+        if (r->option)
+        {
+            if (equals_ro(params, r->option, ro))
+            {
+                if (!prev)
+                {
+                    if (equals_ro(params, rol->routes, ro))
+                        rol->routes = rol->routes->next;
+                    else
+                        search_and_destroy_ro(params, ro, rol);
+                    rl->routes = r->next;
+                }
+                else
+                {
+                    if (prev->option && equals_ro(params, prev->option->next, ro))
+                        ((struct route_option *)(prev->option))->next = ((struct route_option *)(prev->option))->next->next;
+                    else
+                        search_and_destroy_ro(params, ro, rol);
+                    prev->next = r->next;
+                }
+                return r;
+            }
+        }
+        prev = r;
+        r = r->next;
+    }
+    return NULL;
+}
+
+void
+delete_route_update(struct route_option *ro,
+            struct route_option_list *rol,
+            struct route_list *rl,
+            const struct tuntap *tt,
+            const struct env_set *es,
+            openvpn_net_ctx_t *ctx)
+{
+    struct route_ipv4 *r = extract_route_option_from_list(ro, rl, rol);
+    if (r)
+        delete_route(r, tt, rl->flags, &rl->rgi, es, ctx);
+    else
+        msg(M_WARN, "Route does not exist.");
+}
+
+static struct route_ipv6 *
+extract_route_ipv6_in_list(const struct route_ipv6 *r6, struct route_ipv6_list *r6l)
+{
+    struct route_ipv6 *prev = NULL;
+    struct route_ipv6 *curr = r6l->routes_ipv6;
+    struct in6_addr zero_addr;
+    CLEAR(zero_addr);
+    while(curr)
+    {
+        if (!memcmp(&r6->network, &curr->network, sizeof(struct in6_addr))
+            && r6->netbits == curr->netbits
+            && (!memcmp(&r6->gateway, &zero_addr, sizeof(struct in6_addr) ||
+            !memcmp(&r6->gateway, &curr->gateway, sizeof(struct in6_addr))))
+            && (r6->metric == curr->metric ||
+            r6->metric == -1))
+        {
+            if (!prev)
+                r6l->routes_ipv6 = curr->next;
+            else
+                prev->next = curr->next;
+            return curr;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+    return NULL;
+}
+
+void
+search_and_destroy_r6o(const struct route_ipv6_option *r6o, struct route_ipv6_option_list *r6ol)
+{
+    struct route_ipv6_option *prev = NULL;
+    struct route_ipv6_option *curr = r6ol->routes_ipv6;
+    bool found = false;
+
+    while(curr)
+    {
+        if(!strcmp(curr->prefix, r6o->prefix))
+        {
+            if (!r6o->gateway || !(*r6o->gateway))
+                found  = true;
+            else if (!strcmp(curr->gateway, r6o->gateway))
+            {
+                if (!r6o->metric || !(*r6o->metric))
+                    found = true;
+                else if (!strcmp(curr->metric, r6o->metric))
+                    found = true;
+            }
+        }
+        if (found)
+        {
+            if (!prev)
+                r6ol->routes_ipv6 = curr->next;
+            else
+                prev->next = curr->next;
+            return ;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+}
+
+void
+delete_route_ipv6_update(struct route_ipv6 *r6,
+            struct route_ipv6_list *r6l,
+            struct route_ipv6_option *r6o,
+            struct route_ipv6_option_list *r6ol,
+            const struct tuntap *tt,
+            const struct env_set *es,
+            openvpn_net_ctx_t *ctx)
+{
+    struct route_ipv6 *route = extract_route_ipv6_in_list(r6, r6l);
+    if (route)
+    {
+        search_and_destroy_r6o(r6o, r6ol);
+        delete_route_ipv6(route, tt, r6l->flags, es, ctx);
+    }
+    else
+        msg(M_WARN, "Route does not exist.");
+}

@@ -783,7 +783,6 @@ static const char usage_message[] =
 #endif /* !ENABLE_SMALL */
 
 static const char *updatable_options[] = {
-    "block-ipv4",
     "block-ipv6",
     "block-outside-dns",
     "dhcp-options",
@@ -5620,79 +5619,6 @@ apply_pull_filter(const struct options *o, char *line, unsigned int *push_update
     return true;
 }
 
-bool
-apply_push_options(struct options *options,
-                   struct buffer *buf,
-                   unsigned int permission_mask,
-                   unsigned int *option_types_found,
-                   struct env_set *es,
-                   bool is_update)
-{
-    char line[OPTION_PARM_SIZE];
-    int line_num = 0;
-    const char *file = "[PUSH-OPTIONS]";
-    const int msglevel = D_PUSH_ERRORS|M_OPTERR;
-
-    while (buf_parse(buf, ',', line, sizeof(line)))
-    {
-        char *p[MAX_PARMS+1];
-        CLEAR(p);
-        ++line_num;
-        unsigned int push_update_option_flags = is_update;
-
-        /*
-         * 'push_update_option_flags' parameter in apply_pull_filter() is used as a flag to
-         * let the function know if it's used in the scope of a push-update, if the
-         * content is != 0 then it trigger the push-update logic and put inside the variable
-         * the flags related to push-update option (OPTIONAL, TO_REMOVE, UPDATABLE).
-         */
-        if (!apply_pull_filter(options, line, &push_update_option_flags))
-        {
-            return false; /* Cause push/pull error and stop push processing */
-        }
-        if (parse_line(line, p, SIZE(p)-1, file, line_num, msglevel, &options->gc))
-        {
-            if (!(push_update_option_flags & PUSH_OPT_TO_REMOVE))
-            {
-                add_option(options, p, false, file, line_num, 0, msglevel,
-                           permission_mask, option_types_found, es);
-            }
-        }
-    }
-    return true;
-}
-
-void
-options_server_import(struct options *o,
-                      const char *filename,
-                      int msglevel,
-                      unsigned int permission_mask,
-                      unsigned int *option_types_found,
-                      struct env_set *es)
-{
-    msg(D_PUSH, "OPTIONS IMPORT: reading client specific options from: %s", filename);
-    read_config_file(o,
-                     filename,
-                     0,
-                     filename,
-                     0,
-                     msglevel,
-                     permission_mask,
-                     option_types_found,
-                     es);
-}
-
-void
-options_string_import(struct options *options,
-                      const char *config,
-                      const int msglevel,
-                      const unsigned int permission_mask,
-                      unsigned int *option_types_found,
-                      struct env_set *es)
-{
-    read_config_string("[CONFIG-STRING]", options, config, msglevel, permission_mask, option_types_found, es);
-}
-
 #define VERIFY_PERMISSION(mask) {                                            \
         if (!verify_permission(p[0], file, line, (mask), permission_mask,        \
                                option_types_found, msglevel, options, is_inline)) \
@@ -5796,71 +5722,8 @@ msglevel_forward_compatible(struct options *options, const int msglevel)
 }
 
 static void
-set_user_script(struct options *options,
-                const char **script,
-                const char *new_script,
-                const char *type,
-                bool in_chroot)
-{
-    if (*script)
-    {
-        msg(M_WARN, "Multiple --%s scripts defined.  "
-            "The previously configured script is overridden.", type);
-    }
-    *script = new_script;
-    options->user_script_used = true;
-
-#ifndef ENABLE_SMALL
-    {
-        char script_name[100];
-        snprintf(script_name, sizeof(script_name),
-                 "--%s script", type);
-
-        if (check_cmd_access(*script, script_name, (in_chroot ? options->chroot_dir : NULL)))
-        {
-            msg(M_USAGE, "Please correct this error.");
-        }
-
-    }
-#endif
-}
-
-static void
-show_compression_warning(struct compress_options *info)
-{
-    if (comp_non_stub_enabled(info))
-    {
-        /*
-         * Check if already displayed the strong warning and enabled full
-         * compression
-         */
-        if (!(info->flags & COMP_F_ALLOW_COMPRESS))
-        {
-            msg(M_WARN, "WARNING: Compression for receiving enabled. "
-                "Compression has been used in the past to break encryption. "
-                "Sent packets are not compressed unless \"allow-compression yes\" "
-                "is also set.");
-        }
-    }
-}
-
-bool
-key_is_external(const struct options *options)
-{
-    bool ret = false;
-    ret = ret || (options->management_flags & MF_EXTERNAL_KEY);
-#ifdef ENABLE_PKCS11
-    ret = ret || (options->pkcs11_providers[0] != NULL);
-#endif
-#ifdef ENABLE_CRYPTOAPI
-    ret = ret || options->cryptoapi_cert;
-#endif
-
-    return ret;
-}
-
-static void
-remove_option(struct options *options,
+remove_option(struct context *c,
+           struct options *options,
            char *p[],
            bool is_inline,
            const char *file,
@@ -5876,14 +5739,13 @@ remove_option(struct options *options,
     int msglevel_fc = msglevel_forward_compatible(options, msglevel);
 
     ASSERT(MAX_PARMS >= 7);
-//block-ipv4 ?
     if (streq(p[0], "ifconfig") && p[1] && p[2] && !p[3])
     {
         VERIFY_PERMISSION(OPT_P_UP);
         if (ip_or_dns_addr_safe(p[1], options->allow_pull_fqdn) && ip_or_dns_addr_safe(p[2], options->allow_pull_fqdn)) /* FQDN -- may be DNS name */
         {
-            options->ifconfig_local = p[1];
-            options->ifconfig_remote_netmask = p[2];
+            options->ifconfig_local = "";
+            options->ifconfig_remote_netmask = "";
         }
         else
         {
@@ -5918,7 +5780,6 @@ remove_option(struct options *options,
     else if (streq(p[0], "route") && p[1] && !p[5])
     {
         VERIFY_PERMISSION(OPT_P_ROUTE);
-        rol_check_alloc(options);
         if (pull_mode)
         {
             if (!ip_or_dns_addr_safe(p[1], options->allow_pull_fqdn) && !is_special_addr(p[1])) /* FQDN -- may be DNS name */
@@ -5937,12 +5798,26 @@ remove_option(struct options *options,
                 goto err;
             }
         }
-        add_route_to_option_list(options->routes, p[1], p[2], p[3], p[4]);
+        struct route_option ro;
+        CLEAR(ro);
+        ro.network = p[1];
+        if (p[2])
+            ro.netmask = p[2];
+        if(p[3])
+            ro.gateway = p[3];
+        if(p[4])
+            ro.metric = p[4];
+        if (c->c1.route_list)
+        {
+            delete_route_update(&ro, c->options.routes, c->c1.route_list,
+                                c->c1.tuntap, es, &c->net_ctx);
+        }
+        else
+            msg(M_WARN, "Route does not exist");
     }
     else if (streq(p[0], "route-ipv6") && p[1] && !p[4])
     {
         VERIFY_PERMISSION(OPT_P_ROUTE);
-        rol6_check_alloc(options);
         if (pull_mode)
         {
             if (!ipv6_addr_safe_hexplusbits(p[1]))
@@ -5957,7 +5832,23 @@ remove_option(struct options *options,
             }
             /* p[3] is metric, if present */
         }
-        add_route_ipv6_to_option_list(options->routes_ipv6, p[1], p[2], p[3]);
+        struct route_ipv6_option r6o;
+        CLEAR(r6o);
+        r6o.prefix = p[1];
+        if(p[2])
+            r6o.gateway = p[2];
+        if(p[3])
+            r6o.metric = p[3];
+
+        struct route_ipv6 r6;
+        if (c->c1.route_ipv6_list && init_route_ipv6(&r6, &r6o, c->c1.route_ipv6_list))
+        {
+            delete_route_ipv6_update(&r6, c->c1.route_ipv6_list,
+                                     &r6o, c->options.routes_ipv6,
+                                     c->c1.tuntap, es, &c->net_ctx);
+        }
+        else
+            msg(M_WARN, "Route does not exist");
     }
     else if (streq(p[0], "route-gateway") && p[1] && !p[2])
     {
@@ -6168,13 +6059,13 @@ remove_option(struct options *options,
     else if (streq(p[0], "block-ipv6") && !p[1])
     {
         VERIFY_PERMISSION(OPT_P_ROUTE);
-        options->block_ipv6 = true;
+        options->block_ipv6 = false;
     }
 #ifdef _WIN32
     else if (streq(p[0], "block-outside-dns") && !p[1])
     {
         VERIFY_PERMISSION(OPT_P_DHCPDNS);
-        options->block_outside_dns = true;
+        options->block_outside_dns = false;
     }
 #else /* ifdef _WIN32 */
     else if (streq(p[0], "dhcp-options") && p[1] && !p[3])
@@ -6183,8 +6074,170 @@ remove_option(struct options *options,
         setenv_foreign_option(options, (const char **)p, 3, es);
     }
 #endif
+    else
+    {
+        int i;
+        int msglevel_unknown = msglevel_fc;
+        /* Check if an option is in --ignore-unknown-option and
+         * set warning level to non fatal */
+        for (i = 0; options->ignore_unknown_option && options->ignore_unknown_option[i]; i++)
+        {
+            if (streq(p[0], options->ignore_unknown_option[i]))
+            {
+                msglevel_unknown = M_WARN;
+                break;
+            }
+        }
+        msg(msglevel_unknown, "Unrecognized option or missing or extra parameter(s) in %s:%d: %s (%s)", file, line, p[0], PACKAGE_VERSION);
+    }
     err:
         gc_free(&gc);
+}
+
+bool
+apply_push_options(struct context *c,
+                   struct options *options,
+                   struct buffer *buf,
+                   unsigned int permission_mask,
+                   unsigned int *option_types_found,
+                   struct env_set *es,
+                   bool is_update)
+{
+    char line[OPTION_PARM_SIZE];
+    int line_num = 0;
+    const char *file = "[PUSH-OPTIONS]";
+    const int msglevel = D_PUSH_ERRORS|M_OPTERR;
+
+    while (buf_parse(buf, ',', line, sizeof(line)))
+    {
+        char *p[MAX_PARMS+1];
+        CLEAR(p);
+        ++line_num;
+        unsigned int push_update_option_flags = is_update;
+        
+        /*
+         * 'push_update_option_flags' parameter in apply_pull_filter() is used as a flag to
+         * let the function know if it's used in the scope of a push-update, if the
+         * content is != 0 then it trigger the push-update logic and put inside the variable
+         * the flags related to push-update option (OPTIONAL, TO_REMOVE, UPDATABLE).
+         */
+        if (!apply_pull_filter(options, line, &push_update_option_flags))
+        {
+            return false; /* Cause push/pull error and stop push processing */
+        }
+        if (parse_line(line, p, SIZE(p)-1, file, line_num, msglevel, &options->gc))
+        {
+            if (!is_update)
+            {
+                add_option(options, p, false, file, line_num, 0, msglevel,
+                           permission_mask, option_types_found, es);// it also update the option? (i think so but not sure)
+            }
+            else if (push_update_option_flags & PUSH_OPT_TO_REMOVE)
+            {
+                remove_option(c, options, p, false, file, line_num, 0, msglevel,
+                              permission_mask, option_types_found, es);
+            }
+            /*
+                else add-update option ? or maybe just add_option()?
+            */
+        }
+    }
+    return true;
+}
+
+void
+options_server_import(struct options *o,
+                      const char *filename,
+                      int msglevel,
+                      unsigned int permission_mask,
+                      unsigned int *option_types_found,
+                      struct env_set *es)
+{
+    msg(D_PUSH, "OPTIONS IMPORT: reading client specific options from: %s", filename);
+    read_config_file(o,
+                     filename,
+                     0,
+                     filename,
+                     0,
+                     msglevel,
+                     permission_mask,
+                     option_types_found,
+                     es);
+}
+
+void
+options_string_import(struct options *options,
+                      const char *config,
+                      const int msglevel,
+                      const unsigned int permission_mask,
+                      unsigned int *option_types_found,
+                      struct env_set *es)
+{
+    read_config_string("[CONFIG-STRING]", options, config, msglevel, permission_mask, option_types_found, es);
+}
+
+static void
+set_user_script(struct options *options,
+                const char **script,
+                const char *new_script,
+                const char *type,
+                bool in_chroot)
+{
+    if (*script)
+    {
+        msg(M_WARN, "Multiple --%s scripts defined.  "
+            "The previously configured script is overridden.", type);
+    }
+    *script = new_script;
+    options->user_script_used = true;
+
+#ifndef ENABLE_SMALL
+    {
+        char script_name[100];
+        snprintf(script_name, sizeof(script_name),
+                 "--%s script", type);
+
+        if (check_cmd_access(*script, script_name, (in_chroot ? options->chroot_dir : NULL)))
+        {
+            msg(M_USAGE, "Please correct this error.");
+        }
+
+    }
+#endif
+}
+
+static void
+show_compression_warning(struct compress_options *info)
+{
+    if (comp_non_stub_enabled(info))
+    {
+        /*
+         * Check if already displayed the strong warning and enabled full
+         * compression
+         */
+        if (!(info->flags & COMP_F_ALLOW_COMPRESS))
+        {
+            msg(M_WARN, "WARNING: Compression for receiving enabled. "
+                "Compression has been used in the past to break encryption. "
+                "Sent packets are not compressed unless \"allow-compression yes\" "
+                "is also set.");
+        }
+    }
+}
+
+bool
+key_is_external(const struct options *options)
+{
+    bool ret = false;
+    ret = ret || (options->management_flags & MF_EXTERNAL_KEY);
+#ifdef ENABLE_PKCS11
+    ret = ret || (options->pkcs11_providers[0] != NULL);
+#endif
+#ifdef ENABLE_CRYPTOAPI
+    ret = ret || options->cryptoapi_cert;
+#endif
+
+    return ret;
 }
 
 static void

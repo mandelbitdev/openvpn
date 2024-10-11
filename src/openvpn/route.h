@@ -321,6 +321,28 @@ void delete_routes(struct route_list *rl,
                    const struct env_set *es,
                    openvpn_net_ctx_t *ctx);
 
+void
+delete_route_update(struct route_option *ro,
+            struct route_option_list *rol,
+            struct route_list *rl,
+            const struct tuntap *tt,
+            const struct env_set *es,
+            openvpn_net_ctx_t *ctx);
+
+void
+delete_route_ipv6_update(struct route_ipv6 *r6,
+            struct route_ipv6_list *r6l,
+            struct route_ipv6_option *r6o,
+            struct route_ipv6_option_list *r6ol,
+            const struct tuntap *tt,
+            const struct env_set *es,
+            openvpn_net_ctx_t *ctx);
+
+bool
+init_route_ipv6(struct route_ipv6 *r6,
+                const struct route_ipv6_option *r6o,
+                const struct route_ipv6_list *rl6 );
+
 void setenv_routes(struct env_set *es, const struct route_list *rl);
 
 void setenv_routes_ipv6(struct env_set *es, const struct route_ipv6_list *rl6);

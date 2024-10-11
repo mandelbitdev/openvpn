@@ -845,7 +845,8 @@ bool options_postprocess_pull(struct options *o, struct env_set *es);
 
 void pre_connect_restore(struct options *o, struct gc_arena *gc);
 
-bool apply_push_options(struct options *options,
+bool apply_push_options(struct context *c,
+                        struct options *options,
                         struct buffer *buf,
                         unsigned int permission_mask,
                         unsigned int *option_types_found,

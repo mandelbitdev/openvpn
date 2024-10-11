@@ -531,11 +531,23 @@ incoming_push_message(struct context *c, const struct buffer *buffer)
             {
                 goto error;
             }
-            if (!do_up(c, true, c->options.push_option_types_found))
+            if (status == PUSH_MSG_REPLY )
             {
-                msg(D_PUSH_ERRORS, "Failed to open tun/tap interface");
-                goto error;
+                if (!do_up(c, true, c->options.push_option_types_found))
+                {
+                    msg(D_PUSH_ERRORS, "Failed to open tun/tap interface");
+                    goto error;
+                }
             }
+            /*
+            else
+            {
+                if (!do_update(c))
+                {
+                    msg(D_PUSH_ERRORS, "Failed to update options");
+                    goto error;
+                }
+            }*/
         }
         event_timeout_clear(&c->c2.push_request_interval);
         event_timeout_clear(&c->c2.wait_for_connect);
@@ -1050,7 +1062,8 @@ process_incoming_push_reply_update(struct context *c,
             md_ctx_init(c->c2.pulled_options_state, "SHA256");
             c->c2.pulled_options_digest_init_done = true;
         }
-        if (apply_push_options(&c->options,
+        if (apply_push_options(c,
+                               &c->options,
                                buf,
                                permission_mask,
                                option_types_found,
