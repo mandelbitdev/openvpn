@@ -137,6 +137,119 @@ dns_server_addr_parse(struct dns_server *server, const char *addr)
     return true;
 }
 
+bool
+dns_server_addr_parse2(struct dns_server_addr *saddr, const char *addr)
+{
+    if (!addr)
+    {
+        return false;
+    }
+
+    char addrcopy[INET6_ADDRSTRLEN] = {0};
+    size_t copylen = 0;
+    in_port_t port = 0;
+    sa_family_t af;
+
+    char *first_colon = strchr(addr, ':');
+    char *last_colon = strrchr(addr, ':');
+
+    if (!first_colon || first_colon == last_colon)
+    {
+        /* IPv4 address with optional port, e.g. 1.2.3.4 or 1.2.3.4:853 */
+        if (last_colon)
+        {
+            if (last_colon == addr || !dns_server_port_parse(&port, last_colon + 1))
+            {
+                return false;
+            }
+            copylen = first_colon - addr;
+        }
+        af = AF_INET;
+    }
+    else
+    {
+        /* IPv6 address with optional port, e.g. ab::cd or [ab::cd]:853 */
+        if (addr[0] == '[')
+        {
+            addr += 1;
+            char *bracket = last_colon - 1;
+            if (*bracket != ']' || bracket == addr || !dns_server_port_parse(&port, last_colon + 1))
+            {
+                return false;
+            }
+            copylen = bracket - addr;
+        }
+        af = AF_INET6;
+    }
+
+    /* Copy the address part into a temporary buffer and use that */
+    if (copylen)
+    {
+        if (copylen >= sizeof(addrcopy))
+        {
+            return false;
+        }
+        strncpy(addrcopy, addr, copylen);
+        addr = addrcopy;
+    }
+
+    struct addrinfo *ai = NULL;
+    if (openvpn_getaddrinfo(0, addr, NULL, 0, NULL, af, &ai) != 0)
+    {
+        return false;
+    }
+
+    if (ai->ai_family == AF_INET)
+    {
+        struct sockaddr_in *sin = (struct sockaddr_in *)ai->ai_addr;
+        saddr->in.a4.s_addr = ntohl(sin->sin_addr.s_addr);
+    }
+    else
+    {
+        struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)ai->ai_addr;
+        saddr->in.a6 = sin6->sin6_addr;
+    }
+
+    saddr->family = af;
+    saddr->port = port;
+
+    freeaddrinfo(ai);
+    return true;
+}
+
+bool compare_dns_server_addr(const struct dns_server_addr *addr1, const struct dns_server_addr *addr2)
+{
+    if (addr1->family != addr2->family)
+        return false;
+
+    if (addr1->family == AF_INET)
+    {
+        if (addr1->in.a4.s_addr != addr2->in.a4.s_addr)
+            return false;
+    }
+    else if (addr1->family == AF_INET6)
+    {
+        if (memcmp(&addr1->in.a6, &addr2->in.a6, sizeof(struct in6_addr)) != 0)
+            return false;
+    }
+    else
+        return false;
+
+    if (addr1->port != addr2->port)
+        return false;
+
+    return true;
+}
+
+void remove_dns_server_addr(struct dns_server *serv, unsigned int i)
+{
+    if (i != --(serv->addr_count))
+    {
+        serv->addr[i] = serv->addr[serv->addr_count];
+    }
+    memset(&serv->addr[serv->addr_count], 0, sizeof(serv->addr[serv->addr_count]));
+}
+
 void
 dns_domain_list_append(struct dns_domain **entry, char **domains, struct gc_arena *gc)
 {
@@ -153,6 +266,33 @@ dns_domain_list_append(struct dns_domain **entry, char **domains, struct gc_aren
         struct dns_domain *new = *entry;
         new->name = *domains++;
         entry = &new->next;
+    }
+}
+
+void
+dns_domain_list_remove(struct dns_domain **entry, char **domains)
+{
+    while (*domains)
+    {
+        struct dns_domain *prev = NULL;
+        struct dns_domain *curr = *entry;
+        while (curr && strcmp(*domains, curr->name))
+        {
+            prev = curr;
+            curr = curr->next;
+        }
+        if (curr)
+        {
+            if (!prev)
+                *entry = (*entry)->next;
+            else
+                prev->next = curr->next;
+        }
+        else
+        {
+            msg(M_WARN, "Domain %s already not in list", *domains);
+        }
+        (*domains)++;
     }
 }
 
@@ -191,6 +331,43 @@ dns_server_get(struct dns_server **entry, long priority, struct gc_arena *gc)
         entry = &obj->next;
         obj = *entry;
     }
+}
+
+struct dns_server *
+dns_server_get_if_exist(struct dns_server *entry, long priority)
+{
+    while (entry)
+    {
+        if (entry->priority > priority)
+            return NULL;
+        else if (entry->priority == priority)
+            return entry;
+        entry = entry->next;
+    }
+    return NULL;
+}
+
+void
+dns_server_remove(struct dns_server **entry, long priority)
+{
+    struct dns_server *prev = NULL;
+    struct dns_server *curr = *entry;
+    while(curr)
+    {
+        if (curr->priority > priority)
+            break;
+        else if (curr->priority == priority)
+        {
+            if (!prev)
+                *entry = curr->next;
+            else
+                prev->next = curr->next;
+            return;
+        }
+        prev = curr;
+        curr = curr->next;
+    }
+    msg(M_WARN, "Server %ld not found", priority);
 }
 
 bool

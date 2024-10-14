@@ -160,4 +160,20 @@ void setenv_dns_options(const struct dns_options *o, struct env_set *es);
  */
 void show_dns_options(const struct dns_options *o);
 
+/* Return the server if it exists or NULL if not */
+struct dns_server *dns_server_get_if_exist(struct dns_server *entry, long priority);
+
+void dns_server_remove(struct dns_server **entry, long priority);
+
+void dns_domain_list_remove(struct dns_domain **entry, char **domains);
+
+/* Compare two dns_server_addr , return true if they are equals */
+bool compare_dns_server_addr(const struct dns_server_addr *addr1, const struct dns_server_addr *addr2);
+
+/* same as dns_server_addr_parse but store the results in a dns_server_addr * variable */
+bool dns_server_addr_parse2(struct dns_server_addr *saddr, const char *addr);
+
+/* i is the index of the dns_server_addr to remove in the serv->addr[] array */
+void remove_dns_server_addr(struct dns_server *serv, unsigned int i);
+
 #endif /* ifndef DNS_H */

@@ -5734,7 +5734,7 @@ remove_option(struct context *c,
            unsigned int *option_types_found,
            struct env_set *es)
 {
-    struct gc_arena gc = gc_new();
+//    struct gc_arena gc = gc_new();
     const bool pull_mode = BOOL_CAST(permission_mask & OPT_P_PULL_MODE);
     int msglevel_fc = msglevel_forward_compatible(options, msglevel);
 
@@ -5850,96 +5850,83 @@ remove_option(struct context *c,
         else
             msg(M_WARN, "Route does not exist");
     }
-    else if (streq(p[0], "route-gateway") && p[1] && !p[2])
+    else if (streq(p[0], "route-gateway") && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_ROUTE_EXTRAS);
-        if (streq(p[1], "dhcp"))
+        if (p[1] && streq(p[1], "dhcp"))
         {
-            options->route_gateway_via_dhcp = true;
+            options->route_gateway_via_dhcp = false;
         }
         else
         {
-            if (ip_or_dns_addr_safe(p[1], options->allow_pull_fqdn) || is_special_addr(p[1])) /* FQDN -- may be DNS name */
-            {
-                options->route_default_gateway = p[1];
-            }
-            else
-            {
-                msg(msglevel, "route-gateway parm '%s' must be a valid address", p[1]);
-                goto err;
-            }
+            options->route_default_gateway = "";
         }
     }
-    else if (streq(p[0], "route-metric") && p[1] && !p[2])
+    else if (streq(p[0], "route-metric") && !p[1])
     {
         VERIFY_PERMISSION(OPT_P_ROUTE);
-        options->route_default_metric = positive_atoi(p[1]);
+        options->route_default_metric = 0;
     }
-    else if (streq(p[0], "push-continuation") && p[1] && !p[2])
+    else if (streq(p[0], "push-continuation") && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_PULL_MODE);
-        options->push_continuation = atoi(p[1]);
+        options->push_continuation = 0;
     }
-    else if (streq(p[0], "redirect-gateway") || streq(p[0], "redirect-private"))
+    else if (streq(p[0], "redirect-gateway"))
     {
         int j;
         VERIFY_PERMISSION(OPT_P_ROUTE);
-        rol_check_alloc(options);
+        if (!options->routes)
+            goto err;
 
-        if (options->routes->flags & RG_ENABLE)
-        {
-            msg(M_WARN,
-                "WARNING: You have specified redirect-gateway and "
-                "redirect-private at the same time (or the same option "
-                "multiple times). This is not well supported and may lead to "
-                "unexpected results");
-        }
-
-        options->routes->flags |= RG_ENABLE;
-
-        if (streq(p[0], "redirect-gateway"))
-        {
-            options->routes->flags |= RG_REROUTE_GW;
-        }
         for (j = 1; j < MAX_PARMS && p[j] != NULL; ++j)
         {
             if (streq(p[j], "local"))
             {
-                options->routes->flags |= RG_LOCAL;
+                options->routes->flags &= ~RG_LOCAL;
             }
             else if (streq(p[j], "autolocal"))
             {
-                options->routes->flags |= RG_AUTO_LOCAL;
+                options->routes->flags &= ~RG_AUTO_LOCAL;
             }
             else if (streq(p[j], "def1"))
             {
-                options->routes->flags |= RG_DEF1;
+                options->routes->flags &= ~RG_DEF1;
             }
             else if (streq(p[j], "bypass-dhcp"))
             {
-                options->routes->flags |= RG_BYPASS_DHCP;
+                options->routes->flags &= ~RG_BYPASS_DHCP;
             }
             else if (streq(p[j], "bypass-dns"))
             {
-                options->routes->flags |= RG_BYPASS_DNS;
+                options->routes->flags &= ~RG_BYPASS_DNS;
             }
             else if (streq(p[j], "block-local"))
             {
-                options->routes->flags |= RG_BLOCK_LOCAL;
+                options->routes->flags &= ~RG_BLOCK_LOCAL;
             }
             else if (streq(p[j], "ipv6"))
             {
-                rol6_check_alloc(options);
-                options->routes_ipv6->flags |= RG_REROUTE_GW;
+                if (!options->routes_ipv6)
+                    goto err;
+                options->routes_ipv6->flags &= ~RG_REROUTE_GW;
             }
-            else if (streq(p[j], "!ipv4"))
+        /*  else if (streq(p[j], "!ipv4"))
             {
-                options->routes->flags &= ~(RG_REROUTE_GW | RG_ENABLE);
-            }
+                options->routes->flags |= (RG_REROUTE_GW | RG_ENABLE);
+            }*/
             else
             {
                 msg(msglevel, "unknown --%s flag: %s", p[0], p[j]);
                 goto err;
+            }
+
+            if (options->routes->flags == (RG_REROUTE_GW | RG_ENABLE)
+                || options->routes->flags == RG_REROUTE_GW 
+                || options->routes->flags == RG_ENABLE)
+            {
+                options->routes->flags &= ~RG_ENABLE;
+                options->routes->flags &= ~RG_REROUTE_GW;
             }
         }
 #ifdef _WIN32
@@ -5953,9 +5940,9 @@ remove_option(struct context *c,
 
         if (streq(p[1], "search-domains") && p[2])
         {
-            dns_domain_list_append(&options->dns_options.search_domains, &p[2], &options->dns_options.gc);
+            dns_domain_list_remove(&options->dns_options.search_domains, &p[2]);
         }
-        else if (streq(p[1], "server") && p[2] && p[3] && p[4])
+        else if (streq(p[1], "server") && p[2])
         {
             long priority;
             if (!dns_server_priority_parse(&priority, p[2], pull_mode))
@@ -5963,73 +5950,82 @@ remove_option(struct context *c,
                 msg(msglevel, "--dns server: invalid priority value '%s'", p[2]);
                 goto err;
             }
-
-            struct dns_server *server = dns_server_get(&options->dns_options.servers, priority, &options->dns_options.gc);
-
-            if (streq(p[3], "address") && p[4])
+            if (!p[2])
             {
-                for (int i = 4; p[i]; ++i)
+                dns_server_remove(&options->dns_options.servers, priority);
+            }
+            else if (p[3])
+            {
+                struct dns_server *server = dns_server_get_if_exist(options->dns_options.servers, priority);
+                if (!server)
                 {
-                    if (!dns_server_addr_parse(server, p[i]))
+                    msg(msglevel, "--dns server %ld: server does not exist", priority);
+                    goto err;
+                }
+
+                if (streq(p[3], "address") && p[4])
+                {
+                    struct dns_server_addr saddr;
+                    for (int i = 4; p[i]; ++i)
                     {
-                        msg(msglevel, "--dns server %ld: malformed address or maximum exceeded '%s'", priority, p[i]);
+                        if (!dns_server_addr_parse2(&saddr, p[i]))
+                        {
+                            msg(msglevel, "--dns server %ld: malformed address or maximum exceeded '%s'", priority, p[i]);
+                            goto err;
+                        }
+                    }
+                    for (int i = 0; i < server->addr_count; i++)
+                    {
+                        if (compare_dns_server_addr(&server->addr[i], &saddr))
+                        {
+                            remove_dns_server_addr(server, i);
+                            break;
+                        }
+                    }
+                }
+                else if (streq(p[3], "resolve-domains") && p[4])
+                {
+                    dns_domain_list_remove(&server->domains, &p[4]);
+                }
+                else if (streq(p[3], "dnssec") && !p[5])
+                {
+                    if (!p[4] || streq(p[4], "yes") || streq(p[4], "no") || streq(p[4], "optional"))
+                    {
+                        server->dnssec = DNS_SECURITY_UNSET;
+                    }
+                    else
+                    {
+                        msg(msglevel, "--dns server %ld: malformed dnssec value '%s'", priority, p[4]);
                         goto err;
                     }
                 }
-            }
-            else if (streq(p[3], "resolve-domains"))
-            {
-                dns_domain_list_append(&server->domains, &p[4], &options->dns_options.gc);
-            }
-            else if (streq(p[3], "dnssec") && !p[5])
-            {
-                if (streq(p[4], "yes"))
+                else if (streq(p[3], "transport") && !p[5])
                 {
-                    server->dnssec = DNS_SECURITY_YES;
+                    if (!p[4] || streq(p[4], "plain") || streq(p[4], "DoH") || streq(p[4], "DoT"))
+                    {
+                        server->transport = DNS_TRANSPORT_UNSET;
+                    }
+                    else
+                    {
+                        msg(msglevel, "--dns server %ld: malformed transport value '%s'", priority, p[4]);
+                        goto err;
+                    }
                 }
-                else if (streq(p[4], "no"))
+                else if (streq(p[3], "sni") && !p[5])
                 {
-                    server->dnssec = DNS_SECURITY_NO;
-                }
-                else if (streq(p[4], "optional"))
-                {
-                    server->dnssec = DNS_SECURITY_OPTIONAL;
+                    server->sni = NULL;
                 }
                 else
                 {
-                    msg(msglevel, "--dns server %ld: malformed dnssec value '%s'", priority, p[4]);
+                    msg(msglevel, "--dns server %ld: unknown option type '%s' or missing or unknown parameter", priority, p[3]);
                     goto err;
                 }
-            }
-            else if (streq(p[3], "transport") && !p[5])
-            {
-                if (streq(p[4], "plain"))
-                {
-                    server->transport = DNS_TRANSPORT_PLAIN;
-                }
-                else if (streq(p[4], "DoH"))
-                {
-                    server->transport = DNS_TRANSPORT_HTTPS;
-                }
-                else if (streq(p[4], "DoT"))
-                {
-                    server->transport = DNS_TRANSPORT_TLS;
-                }
-                else
-                {
-                    msg(msglevel, "--dns server %ld: malformed transport value '%s'", priority, p[4]);
-                    goto err;
-                }
-            }
-            else if (streq(p[3], "sni") && !p[5])
-            {
-                server->sni = p[4];
             }
             else
-            {
-                msg(msglevel, "--dns server %ld: unknown option type '%s' or missing or unknown parameter", priority, p[3]);
-                goto err;
-            }
+                {
+                    msg(msglevel, "--dns server %ld: unknown option type '%s' or missing or unknown parameter", priority, p[3]);
+                    goto err;
+                }
         }
         else
         {
@@ -6037,24 +6033,18 @@ remove_option(struct context *c,
             goto err;
         }
     }
-    else if (streq(p[0], "topology") && p[1] && !p[2])
+    else if (streq(p[0], "topology") && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_UP);
-        options->topology = parse_topology(p[1], msglevel);
+        options->topology = TOP_UNDEF;
+        helper_setdefault_topology(options);
     }
-    else if (streq(p[0], "tun-mtu") && p[1] && !p[3])
+    else if (streq(p[0], "tun-mtu") && !p[3])
     {
         VERIFY_PERMISSION(OPT_P_PUSH_MTU|OPT_P_CONNECTION);
-        options->ce.tun_mtu = positive_atoi(p[1]);
-        options->ce.tun_mtu_defined = true;
-        if (p[2])
-        {
-            options->ce.occ_mtu = positive_atoi(p[2]);
-        }
-        else
-        {
-            options->ce.occ_mtu = 0;
-        }
+        options->ce.tun_mtu = TUN_MTU_DEFAULT;
+        options->ce.tun_mtu_defined = false;
+        options->ce.occ_mtu = 0;
     }
     else if (streq(p[0], "block-ipv6") && !p[1])
     {
@@ -6091,7 +6081,7 @@ remove_option(struct context *c,
         msg(msglevel_unknown, "Unrecognized option or missing or extra parameter(s) in %s:%d: %s (%s)", file, line, p[0], PACKAGE_VERSION);
     }
     err:
-        gc_free(&gc);
+//        gc_free(&gc);
 }
 
 bool
