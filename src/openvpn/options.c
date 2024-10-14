@@ -5734,7 +5734,6 @@ remove_option(struct context *c,
            unsigned int *option_types_found,
            struct env_set *es)
 {
-//    struct gc_arena gc = gc_new();
     const bool pull_mode = BOOL_CAST(permission_mask & OPT_P_PULL_MODE);
     int msglevel_fc = msglevel_forward_compatible(options, msglevel);
 
@@ -6081,7 +6080,7 @@ remove_option(struct context *c,
         msg(msglevel_unknown, "Unrecognized option or missing or extra parameter(s) in %s:%d: %s (%s)", file, line, p[0], PACKAGE_VERSION);
     }
     err:
-//        gc_free(&gc);
+        msg(msglevel, "Error occurred trying to remove the option");
 }
 
 bool
