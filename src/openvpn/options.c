@@ -5741,10 +5741,11 @@ remove_option(struct context *c,
     if (streq(p[0], "ifconfig") && p[1] && p[2] && !p[3])
     {
         VERIFY_PERMISSION(OPT_P_UP);
-        if (ip_or_dns_addr_safe(p[1], options->allow_pull_fqdn) && ip_or_dns_addr_safe(p[2], options->allow_pull_fqdn)) /* FQDN -- may be DNS name */
+        if (ip_or_dns_addr_safe(p[1], options->allow_pull_fqdn) && ip_or_dns_addr_safe(p[2], options->allow_pull_fqdn) /* FQDN -- may be DNS name */
+            && streq(p[1], options->ifconfig_local) && streq(p[2], options->ifconfig_remote_netmask))
         {
-            options->ifconfig_local = "";
-            options->ifconfig_remote_netmask = "";
+            options->ifconfig_local = NULL;
+            options->ifconfig_remote_netmask = NULL;
         }
         else
         {
@@ -5758,17 +5759,14 @@ remove_option(struct context *c,
 
         VERIFY_PERMISSION(OPT_P_UP);
         if (get_ipv6_addr( p[1], NULL, &netbits, msglevel )
-            && ipv6_addr_safe( p[2] ) )
+            && ipv6_addr_safe( p[2])
+            && !strncmp(options->ifconfig_ipv6_local, p[1], strchr(p[1], '/') - p[1])
+            && options->ifconfig_ipv6_netbits == netbits
+            && streq(options->ifconfig_ipv6_remote, p[2]))
         {
-            if (netbits < 64 || netbits > 124)
-            {
-                msg( msglevel, "ifconfig-ipv6: /netbits must be between 64 and 124, not '/%d'", netbits );
-                goto err;
-            }
-
-            options->ifconfig_ipv6_local = get_ipv6_addr_no_netbits(p[1], &options->gc);
-            options->ifconfig_ipv6_netbits = netbits;
-            options->ifconfig_ipv6_remote = p[2];
+            options->ifconfig_ipv6_local = NULL;
+            options->ifconfig_ipv6_netbits = 0;
+            options->ifconfig_ipv6_remote = NULL;
         }
         else
         {
@@ -5858,7 +5856,7 @@ remove_option(struct context *c,
         }
         else
         {
-            options->route_default_gateway = "";
+            options->route_default_gateway = NULL;
         }
     }
     else if (streq(p[0], "route-metric") && !p[1])
@@ -6116,15 +6114,15 @@ apply_push_options(struct context *c,
         }
         if (parse_line(line, p, SIZE(p)-1, file, line_num, msglevel, &options->gc))
         {
-            if (!is_update)
-            {
-                add_option(options, p, false, file, line_num, 0, msglevel,
-                           permission_mask, option_types_found, es);// it also update the option? (i think so but not sure)
-            }
-            else if (push_update_option_flags & PUSH_OPT_TO_REMOVE)
+            if (push_update_option_flags & PUSH_OPT_TO_REMOVE)
             {
                 remove_option(c, options, p, false, file, line_num, 0, msglevel,
                               permission_mask, option_types_found, es);
+            }
+            else
+            {
+                add_option(options, p, false, file, line_num, 0, msglevel,
+                           permission_mask, option_types_found, es);// it also update the option? (i think so but not sure)
             }
             /*
                 else add-update option ? or maybe just add_option()?
