@@ -786,6 +786,7 @@ static const char *updatable_options[] = {
     "block-ipv6",
     "block-outside-dns",
     "dhcp-options",
+    "dhcp-option",
     "dns",
     "ifconfig",
     "ifconfig-ipv6",
@@ -1082,6 +1083,138 @@ setenv_foreign_option(struct options *o, const char *argv[], int len, struct env
         if (good)
         {
             setenv_str(es, BSTR(&name), BSTR(&value));
+        }
+        else
+        {
+            msg(M_WARN, "foreign_option: name/value overflow");
+        }
+        gc_free(&gc);
+    }
+}
+
+static void
+search_and_destroy_all_dhcp_fo(struct options *o, struct env_item **list)
+{
+    struct env_item *current, *prev;
+
+    ASSERT(list);
+
+    for (current = *list, prev = NULL; current != NULL; current = current->next)
+    {
+        char *tmp_value = NULL;
+        if (!strncmp(current->string, "foreign_option_", sizeof("foreign_option_")-1))
+        {
+            tmp_value = strchr(current->string, '=');
+            if (tmp_value && ++tmp_value)
+            {
+                if (!strncmp(tmp_value, "dhcp-option ", sizeof("dhcp-option ")-1))
+                {
+                    if (prev)
+                    {
+                        prev->next = current->next;
+                    }
+                    else
+                    {
+                        *list = current->next;
+                    }
+                    o->foreign_option_index--;
+                }
+            }
+        }
+        prev = current;
+    }
+}
+
+static bool
+search_and_destroy_fo(const char *opt_value, const bool do_free, struct env_item **list)
+{
+    struct env_item *current, *prev;
+
+    ASSERT(opt_value);
+    ASSERT(list);
+
+    for (current = *list, prev = NULL; current != NULL; current = current->next)
+    {
+        char *tmp_value = NULL;
+        if (!strncmp(current->string, "foreign_option_", sizeof("foreign_option_")-1))
+        {
+            tmp_value = strchr(current->string, '=');
+            if (tmp_value && ++tmp_value)
+            {
+                if (streq(tmp_value, opt_value))
+                {
+                    if (prev)
+                    {
+                        prev->next = current->next;
+                    }
+                    else
+                    {
+                        *list = current->next;
+                    }
+                    if (do_free)
+                    {
+                        secure_memzero(current->string, strlen(current->string));
+                        free(current->string);
+                        free(current);
+                    }
+                    return true;
+                }
+            }
+        }
+        prev = current;
+    }
+    return false;
+}
+
+static bool
+delete_foreign_option_by_value(struct env_set *es, const char *value)
+{
+    struct gc_arena gc = gc_new();
+    const char *val_tmp = NULL;
+    bool ret = false;
+
+    if (value && es)
+    {
+        val_tmp = string_mod_const(value, CC_PRINT, 0, 0, &gc);
+        ret = search_and_destroy_fo(val_tmp, false, &es->list);
+    }
+
+    gc_free(&gc);
+    return ret;
+}
+
+static void
+setenv_foreign_option_del(struct options *o, const char *argv[], int len, struct env_set *es)
+{
+    if (len > 0)
+    {
+        struct gc_arena gc = gc_new();
+        struct buffer value = alloc_buf_gc(OPTION_PARM_SIZE, &gc);
+        int i;
+        bool first = true;
+        bool good = true;
+
+        for (i = 0; i < len; ++i)
+        {
+            if (argv[i])
+            {
+                if (!first)
+                {
+                    good &= buf_printf(&value, " ");
+                }
+                good &= buf_printf(&value, "%s", argv[i]);
+                first = false;
+            }
+        }
+        if (good)
+        {
+            if (delete_foreign_option_by_value(es, BSTR(&value)))
+            {
+                o->foreign_option_index--;
+                msg(M_WARN, "foreign_option deleted");
+            }
+            else
+                msg(M_WARN, "foreign_option not found");
         }
         else
         {
@@ -3294,6 +3427,14 @@ remap_redirect_gateway_flags(struct options *opt)
     {
         msg(M_INFO, "Flag 'def1' added to --redirect-gateway (iservice is in use)");
         opt->routes->flags |= RG_DEF1;
+    }
+    else if (!opt->routes
+        || opt->route_method != ROUTE_METHOD_SERVICE
+        || !opt->routes->flags & RG_REROUTE_GW
+        && opt->routes->flags & RG_DEF1)
+    {
+        msg(M_INFO, "Flag 'def1' removed from --redirect-gateway");
+        opt->routes->flags &= ~RG_DEF1;
     }
 }
 #endif
@@ -6048,6 +6189,38 @@ remove_option(struct context *c,
         VERIFY_PERMISSION(OPT_P_ROUTE);
         options->block_ipv6 = false;
     }
+#if defined(_WIN32) || defined(TARGET_ANDROID)
+    else if (streq(p[0], "dhcp-options") && !p[1])
+    {
+        struct tuntap_options *o = &options->tuntap_options;
+        VERIFY_PERMISSION(OPT_P_DHCPDNS);
+
+        o->domain = "";
+        o->netbios_scope = NULL
+        o->netbios_node_type = 0;
+        o->dns6_len = 0;
+        memset(o->dns6, 0, sizeof(o->dns6));
+        o->dns_len = 0
+        memset(o->dns, 0, sizeof(o->dns));
+        o->wins_len = 0
+        memset(o->wins, 0, sizeof(o->wins));
+        o->ntp_len = 0
+        memset(o->ntp, 0, sizeof(o->ntp));
+        o->nbdd_len = 0
+        memset(o->nbdd, 0, sizeof(o->nbdd));
+        while (o->domain_search_list_len-- > 0)
+        {
+            o->domain_search_list[o->domain_search_list_len] = NULL;
+        }
+        o->disable_nbt = 0;
+        o->dhcp_options &= ~DHCP_OPTIONS_DHCP_OPTIONAL;
+        o->dhcp_options &= ~DHCP_OPTIONS_DHCP_REQUIRED;
+#if defined(TARGET_ANDROID)
+        o->http_proxy_port = 0;
+        o->http_proxy = NULL;
+#endif
+    }
+#endif /* if defined(_WIN32) || defined(TARGET_ANDROID) */
 #ifdef _WIN32
     else if (streq(p[0], "block-outside-dns") && !p[1])
     {
@@ -6055,10 +6228,15 @@ remove_option(struct context *c,
         options->block_outside_dns = false;
     }
 #else /* ifdef _WIN32 */
-    else if (streq(p[0], "dhcp-options") && p[1] && !p[3])
+    else if (streq(p[0], "dhcp-option") && p[1] && !p[3])
     {
         VERIFY_PERMISSION(OPT_P_DHCPDNS);
-        setenv_foreign_option(options, (const char **)p, 3, es);
+        setenv_foreign_option_del(options, (const char **)p, 3, es);
+    }
+    else if (streq(p[0], "dhcp-options") && !p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_DHCPDNS);
+        search_and_destroy_all_dhcp_fo(options, &es->list);
     }
 #endif
     else
