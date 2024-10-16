@@ -1243,8 +1243,43 @@ process_incoming_link(struct context *c, struct link_socket *sock)
     perf_pop();
 }
 
+bool
+extract_dco_float_peer_addr(const uint32_t peer_id,
+                            struct openvpn_sockaddr *out_osaddr,
+                            const struct sockaddr *float_sa)
+{
+    const sa_family_t float_family = float_sa->sa_family;
+
+    if (float_family == AF_INET)
+    {
+        struct sockaddr_in *float4 = (struct sockaddr_in *)float_sa;
+        /* DCO treats IPv4-mapped IPv6 addresses as pure IPv4. However, we need
+         * to preserve the mapping, otherwise openvpn will not be able to find
+         * the peer by its address. */
+        if (out_osaddr->addr.sa.sa_family == AF_INET6
+            && IN6_IS_ADDR_V4MAPPED(&out_osaddr->addr.in6.sin6_addr))
+        {
+            memcpy(&out_osaddr->addr.in6.sin6_addr.s6_addr[12],
+                   &float4->sin_addr.s_addr, sizeof(in_addr_t));
+            out_osaddr->addr.in6.sin6_port = float4->sin_port;
+        }
+        else
+        {
+            memcpy(&out_osaddr->addr.in4, float4, sizeof(struct sockaddr_in));
+        }
+        return true;
+    }
+    else if (float_family == AF_INET6)
+    {
+        struct sockaddr_in6 *float6 = (struct sockaddr_in6 *)float_sa;
+        memcpy(&out_osaddr->addr.in6, float6, sizeof(struct sockaddr_in6));
+        return true;
+    }
+    return false;
+}
+
 static void
-process_incoming_dco(struct context *c)
+process_incoming_dco(struct context *c, struct link_socket *sock)
 {
 #if defined(ENABLE_DCO) && (defined(TARGET_LINUX) || defined(TARGET_FREEBSD))
     dco_context_t *dco = &c->c1.tuntap->dco;
@@ -1281,6 +1316,46 @@ process_incoming_dco(struct context *c)
                 return;
             }
             break;
+
+#if defined(TARGET_LINUX)
+        case OVPN_CMD_FLOAT_PEER:
+        {
+            struct tls_multi *multi = c->c2.tls_multi;
+            struct link_socket_actual old_addr;
+
+            ASSERT(TLS_MODE(c));
+
+            memcpy(&old_addr, &c->c2.from, sizeof(struct link_socket_actual));
+
+            if (extract_dco_float_peer_addr(multi->peer_id, &c->c2.from.dest,
+                                            (struct sockaddr *)&dco->dco_float_peer_ss))
+            {
+                struct gc_arena gc = gc_new();
+
+                msg(D_DCO_DEBUG, "%s: received float notification for peer-id %d",
+                    __func__, dco->dco_message_peer_id);
+
+                msg(D_LOW, "peer %d floated from %s to %s",
+                    dco->dco_message_peer_id,
+                    print_link_socket_actual(&old_addr, &gc),
+                    print_link_socket_actual(&c->c2.from, &gc));
+
+                /* process the float */
+                link_socket_set_outgoing_addr(&sock->info, &c->c2.from, NULL, c->c2.es);
+                tls_update_remote_addr(multi, &c->c2.from);
+                gc_free(&gc);
+            }
+            else
+            {
+                msg(D_DCO_DEBUG, "%s: received float notification with incorrect "
+                    "address family %hu for peer-id %d", __func__,
+                    dco->dco_float_peer_ss.ss_family, dco->dco_message_peer_id);
+            }
+
+            CLEAR(dco->dco_float_peer_ss);
+            break;
+        }
+#endif /* if defined(TARGET_LINUX) */
 
         case OVPN_CMD_SWAP_KEYS:
             msg(D_DCO_DEBUG, "%s: received key rotation notification for peer-id %d",
@@ -2380,7 +2455,7 @@ process_io(struct context *c, struct link_socket *sock)
     {
         if (!IS_SIG(c))
         {
-            process_incoming_dco(c);
+            process_incoming_dco(c, sock);
         }
     }
 }

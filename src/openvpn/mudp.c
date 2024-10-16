@@ -417,7 +417,7 @@ multi_process_io_udp(struct multi_context *m, struct link_socket *sock)
             bool ret = true;
             while (ret)
             {
-                ret = multi_process_incoming_dco(m);
+                ret = multi_process_incoming_dco(m, sock);
             }
         }
     }

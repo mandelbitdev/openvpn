@@ -531,7 +531,7 @@ multi_io_process_io(struct multi_context *m)
             /* incoming data on DCO? */
             else if (e->arg == MULTI_IO_DCO)
             {
-                multi_process_incoming_dco(m);
+                multi_process_incoming_dco(m, m->top.c2.link_sockets[0]);
             }
 #endif
             /* signal received? */

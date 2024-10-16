@@ -322,13 +322,14 @@ bool multi_process_post(struct multi_context *m, struct multi_instance *mi, cons
 /**
  * Process an incoming DCO message (from kernel space).
  *
- * @param m            - The single \c multi_context structur.e
+ * @param m            - The single \c multi_context structure.
+ * @param sock         - Socket related to the DCO message.
  *
  * @return
  *  - True, if the message was received correctly.
  *  - False, if there was an error while reading the message.
  */
-bool multi_process_incoming_dco(struct multi_context *m);
+bool multi_process_incoming_dco(struct multi_context *m, struct link_socket *sock);
 
 /**************************************************************************/
 /**
