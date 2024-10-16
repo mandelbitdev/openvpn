@@ -3287,6 +3287,27 @@ multi_process_incoming_dco(struct multi_context *m)
         {
             process_incoming_del_peer(m, mi, dco);
         }
+        else if (dco->dco_message_type == OVPN_CMD_FLOAT_PEER)
+        {
+            const sa_family_t family = dco->dco_float_peer_sa.sa_family;
+            if (family == AF_INET)
+            {
+                struct sockaddr_in *float_addr = (struct sockaddr_in *)&dco->dco_float_peer_sa;
+                memcpy(&m->top.c2.from.dest.addr.in4, float_addr, sizeof(struct sockaddr_in));
+                multi_process_float(m, mi);
+            }
+            else if (family == AF_INET6)
+            {
+                struct sockaddr_in6 *float_addr = (struct sockaddr_in6 *)&dco->dco_float_peer_sa;
+                memcpy(&m->top.c2.from.dest.addr.in6, float_addr, sizeof(struct sockaddr_in6));
+                multi_process_float(m, mi);
+            }
+            else
+            {
+                msg(D_DCO, "Received DCO float message with incorrect address family: %hu", family);
+            }
+            CLEAR(dco->dco_float_peer_sa);
+        }
         else if (dco->dco_message_type == OVPN_CMD_SWAP_KEYS)
         {
             tls_session_soft_reset(mi->context.c2.tls_multi);
