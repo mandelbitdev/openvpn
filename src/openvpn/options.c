@@ -6196,7 +6196,7 @@ remove_option(struct context *c,
         VERIFY_PERMISSION(OPT_P_DHCPDNS);
 
         o->domain = "";
-        o->netbios_scope = NULL
+        o->netbios_scope = NULL;
         o->netbios_node_type = 0;
         o->dns6_len = 0;
         memset(o->dns6, 0, sizeof(o->dns6));
@@ -6206,7 +6206,7 @@ remove_option(struct context *c,
         memset(o->wins, 0, sizeof(o->wins));
         o->ntp_len = 0;
         memset(o->ntp, 0, sizeof(o->ntp));
-        o->nbdd_len = 0
+        o->nbdd_len = 0;
         memset(o->nbdd, 0, sizeof(o->nbdd));
         while (o->domain_search_list_len-- > 0)
         {
