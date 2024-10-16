@@ -826,6 +826,72 @@ ovpn_handle_msg(struct nl_msg *msg, void *arg)
             break;
         }
 
+        case OVPN_CMD_PEER_FLOAT_NTF:
+        {
+            if (!attrs[OVPN_A_PEER])
+            {
+                msg(D_DCO, "ovpn-dco: no attributes in OVPN_PEER_FLOAT message");
+                return NL_STOP;
+            }
+
+            struct nlattr *fp_attrs[OVPN_A_PEER_MAX + 1];
+            if (nla_parse_nested(fp_attrs, OVPN_A_PEER_MAX,
+                                 attrs[OVPN_A_PEER], NULL))
+            {
+                msg(D_DCO, "received bogus peer del packet data from ovpn-dco");
+                return NL_STOP;
+            }
+
+            if (!fp_attrs[OVPN_A_PEER_ID])
+            {
+                msg(D_DCO, "ovpn-dco: no peer-id in PEER_FLOAT message");
+                return NL_STOP;
+            }
+            if (!fp_attrs[OVPN_A_PEER_REMOTE_PORT])
+            {
+                msg(D_DCO, "ovpn-dco: no remote port in PEER_FLOAT message");
+                return NL_STOP;
+            }
+
+            struct gc_arena gc = gc_new();
+            uint32_t peerid = nla_get_u32(fp_attrs[OVPN_A_PEER_ID]);
+
+            if (fp_attrs[OVPN_A_PEER_REMOTE_IPV4])
+            {
+                struct sockaddr_in *ip4 = (struct sockaddr_in *)&dco->dco_float_peer_sa;
+                CLEAR(*ip4);
+                ip4->sin_family = AF_INET;
+                ip4->sin_port = nla_get_u16(fp_attrs[OVPN_A_PEER_REMOTE_PORT]);
+                ip4->sin_addr.s_addr = nla_get_u32(fp_attrs[OVPN_A_PEER_REMOTE_IPV4]);
+            }
+            else if (fp_attrs[OVPN_A_PEER_REMOTE_IPV6])
+            {
+                struct sockaddr_in6 *ip6 = (struct sockaddr_in6 *)&dco->dco_float_peer_sa;
+                CLEAR(*ip6);
+                ip6->sin6_family = AF_INET6;
+                ip6->sin6_port = nla_get_u16(fp_attrs[OVPN_A_PEER_REMOTE_PORT]);
+                memcpy(&ip6->sin6_addr, nla_data(fp_attrs[OVPN_A_PEER_REMOTE_IPV6]), sizeof(ip6->sin6_addr));
+                if (fp_attrs[OVPN_A_PEER_REMOTE_IPV6_SCOPE_ID])
+                {
+                    ip6->sin6_scope_id = nla_get_u32(fp_attrs[OVPN_A_PEER_REMOTE_IPV6_SCOPE_ID]);
+                }
+            }
+            else
+            {
+                msg(D_DCO, "ovpn-dco: no remote IP address in PEER_FLOAT message");
+                return NL_STOP;
+            }
+
+            msg(D_DCO_DEBUG,
+                "ovpn-dco: received CMD_PEER_FLOAT, ifindex: %u, peer-id %u, address: %s",
+                ifindex, peerid, print_sockaddr(&dco->dco_float_peer_sa, &gc));
+            dco->dco_message_peer_id = (int)peerid;
+            dco->dco_message_type = OVPN_CMD_PEER_FLOAT_NTF;
+
+            gc_free(&gc);
+            break;
+        }
+
         case OVPN_CMD_KEY_SWAP_NTF:
         {
             if (!attrs[OVPN_A_KEYCONF])

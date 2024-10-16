@@ -1269,6 +1269,44 @@ process_incoming_dco(struct context *c)
             }
             break;
 
+        case OVPN_CMD_FLOAT_PEER:
+        {
+            ASSERT(TLS_MODE(c));
+            struct tls_multi *multi = c->c2.tls_multi;
+            if (multi->peer_id != dco->dco_message_peer_id)
+            {
+                msg(D_DCO, "Received DCO float message for unknown peer-id %d",
+                    dco->dco_message_peer_id);
+                CLEAR(dco->dco_float_peer_sa);
+                return;
+            }
+
+            const sa_family_t family = dco->dco_float_peer_sa.sa_family;
+            if (family != AF_INET && family != AF_INET6)
+            {
+                msg(D_DCO, "Received DCO float message with incorrect address family: %hu",
+                    family);
+                CLEAR(dco->dco_float_peer_sa);
+                return;
+            }
+
+            struct gc_arena gc = gc_new();
+            struct link_socket_actual float_addr = { 0 };
+            const char *float_addr_str = print_sockaddr(&dco->dco_float_peer_sa, &gc);
+
+            msg(D_DCO_DEBUG, "%s: received float notification for peer-id %d at address %s",
+                __func__, dco->dco_message_peer_id, float_addr_str);
+            msg(D_LOW, "peer %d floated to %s", dco->dco_message_peer_id, float_addr_str);
+
+            memcpy(&float_addr.dest.addr, &dco->dco_float_peer_sa,
+                   family == AF_INET ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6));
+            tls_update_remote_addr(multi, &float_addr);
+
+            gc_free(&gc);
+            CLEAR(dco->dco_float_peer_sa);
+            break;
+        }
+
         case OVPN_CMD_SWAP_KEYS:
             msg(D_DCO_DEBUG, "%s: received key rotation notification for peer-id %d",
                 __func__, dco->dco_message_peer_id);

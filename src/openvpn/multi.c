@@ -3290,6 +3290,41 @@ multi_process_incoming_dco(struct multi_context *m)
         {
             process_incoming_del_peer(m, mi, dco);
         }
+        else if (dco->dco_message_type == OVPN_CMD_FLOAT_PEER)
+        {
+            const sa_family_t family = dco->dco_float_peer_sa.sa_family;
+            if (family == AF_INET)
+            {
+                struct sockaddr_in *float_addr = (struct sockaddr_in *)&dco->dco_float_peer_sa;
+                /* DCO treats IPv4-mapped IPv6 addresses as pure IPv4. However,
+                 * we need to preserve the mapping; otherwise, the peer cannot
+                 * be found in the hash table by its address. */
+                if (IN6_IS_ADDR_V4MAPPED(&m->top.c2.from.dest.addr.in6.sin6_addr))
+                {
+                    m->top.c2.from.dest.addr.in6.sin6_port = float_addr->sin_port;
+                    m->top.c2.from.dest.addr.in6.sin6_addr.s6_addr32[3] =
+                        float_addr->sin_addr.s_addr;
+                }
+                else
+                {
+                    memcpy(&m->top.c2.from.dest.addr.in4, float_addr,
+                           sizeof(struct sockaddr_in));
+                }
+                multi_process_float(m, mi);
+            }
+            else if (family == AF_INET6)
+            {
+                struct sockaddr_in6 *float_addr = (struct sockaddr_in6 *)&dco->dco_float_peer_sa;
+                memcpy(&m->top.c2.from.dest.addr.in6, float_addr, sizeof(struct sockaddr_in6));
+                multi_process_float(m, mi);
+            }
+            else
+            {
+                msg(D_DCO, "Received DCO float message with incorrect address family: %hu",
+                    family);
+            }
+            CLEAR(dco->dco_float_peer_sa);
+        }
         else if (dco->dco_message_type == OVPN_CMD_SWAP_KEYS)
         {
             tls_session_soft_reset(mi->context.c2.tls_multi);
