@@ -5869,7 +5869,6 @@ remove_option(struct context *c,
            bool is_inline,
            const char *file,
            int line,
-           const int level,
            const int msglevel,
            const unsigned int permission_mask,
            unsigned int *option_types_found,
@@ -5885,8 +5884,8 @@ remove_option(struct context *c,
         if (ip_or_dns_addr_safe(p[1], options->allow_pull_fqdn) && ip_or_dns_addr_safe(p[2], options->allow_pull_fqdn) /* FQDN -- may be DNS name */
             && streq(p[1], options->ifconfig_local) && streq(p[2], options->ifconfig_remote_netmask))
         {
-            options->ifconfig_local = NULL;
-            options->ifconfig_remote_netmask = NULL;
+            options->ifconfig_local = "";
+            options->ifconfig_remote_netmask = "";
         }
         else
         {
@@ -5905,9 +5904,9 @@ remove_option(struct context *c,
             && options->ifconfig_ipv6_netbits == netbits
             && streq(options->ifconfig_ipv6_remote, p[2]))
         {
-            options->ifconfig_ipv6_local = NULL;
+            options->ifconfig_ipv6_local = "";
             options->ifconfig_ipv6_netbits = 0;
-            options->ifconfig_ipv6_remote = NULL;
+            options->ifconfig_ipv6_remote = "";
         }
         else
         {
@@ -5997,7 +5996,7 @@ remove_option(struct context *c,
         }
         else
         {
-            options->route_default_gateway = NULL;
+            options->route_default_gateway = "";
         }
     }
     else if (streq(p[0], "route-metric") && !p[1])
@@ -6151,7 +6150,7 @@ remove_option(struct context *c,
                 }
                 else if (streq(p[3], "sni") && !p[5])
                 {
-                    server->sni = NULL;
+                    server->sni = "";
                 }
                 else
                 {
@@ -6196,7 +6195,7 @@ remove_option(struct context *c,
         VERIFY_PERMISSION(OPT_P_DHCPDNS);
 
         o->domain = "";
-        o->netbios_scope = NULL;
+        o->netbios_scope = "";
         o->netbios_node_type = 0;
         o->dns6_len = 0;
         memset(o->dns6, 0, sizeof(o->dns6));
@@ -6210,14 +6209,14 @@ remove_option(struct context *c,
         memset(o->nbdd, 0, sizeof(o->nbdd));
         while (o->domain_search_list_len-- > 0)
         {
-            o->domain_search_list[o->domain_search_list_len] = NULL;
+            o->domain_search_list[o->domain_search_list_len] = "";
         }
         o->disable_nbt = 0;
         o->dhcp_options &= ~DHCP_OPTIONS_DHCP_OPTIONAL;
         o->dhcp_options &= ~DHCP_OPTIONS_DHCP_REQUIRED;
 #if defined(TARGET_ANDROID)
         o->http_proxy_port = 0;
-        o->http_proxy = NULL;
+        o->http_proxy = "";
 #endif
     }
 #endif /* if defined(_WIN32) || defined(TARGET_ANDROID) */
@@ -6256,7 +6255,7 @@ remove_option(struct context *c,
         msg(msglevel_unknown, "Unrecognized option or missing or extra parameter(s) in %s:%d: %s (%s)", file, line, p[0], PACKAGE_VERSION);
     }
     err:
-        msg(msglevel, "Error occurred trying to remove the option");
+        msg(msglevel, "Error occurred trying to remove %s option", p[0]);
 }
 
 bool
@@ -6294,13 +6293,13 @@ apply_push_options(struct context *c,
         {
             if (push_update_option_flags & PUSH_OPT_TO_REMOVE)
             {
-                remove_option(c, options, p, false, file, line_num, 0, msglevel,
+                remove_option(c, options, p, false, file, line_num, msglevel,
                               permission_mask, option_types_found, es);
             }
             else
             {
                 add_option(options, p, false, file, line_num, 0, msglevel,
-                           permission_mask, option_types_found, es);// it also update the option? (i think so but not sure)
+                           permission_mask, option_types_found, es);
             }
             /*
                 else add-update option ? or maybe just add_option()?
