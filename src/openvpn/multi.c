@@ -3384,6 +3384,24 @@ multi_process_incoming_dco(struct multi_context *m)
         {
             process_incoming_del_peer(m, mi, dco);
         }
+#if defined(TARGET_LINUX)
+        else if (dco->dco_message_type == OVPN_CMD_FLOAT_PEER)
+        {
+            if (extract_dco_float_peer_addr(peer_id, &m->top.c2.from.dest,
+                                            (struct sockaddr *)&dco->dco_float_peer_ss))
+            {
+                ASSERT(mi->context.c2.link_sockets[0]);
+                multi_process_float(m, mi, mi->context.c2.link_sockets[0]);
+            }
+            else
+            {
+                msg(D_DCO_DEBUG, "Received DCO float message with incorrect "
+                    "address family %hu for peer-id %d",
+                    dco->dco_float_peer_ss.ss_family, peer_id);
+            }
+            CLEAR(dco->dco_float_peer_ss);
+        }
+#endif /* if defined(TARGET_LINUX) */
         else if (dco->dco_message_type == OVPN_CMD_SWAP_KEYS)
         {
             tls_session_soft_reset(mi->context.c2.tls_multi);
