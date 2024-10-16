@@ -3428,10 +3428,10 @@ remap_redirect_gateway_flags(struct options *opt)
         msg(M_INFO, "Flag 'def1' added to --redirect-gateway (iservice is in use)");
         opt->routes->flags |= RG_DEF1;
     }
-    else if (!opt->routes
+    else if ((!opt->routes
         || opt->route_method != ROUTE_METHOD_SERVICE
-        || !opt->routes->flags & RG_REROUTE_GW
-        && opt->routes->flags & RG_DEF1)
+        || !(opt->routes->flags & RG_REROUTE_GW))
+        && (opt->routes->flags & RG_DEF1))
     {
         msg(M_INFO, "Flag 'def1' removed from --redirect-gateway");
         opt->routes->flags &= ~RG_DEF1;
@@ -6200,11 +6200,11 @@ remove_option(struct context *c,
         o->netbios_node_type = 0;
         o->dns6_len = 0;
         memset(o->dns6, 0, sizeof(o->dns6));
-        o->dns_len = 0
+        o->dns_len = 0;
         memset(o->dns, 0, sizeof(o->dns));
-        o->wins_len = 0
+        o->wins_len = 0;
         memset(o->wins, 0, sizeof(o->wins));
-        o->ntp_len = 0
+        o->ntp_len = 0;
         memset(o->ntp, 0, sizeof(o->ntp));
         o->nbdd_len = 0
         memset(o->nbdd, 0, sizeof(o->nbdd));
