@@ -539,15 +539,14 @@ incoming_push_message(struct context *c, const struct buffer *buffer)
                     goto error;
                 }
             }
-            /*
             else
             {
-                if (!do_update(c))
+                if (!do_update(c, c->options.push_option_types_found))
                 {
                     msg(D_PUSH_ERRORS, "Failed to update options");
                     goto error;
                 }
-            }*/
+            }
         }
         event_timeout_clear(&c->c2.push_request_interval);
         event_timeout_clear(&c->c2.wait_for_connect);
@@ -1045,11 +1044,10 @@ push_update_digest(md_ctx_t *ctx, struct buffer *buf, const struct options *opt)
 }
 
 static int
-process_incoming_push_reply_update(struct context *c,
+process_incoming_push_reply(struct context *c,
                                    unsigned int permission_mask,
                                    unsigned int *option_types_found,
-                                   struct buffer *buf,
-                                   unsigned int msg_type)
+                                   struct buffer *buf)
 {
     int ret = PUSH_MSG_ERROR;
     const uint8_t ch = buf_read_u8(buf);
@@ -1068,7 +1066,7 @@ process_incoming_push_reply_update(struct context *c,
                                permission_mask,
                                option_types_found,
                                c->c2.es,
-                               msg_type == PUSH_MSG_UPDATE))
+                               false))
         {
             push_update_digest(c->c2.pulled_options_state, &buf_orig,
                                &c->options);
@@ -1082,7 +1080,7 @@ process_incoming_push_reply_update(struct context *c,
                     md_ctx_free(c->c2.pulled_options_state);
                     c->c2.pulled_options_state = NULL;
                     c->c2.pulled_options_digest_init_done = false;
-                    ret = msg_type;
+                    ret = PUSH_MSG_REPLY;
                     break;
 
                 case 2:
@@ -1093,9 +1091,48 @@ process_incoming_push_reply_update(struct context *c,
     }
     else if (ch == '\0')
     {
-        ret = msg_type;
+        ret = PUSH_MSG_REPLY;
     }
     /* show_settings (&c->options); */
+    return ret;
+}
+
+static int
+process_incoming_push_update(struct context *c,
+                                   unsigned int permission_mask,
+                                   unsigned int *option_types_found,
+                                   struct buffer *buf)
+{
+    int ret = PUSH_MSG_ERROR;
+    const uint8_t ch = buf_read_u8(buf);
+    if (ch == ',')
+    {
+        if (apply_push_options(c,
+                               &c->options,
+                               buf,
+                               permission_mask,
+                               option_types_found,
+                               c->c2.es,
+                               true))
+        {
+            switch (c->options.push_continuation)
+            {
+                case 0:
+                case 1:
+                    ret = PUSH_MSG_UPDATE;
+                    break;
+
+                case 2:
+                    ret = PUSH_MSG_CONTINUATION;
+                    break;
+            }
+        }
+    }
+    else if (ch == '\0')
+    {
+        ret = PUSH_MSG_UPDATE;
+    }
+
     return ret;
 }
 
@@ -1116,16 +1153,14 @@ process_incoming_push_msg(struct context *c,
     else if (honor_received_options
              && buf_string_compare_advance(&buf, push_reply_cmd))
     {
-        return process_incoming_push_reply_update(c, permission_mask,
-                                                  option_types_found, &buf,
-                                                  PUSH_MSG_REPLY);
+        return process_incoming_push_reply(c, permission_mask,
+                                                  option_types_found, &buf);
     }
     else if (honor_received_options
              && buf_string_compare_advance(&buf, push_update_cmd))
     {
-        return process_incoming_push_reply_update(c, permission_mask,
-                                                  option_types_found, &buf,
-                                                  PUSH_MSG_UPDATE);
+        return process_incoming_push_update(c, permission_mask,
+                                                  option_types_found, &buf);
     }
     else
     {

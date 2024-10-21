@@ -6291,7 +6291,7 @@ apply_push_options(struct context *c,
         }
         if (parse_line(line, p, SIZE(p)-1, file, line_num, msglevel, &options->gc))
         {
-            if (push_update_option_flags & PUSH_OPT_TO_REMOVE)
+            if (push_update_option_flags & PUSH_OPT_TO_REMOVE) /* Flag is alway set to 0 if !is_update */
             {
                 remove_option(c, options, p, false, file, line_num, msglevel,
                               permission_mask, option_types_found, es);
@@ -6301,9 +6301,6 @@ apply_push_options(struct context *c,
                 add_option(options, p, false, file, line_num, 0, msglevel,
                            permission_mask, option_types_found, es);
             }
-            /*
-                else add-update option ? or maybe just add_option()?
-            */
         }
     }
     return true;

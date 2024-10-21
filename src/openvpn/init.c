@@ -2032,7 +2032,7 @@ do_open_tun(struct context *c, int *error_flags)
         /* possibly add routes */
         if ((route_order(c->c1.tuntap) == ROUTE_AFTER_TUN) && (!c->options.route_delay_defined))
         {
-            int status = do_route(&c->options, c->c1.route_list, c->c1.route_ipv6_list,
+            bool status = do_route(&c->options, c->c1.route_list, c->c1.route_ipv6_list,
                                   c->c1.tuntap, c->plugins, c->c2.es, &c->net_ctx);
             *error_flags |= (status ? 0 : ISC_ROUTE_ERRORS);
         }
@@ -2566,6 +2566,67 @@ do_up(struct context *c, bool pulled_options, unsigned int option_types_found)
             c->c2.tls_multi->multi_state = CAS_CONNECT_DONE;
         }
     }
+    return true;
+}
+
+static void
+do_deferred_options_update(struct context *c, unsigned int found)
+{
+    if (found & OPT_P_PUSH_MTU)
+    {
+        /* MTU has changed, check that the pushed MTU is small enough to
+         * be able to change it */
+        msg(D_PUSH, "OPTIONS IMPORT: tun-mtu set to %d", c->options.ce.tun_mtu);
+
+        struct frame *frame = &c->c2.frame;
+
+        if (c->options.ce.tun_mtu > frame->tun_max_mtu)
+        {
+            msg(D_PUSH_ERRORS, "Server-pushed tun-mtu is too large, please add "
+                "tun-mtu-max %d in the client configuration",
+                c->options.ce.tun_mtu);
+        }
+        frame->tun_mtu = min_int(frame->tun_max_mtu, c->options.ce.tun_mtu);
+    }
+    if (found & OPT_P_UP)
+    {
+        msg(D_PUSH, "OPTIONS IMPORT: --ifconfig/up options modified");
+    }
+    if ((found & OPT_P_ROUTE))
+    {
+        msg(D_PUSH, "OPTIONS IMPORT: route options modified");
+    }
+    if (found & OPT_P_ROUTE_EXTRAS)
+    {
+        msg(D_PUSH, "OPTIONS IMPORT: route-related options modified");
+    }
+    if (found & OPT_P_DHCPDNS)
+    {
+        msg(D_PUSH, "OPTIONS IMPORT: --ip-win32 and/or --dhcp-option options modified");
+    }
+}
+
+bool
+do_update(struct context *c, unsigned int option_types_found)
+{
+    if (!c->c2.do_up_ran)
+    {
+        return false;
+    }
+    reset_coarse_timers(c);
+    
+    do_deferred_options_update(c, option_types_found);
+    
+    do_close_tun(c, true);
+     
+    int error_flags = 0;
+    c->c2.did_open_tun = do_open_tun(c, &error_flags);
+    if (c->c2.did_open_tun)
+        initialization_sequence_completed(c, error_flags);
+
+    CLEAR(c->c1.pulled_options_digest_save);
+    update_time();
+
     return true;
 }
 
