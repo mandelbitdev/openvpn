@@ -5722,9 +5722,9 @@ apply_pull_filter(const struct options *o, char *line, unsigned int *push_update
     {
         *push_update_option_flags = 0;
         if (!check_push_update_option_flags(&line, push_update_option_flags))
-        {
             return false;
-        }
+        if (!o->pull_filter_list)
+            return true;
     }
 
     for (f = o->pull_filter_list->head; f; f = f->next)
@@ -6252,7 +6252,7 @@ remove_option(struct context *c,
                 break;
             }
         }
-        msg(msglevel_unknown, "Unrecognized option or missing or extra parameter(s) in %s:%d: %s (%s)", file, line, p[0], PACKAGE_VERSION);
+        msg(msglevel_unknown, "Unrecognized option or missing or extra parameter(s) in %s:%d: -%s (%s)", file, line, p[0], PACKAGE_VERSION);
     }
     err:
         msg(msglevel, "Error occurred trying to remove %s option", p[0]);
