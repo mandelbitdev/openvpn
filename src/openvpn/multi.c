@@ -549,7 +549,13 @@ setenv_stats(struct multi_context *m, struct context *c)
 {
     if (dco_enabled(&m->top.options))
     {
-        dco_get_peer_stats_multi(&m->top.c1.tuntap->dco, m);
+        const int stats_request = dco_get_peer_stats_multi(&m->top.c1.tuntap->dco, m);
+        if (stats_request < 0)
+        {
+            msg(D_DCO, "Error requesting peer %d DCO stats (%s)",
+                c->c2.tls_multi->dco_peer_id, strerror(-stats_request));
+            return;
+        }
     }
 
     setenv_counter(c->c2.es, "bytes_received", c->c2.link_read_bytes + c->c2.dco_read_bytes);
@@ -855,7 +861,14 @@ multi_print_status(struct multi_context *m, struct status_output *so, const int 
 
         if (dco_enabled(&m->top.options))
         {
-            dco_get_peer_stats_multi(&m->top.c1.tuntap->dco, m);
+            const int stats_request = dco_get_peer_stats_multi(&m->top.c1.tuntap->dco, m);
+            if (stats_request == -ENOENT)
+            {
+                msg(M_WARN, "Error requesting peer DCO stats (%s)",
+                    strerror(-stats_request));
+                register_signal(m->top.sig, SIGUSR1, "dco peer stats error");
+                return;
+            }
         }
 
         if (version == 1)

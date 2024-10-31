@@ -4138,10 +4138,21 @@ management_check_bytecount(struct context *c, struct management *man, struct tim
         counter_type dco_read_bytes = 0;
         counter_type dco_write_bytes = 0;
 
-        if (dco_enabled(&c->options) && (dco_get_peer_stats(c) == 0))
+        if (dco_enabled(&c->options) && c->c2.tls_multi->peer_id != -1)
         {
-            dco_read_bytes = c->c2.dco_read_bytes;
-            dco_write_bytes = c->c2.dco_write_bytes;
+            const int stats_request = dco_get_peer_stats(c);
+            if (stats_request == 0)
+            {
+                dco_read_bytes = c->c2.dco_read_bytes;
+                dco_write_bytes = c->c2.dco_write_bytes;
+            }
+            else if (stats_request < 0)
+            {
+                msg(D_MANAGEMENT, "MANAGEMENT: Error requesting peer %d DCO stats (%s). Restarting the session",
+                    c->c2.tls_multi->dco_peer_id, strerror(-stats_request));
+                register_signal(c->sig, SIGUSR1, "dco peer stats error");
+                return;
+            }
         }
 
         if (!(man->persist.callback.flags & MCF_SERVER))

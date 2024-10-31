@@ -489,7 +489,14 @@ print_status(struct context *c, struct status_output *so)
 
     if (dco_enabled(&c->options))
     {
-        dco_get_peer_stats(c);
+        const int stats_request = dco_get_peer_stats(c);
+        if (stats_request < 0)
+        {
+            msg(M_WARN, "Error requesting peer %d DCO stats (%s). Restarting the session",
+                c->c2.tls_multi->dco_peer_id, strerror(-stats_request));
+            register_signal(c->sig, SIGUSR1, "dco peer stats error");
+            return;
+        }
     }
 
     status_printf(so, "OpenVPN STATISTICS");

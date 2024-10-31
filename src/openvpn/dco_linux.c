@@ -979,7 +979,12 @@ dco_parse_peer(struct nl_msg *msg, void *arg)
 int
 dco_get_peer_stats(struct context *c)
 {
-    uint32_t peer_id = c->c2.tls_multi->dco_peer_id;
+    int peer_id = c->c2.tls_multi->dco_peer_id;
+    if (peer_id == -1)
+    {
+        return 0;
+    }
+
     msg(D_DCO_DEBUG, "%s: peer-id %d", __func__, peer_id);
 
     if (!c->c1.tuntap)
