@@ -489,7 +489,12 @@ print_status(struct context *c, struct status_output *so)
 
     if (dco_enabled(&c->options))
     {
-        dco_get_peer_stats(c);
+        if (dco_get_peer_stats(c) == -ENOENT)
+        {
+            msg(M_WARN, "Underlying DCO peer is gone. Restarting the session");
+            register_signal(c->sig, SIGUSR1, "dco-peer-gone");
+            return;
+        }
     }
 
     status_printf(so, "OpenVPN STATISTICS");

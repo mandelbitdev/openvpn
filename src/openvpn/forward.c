@@ -483,16 +483,26 @@ check_add_routes(struct context *c)
 static void
 check_inactivity_timeout(struct context *c)
 {
-    if (dco_enabled(&c->options) && dco_get_peer_stats(c) == 0)
+    if (dco_enabled(&c->options))
     {
-        int64_t tot_bytes = c->c2.tun_read_bytes + c->c2.tun_write_bytes;
-        int64_t new_bytes = tot_bytes - c->c2.inactivity_bytes;
-
-        if (new_bytes > c->options.inactivity_minimum_bytes)
+        const int stats_request = dco_get_peer_stats(c);
+        if (stats_request == 0)
         {
-            c->c2.inactivity_bytes = tot_bytes;
-            event_timeout_reset(&c->c2.inactivity_interval);
+            int64_t tot_bytes = c->c2.tun_read_bytes + c->c2.tun_write_bytes;
+            int64_t new_bytes = tot_bytes - c->c2.inactivity_bytes;
 
+            if (new_bytes > c->options.inactivity_minimum_bytes)
+            {
+                c->c2.inactivity_bytes = tot_bytes;
+                event_timeout_reset(&c->c2.inactivity_interval);
+
+                return;
+            }
+        }
+        else if (stats_request == -ENOENT)
+        {
+            msg(M_WARN, "Underlying DCO peer is gone. Restarting the session");
+            register_signal(c->sig, SIGUSR1, "dco-peer-gone");
             return;
         }
     }

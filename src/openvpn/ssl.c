@@ -1650,7 +1650,12 @@ tls_session_update_crypto_params_do_work(struct tls_multi *multi,
                                    options->ping_send_timeout,
                                    options->ping_rec_timeout,
                                    frame->mss_fix);
-            if (ret < 0)
+            if (ret == -ENOENT)
+            {
+                msg(D_DCO, "Underlying DCO peer (id=%d) is gone", multi->dco_peer_id);
+                return false;
+            }
+            else if (ret < 0)
             {
                 msg(D_DCO, "Cannot set DCO peer parameters for peer (id=%u): %s",
                     multi->dco_peer_id, strerror(-ret));
