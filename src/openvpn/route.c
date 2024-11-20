@@ -1291,6 +1291,60 @@ delete_routes(struct route_list *rl, struct route_ipv6_list *rl6,
     }
 }
 
+void
+destroy_routes_v4(struct route_list *rl, const struct tuntap *tt,
+                  unsigned int flags, const struct env_set *es,
+                  openvpn_net_ctx_t *ctx, struct options *options)
+{
+    if (rl && (rl->iflags & RL_ROUTES_ADDED))
+    {
+        struct route_ipv4 *r;
+        for (r = rl->routes; r; r = r->next)
+        {
+            delete_route(r, tt, flags, &rl->rgi, es, ctx);
+        }
+        rl->iflags &= ~RL_ROUTES_ADDED;
+    }
+
+    undo_redirect_default_route_to_vpn(rl, tt, flags, es, ctx);
+
+    if (rl)
+    {
+        clear_route_list(rl);
+    }
+    if (options->routes)
+    {
+        options->routes->routes = NULL;
+        options->routes->flags = 0;
+    }
+}
+
+void
+destroy_routes_v6(struct route_ipv6_list *rl6, const struct tuntap *tt,
+                  unsigned int flags, const struct env_set *es,
+                  openvpn_net_ctx_t *ctx, struct options *options)
+{
+    if (rl6 && (rl6->iflags & RL_ROUTES_ADDED))
+    {
+        struct route_ipv6 *r6;
+        for (r6 = rl6->routes_ipv6; r6; r6 = r6->next)
+        {
+            delete_route_ipv6(r6, tt, flags, es, ctx);
+        }
+        rl6->iflags &= ~RL_ROUTES_ADDED;
+    }
+
+    if (rl6)
+    {
+        clear_route_ipv6_list(rl6);
+    }
+    if (options->routes_ipv6)
+    {
+        options->routes_ipv6->routes_ipv6 = NULL;
+        options->routes_ipv6->flags = 0;
+    }
+}
+
 #ifndef ENABLE_SMALL
 
 static const char *
