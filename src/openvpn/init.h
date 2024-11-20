@@ -86,6 +86,18 @@ bool do_up(struct context *c,
            bool pulled_options,
            unsigned int option_types_found);
 
+/**
+ * @brief A simplified version of the do_up() function. This function is called
+ *        after receiving a successful PUSH_UPDATE message. It closes and reopens
+ *        the TUN device to apply the updated options.
+ *
+ * @param c The context structure.
+ * @param option_types_found The options found in the PUSH_UPDATE message.
+ * @return true on success.
+ * @return false on error.
+ */
+bool do_update(struct context *c, unsigned int option_types_found);
+
 unsigned int pull_permission_mask(const struct context *c);
 
 const char *format_common_name(struct context *c, struct gc_arena *gc);
