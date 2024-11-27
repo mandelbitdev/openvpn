@@ -24,7 +24,6 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
-
 #include "syshead.h"
 
 #ifdef ENABLE_MANAGEMENT
@@ -42,6 +41,7 @@
 #include "manage.h"
 #include "openvpn.h"
 #include "dco.h"
+#include "push.h"
 
 #include "memdbg.h"
 
@@ -124,6 +124,11 @@ man_help(void)
     msg(M_CLIENT, "username type u        : Enter username u for a queried OpenVPN username.");
     msg(M_CLIENT, "verb [n]               : Set log verbosity level to n, or show if n is absent.");
     msg(M_CLIENT, "version [n]            : Set client's version to n or show current version of daemon.");
+    msg(M_CLIENT, "push-update-broad options : Broadcast a message to update the specified options.");
+    msg(M_CLIENT, "                            Ex. push-update-broad \"route something, -dns\"");
+    msg(M_CLIENT, "push-update-cid CID options : Send an update message to the client identified by CID.");
+    msg(M_CLIENT, "push-update-cn CN options : Send an update message to the client(s) with the specified Common Name.");
+    msg(M_CLIENT, "push-update-addr ip port options : Send an update message to the client(s) connecting from the provided address.");
     msg(M_CLIENT, "END");
 }
 
@@ -1335,6 +1340,129 @@ set_client_version(struct management *man, const char *version)
 }
 
 static void
+man_push_update(struct management *man, const char **p, const push_update_type type)
+{
+    bool status = false;
+
+    if (type == UPT_BROADCAST)
+    {
+        if (!man->persist.callback.push_update_broadcast)
+        {
+            man_command_unsupported("push-update-broad");
+            return;
+        }
+
+        status = (*man->persist.callback.push_update_broadcast)(man->persist.callback.arg, p[1]);
+    }
+    else if (type == UPT_BY_CID)
+    {
+        if (!man->persist.callback.push_update_by_cid)
+        {
+            man_command_unsupported("push-update-cid");
+            return;
+        }
+
+        unsigned long cid = 0;
+
+        if (!parse_cid(p[1], &cid))
+        {
+            msg(M_CLIENT, "ERROR: push-update-cid fail during cid parsing");
+            return;
+        }
+
+        status = (*man->persist.callback.push_update_by_cid)(man->persist.callback.arg, cid, p[2]);
+    }
+    else if (type == UPT_BY_CN)
+    {
+        if (!man->persist.callback.push_update_by_cn)
+        {
+            man_command_unsupported("push-update-cn");
+            return;
+        }
+
+        status = (*man->persist.callback.push_update_by_cn)(man->persist.callback.arg, p[1], p[2]);
+    }
+    else if (type == UPT_BY_ADDR)
+    {
+        if (!man->persist.callback.push_update_by_addr)
+        {
+            man_command_unsupported("push-update-addr");
+            return;
+        }
+
+        const char *ip_str = p[1];
+        const char *port_str = p[2];
+        const char *options = p[3];
+
+        if (!strlen(ip_str) || !strlen(port_str))
+        {
+            msg(M_CLIENT, "ERROR: push-update-addr parse");
+            return;
+        }
+
+        struct addrinfo *res = NULL;
+        int port = atoi(port_str);
+
+        if (port < 1 || port > 65535)
+        {
+            msg(M_CLIENT, "ERROR: port number is out of range: %s", port_str);
+            return;
+        }
+
+        int addr_status = openvpn_getaddrinfo(GETADDR_MSG_VIRT_OUT, ip_str, port_str, 0, NULL, AF_UNSPEC, &res);
+
+        if (addr_status != 0 || !res)
+        {
+            msg(M_CLIENT, "ERROR: error resolving address: %s (%s)", ip_str, gai_strerror(addr_status));
+            return;
+        }
+
+        struct addrinfo *rp;
+
+        /* Iterate through resolved addresses */
+        for (rp = res; rp != NULL; rp = rp->ai_next)
+        {
+            struct openvpn_sockaddr saddr;
+            struct mroute_addr maddr;
+
+            CLEAR(saddr);
+            switch (rp->ai_family)
+            {
+                case AF_INET:
+                    saddr.addr.in4 = *((struct sockaddr_in *)rp->ai_addr);
+                    break;
+
+                case AF_INET6:
+                    saddr.addr.in6 = *((struct sockaddr_in6 *)rp->ai_addr);
+                    break;
+
+                default:
+                    continue;
+            }
+
+            if (!mroute_extract_openvpn_sockaddr(&maddr, &saddr, true))
+            {
+                continue;
+            }
+
+            status = (*man->persist.callback.push_update_by_addr)(man->persist.callback.arg, &maddr, options);
+            if (status)
+            {
+                break;
+            }
+        }
+        freeaddrinfo(res);
+    }
+
+    if (status)
+    {
+        msg(M_CLIENT, "SUCCESS: push-update command succeeded");
+        return;
+    }
+    msg(M_CLIENT, "ERROR: push-update command failed");
+}
+
+static void
 man_dispatch_command(struct management *man, struct status_output *so, const char **p, const int nparms)
 {
     struct gc_arena gc = gc_new();
@@ -1654,6 +1782,34 @@ man_dispatch_command(struct management *man, struct status_output *so, const cha
         if (man_need(man, p, 1, MN_AT_LEAST))
         {
             man_remote(man, p);
+        }
+    }
+    else if (streq(p[0], "push-update-broad"))
+    {
+        if (man_need(man, p, 1, 0))
+        {
+            man_push_update(man, p, UPT_BROADCAST);
+        }
+    }
+    else if (streq(p[0], "push-update-cid"))
+    {
+        if (man_need(man, p, 2, 0))
+        {
+            man_push_update(man, p, UPT_BY_CID);
+        }
+    }
+    else if (streq(p[0], "push-update-cn"))
+    {
+        if (man_need(man, p, 2, 0))
+        {
+            man_push_update(man, p, UPT_BY_CN);
+        }
+    }
+    else if (streq(p[0], "push-update-addr"))
+    {
+        if (man_need(man, p, 3, 0))
+        {
+            man_push_update(man, p, UPT_BY_ADDR);
         }
     }
 #if 1
