@@ -216,16 +216,17 @@ test_incoming_push_message_mix2(void **state)
     free_buf(&buf);
 }
 
-char *msg0 = "redirect-gateway local,route 192.168.1.0 255.255.255.0";
-char *msg1 = "-dhcp-option,blablalalalalalalalalalalalal, lalalalalalalalalalalalalala, akakakakakakakakakakaka, dhcp-option DNS 8.8.8.8,redirect-gateway local,route 192.168.1.0 255.255.255.0";
-char *msg2 = "";
-char *msg3 = ",,";
-char *msg4 = "-dhcp-option, blablalalalalalalalalalalalal, lalalalalalalalalalalalalala, akakakakakakakakakakaka,dhcp-option DNS 8.8.8.8, redirect-gateway local, route 192.168.1.0 255.255.255.0,";
-char *msg5 = ",-dhcp-option, blablalalalalalalalalalalalal, lalalalalalalalalalalalalala, akakakakakakakakakakaka,dhcp-option DNS 8.8.8.8, redirect-gateway local, route 192.168.1.0 255.255.255.0";
-char *msg6 = "-dhcp-option,blablalalalalalalalalalalalal, lalalalalalalalalalalalalala, akakakakakakakakakakaka, dhcp-option DNS 8.8.8.8, redirect-gateway 10.10.10.10,, route 192.168.1.0 255.255.255.0,";
-char *msg7 = ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,";
-char *msg8 = "-dhcp-option,blablalalalalalalalalalalalal, lalalalalalalalalalalalalala, akakakakakakakakakakaka, dhcp-option DNS 8.8.8.8,redirect-gateway\n local,route 192.168.1.0 255.255.255.0\n\n\n";
-char *msg9 = ",";
+const char *msg0 = "redirect-gateway local,route 192.168.1.0 255.255.255.0";
+const char *msg1 = "-dhcp-option,blablalalalalalalalalalalalalf, lalalalalalalalalalalalalalaf, akakakakakakakakakakakaf, dhcp-option DNS 8.8.8.8,redirect-gateway local,route 192.168.1.0 255.255.255.0";
+const char *msg2 = "";
+const char *msg3 = ",,";
+const char *msg4 = "-dhcp-option, blablalalalalalalalalalalalalf, lalalalalalalalalalalalalalaf, akakakakakakakakakakakaf,dhcp-option DNS 8.8.8.8, redirect-gateway local, route 192.168.1.0 255.255.255.0,";
+const char *msg5 = ",-dhcp-option, blablalalalalalalalalalalalalf, lalalalalalalalalalalalalalaf, akakakakakakakakakakakaf,dhcp-option DNS 8.8.8.8, redirect-gateway local, route 192.168.1.0 255.255.255.0";
+const char *msg6 = "-dhcp-option,blablalalalalalalalalalalalalf, lalalalalalalalalalalalalalaf, akakakakakakakakakakakaf, dhcp-option DNS 8.8.8.8, redirect-gateway 10.10.10.10,, route 192.168.1.0 255.255.255.0,";
+const char *msg7 = ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,";
+const char *msg8 = "-dhcp-option,blablalalalalalalalalalalalalf, lalalalalalalalalalalalalalaf, akakakakakakakakakakakaf, dhcp-option DNS 8.8.8.8,redirect-gateway\n local,route 192.168.1.0 255.255.255.0\n\n\n";
+const char *msg9 = ",";
+const char *msg10 = "Voilà! In view, a humble vaudevillian veteran cast vicariously as both victim and villain by the vicissitudes of Fate. This visage no mere veneer of vanity is a vestige of the vox populi now vacant vanished. However this valorous visitation of a by-gone vexation stands vivified and has vowed to vanquish these venal and virulent vermin vanguarding vice and vouchsafing the violently vicious and voracious violation of volition. The only verdict is vengeance; a vendetta held as a votive not in vain for the value and veracity of such shall one day vindicate the vigilant and the virtuous. Verily this vichyssoise of verbiage veers most verbose so let me simply add that it is my very good honor to meet you and you may call me V.";
 
 static void test_send_push_msg0(void **state)
 {
@@ -241,7 +242,7 @@ static void test_send_push_msg1(void **state)
 static void test_send_push_msg2(void **state)
 {
     struct context *c = *state;
-    assert_true(send_push_update(c, msg2));
+    assert_false(send_push_update(c, msg2));
 }
 
 static void test_send_push_msg3(void **state)
@@ -286,6 +287,12 @@ static void test_send_push_msg9(void **state)
     assert_true(send_push_update(c, msg9));
 }
 
+static void test_send_push_msg10(void **state)
+{
+    struct context *c = *state;
+    assert_false(send_push_update(c, msg10));
+}
+
 static int
 setup(void **state)
 {
@@ -320,16 +327,17 @@ main(void)
 
     const struct CMUnitTest tests_send[] =
     {
-    //    cmocka_unit_test_setup_teardown(test_send_push_msg0, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_send_push_msg0, setup, teardown),
         cmocka_unit_test_setup_teardown(test_send_push_msg1, setup, teardown),
-    /*    cmocka_unit_test_setup_teardown(test_send_push_msg2, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_send_push_msg2, setup, teardown),
         cmocka_unit_test_setup_teardown(test_send_push_msg3, setup, teardown),
         cmocka_unit_test_setup_teardown(test_send_push_msg4, setup, teardown),
         cmocka_unit_test_setup_teardown(test_send_push_msg5, setup, teardown),
         cmocka_unit_test_setup_teardown(test_send_push_msg6, setup, teardown),
         cmocka_unit_test_setup_teardown(test_send_push_msg7, setup, teardown),
         cmocka_unit_test_setup_teardown(test_send_push_msg8, setup, teardown),
-        cmocka_unit_test_setup_teardown(test_send_push_msg9, setup, teardown)*/
+        cmocka_unit_test_setup_teardown(test_send_push_msg9, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_send_push_msg10, setup, teardown)
     };
     
     return (/*cmocka_run_group_tests(tests_in, NULL, NULL) && */cmocka_run_group_tests(tests_send, NULL, NULL));

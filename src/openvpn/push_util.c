@@ -112,19 +112,33 @@ send_push_update(struct context *c, const char *mex)
     if (!message_splitter(str, mexs, &gc, safe_cap))
         goto fail;
     
-    int i = 0;
-    while(mexs[i] && *mexs[i])
+    if (!mexs[0] || !*mexs[0])
     {
-        if (mexs[i+1])
-            buf_printf(&buf, "%s%c%s%s", push_update_cmd, ',', mexs[i], ",push-continuation 2");
-        else
-            buf_printf(&buf, "%s%c%s%s", push_update_cmd, ',', mexs[i], ",push-continuation 1");
-
+        goto fail;
+    }
+    else if (!mexs[1] || !*mexs[1])
+    {
+        buf_printf(&buf, "%s%c%s", push_update_cmd, ',', mexs[0]);
         const bool status = send_control_channel_string(c, BSTR(&buf), D_PUSH);
-        if (!status)//should send buf with push-continuation 1 if it fails?
+        if (!status)
             goto fail;
-        buf = alloc_buf_gc(PUSH_BUNDLE_SIZE, &gc);
-        i++;
+    }
+    else
+    {
+        int i = 0;
+        while(mexs[i] && *mexs[i])
+        {
+            if (mexs[i+1])
+                buf_printf(&buf, "%s%c%s%s", push_update_cmd, ',', mexs[i], ",push-continuation 2");
+            else
+                buf_printf(&buf, "%s%c%s%s", push_update_cmd, ',', mexs[i], ",push-continuation 1");
+
+            const bool status = send_control_channel_string(c, BSTR(&buf), D_PUSH);
+            if (!status)//should send buf with push-continuation 1 if it fails?
+                goto fail;
+            buf = alloc_buf_gc(PUSH_BUNDLE_SIZE, &gc);
+            i++;
+        }
     }
 
     gc_free(&gc);
