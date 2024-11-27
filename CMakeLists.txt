@@ -832,6 +832,7 @@ if (BUILD_TESTING)
 	    src/openvpn/push_util.c
 	    src/openvpn/options_util.c
 	    src/openvpn/otime.c
+        src/openvpn/list.c
         )
 
     if (TARGET test_argv)
