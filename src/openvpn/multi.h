@@ -714,5 +714,10 @@ multi_set_pending(struct multi_context *m, struct multi_instance *mi)
  */
 void multi_assign_peer_id(struct multi_context *m, struct multi_instance *mi);
 
+#ifdef ENABLE_MANAGEMENT
+struct multi_instance *
+lookup_by_cid(struct multi_context *m, const unsigned long cid);
+
+#endif
 
 #endif /* MULTI_H */
