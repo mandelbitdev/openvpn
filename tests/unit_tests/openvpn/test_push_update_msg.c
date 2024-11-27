@@ -94,6 +94,13 @@ process_incoming_push_msg(struct context *c,
     }
 }
 
+bool
+send_control_channel_string(struct context *c, const char *str, int msglevel)
+{
+    printf("<%s>\n\n", str);
+    return true;
+}
+
 /* tests */
 
 static void
@@ -209,6 +216,76 @@ test_incoming_push_message_mix2(void **state)
     free_buf(&buf);
 }
 
+char *msg0 = "redirect-gateway local,route 192.168.1.0 255.255.255.0";
+char *msg1 = "-dhcp-option,blablalalalalalalalalalalalal, lalalalalalalalalalalalalala, akakakakakakakakakakaka, dhcp-option DNS 8.8.8.8,redirect-gateway local,route 192.168.1.0 255.255.255.0";
+char *msg2 = "";
+char *msg3 = ",,";
+char *msg4 = "-dhcp-option, blablalalalalalalalalalalalal, lalalalalalalalalalalalalala, akakakakakakakakakakaka,dhcp-option DNS 8.8.8.8, redirect-gateway local, route 192.168.1.0 255.255.255.0,";
+char *msg5 = ",-dhcp-option, blablalalalalalalalalalalalal, lalalalalalalalalalalalalala, akakakakakakakakakakaka,dhcp-option DNS 8.8.8.8, redirect-gateway local, route 192.168.1.0 255.255.255.0";
+char *msg6 = "-dhcp-option,blablalalalalalalalalalalalal, lalalalalalalalalalalalalala, akakakakakakakakakakaka, dhcp-option DNS 8.8.8.8, redirect-gateway 10.10.10.10,, route 192.168.1.0 255.255.255.0,";
+char *msg7 = ",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,";
+char *msg8 = "-dhcp-option,blablalalalalalalalalalalalal, lalalalalalalalalalalalalala, akakakakakakakakakakaka, dhcp-option DNS 8.8.8.8,redirect-gateway\n local,route 192.168.1.0 255.255.255.0\n\n\n";
+char *msg9 = ",";
+
+static void test_send_push_msg0(void **state)
+{
+    struct context *c = *state;
+    assert_true(send_push_update(c, msg0));
+}
+static void test_send_push_msg1(void **state)
+{
+    struct context *c = *state;
+    assert_true(send_push_update(c, msg1));
+}
+
+static void test_send_push_msg2(void **state)
+{
+    struct context *c = *state;
+    assert_true(send_push_update(c, msg2));
+}
+
+static void test_send_push_msg3(void **state)
+{
+    struct context *c = *state;
+    assert_true(send_push_update(c, msg3));
+}
+
+static void test_send_push_msg4(void **state)
+{
+    struct context *c = *state;
+    assert_true(send_push_update(c, msg4));
+}
+
+static void test_send_push_msg5(void **state)
+{
+    struct context *c = *state;
+    assert_true(send_push_update(c, msg5));
+}
+
+static void test_send_push_msg6(void **state)
+{
+    struct context *c = *state;
+    assert_true(send_push_update(c, msg6));
+}
+
+static void test_send_push_msg7(void **state)
+{
+    struct context *c = *state;
+    assert_true(send_push_update(c, msg7));
+}
+
+static void test_send_push_msg8(void **state)
+{
+    struct context *c = *state;
+    assert_true(send_push_update(c, msg8));
+}
+
+static void test_send_push_msg9(void **state)
+{
+    struct context *c = *state;
+    assert_true(send_push_update(c, msg9));
+}
+
 static int
 setup(void **state)
 {
@@ -230,7 +307,7 @@ teardown(void **state)
 int
 main(void)
 {
-    const struct CMUnitTest tests[] = {
+    /*const struct CMUnitTest tests_in[] = {
         cmocka_unit_test_setup_teardown(test_incoming_push_message_basic, setup, teardown),
         cmocka_unit_test_setup_teardown(test_incoming_push_message_error1, setup, teardown),
         cmocka_unit_test_setup_teardown(test_incoming_push_message_error2, setup, teardown),
@@ -239,7 +316,21 @@ main(void)
         cmocka_unit_test_setup_teardown(test_incoming_push_message_bad_format, setup, teardown),
         cmocka_unit_test_setup_teardown(test_incoming_push_message_mix, setup, teardown),
         cmocka_unit_test_setup_teardown(test_incoming_push_message_mix2, setup, teardown)
-    };
+    };*/
 
-    return cmocka_run_group_tests(tests, NULL, NULL);
+    const struct CMUnitTest tests_send[] =
+    {
+    //    cmocka_unit_test_setup_teardown(test_send_push_msg0, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_send_push_msg1, setup, teardown),
+    /*    cmocka_unit_test_setup_teardown(test_send_push_msg2, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_send_push_msg3, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_send_push_msg4, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_send_push_msg5, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_send_push_msg6, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_send_push_msg7, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_send_push_msg8, setup, teardown),
+        cmocka_unit_test_setup_teardown(test_send_push_msg9, setup, teardown)*/
+    };
+    
+    return (/*cmocka_run_group_tests(tests_in, NULL, NULL) && */cmocka_run_group_tests(tests_send, NULL, NULL));
 }

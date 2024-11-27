@@ -135,4 +135,7 @@ void send_push_reply_auth_token(struct tls_multi *multi);
 void
 receive_auth_pending(struct context *c, const struct buffer *buffer);
 
+bool
+send_push_update(struct context *c, const char *mex);
+
 #endif /* ifndef PUSH_H */
