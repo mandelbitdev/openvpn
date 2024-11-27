@@ -4068,7 +4068,7 @@ management_delete_event(void *arg, event_t event)
     }
 }
 
-static struct multi_instance *
+struct multi_instance *
 lookup_by_cid(struct multi_context *m, const unsigned long cid)
 {
     if (m)
@@ -4216,6 +4216,10 @@ init_management_callback_multi(struct multi_context *m)
         cb.client_auth = management_client_auth;
         cb.client_pending_auth = management_client_pending_auth;
         cb.get_peer_info = management_get_peer_info;
+        cb.push_update_broadcast = management_callback_send_push_update_broadcast;
+        cb.push_update_by_cid = management_callback_send_push_update_by_cid;
+        cb.push_update_by_cn = management_callback_send_push_update_by_cn;
+        cb.push_update_by_addr = management_callback_send_push_update_by_addr;
         management_set_callback(management, &cb);
     }
 #endif /* ifdef ENABLE_MANAGEMENT */
