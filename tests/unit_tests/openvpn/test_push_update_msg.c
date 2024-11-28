@@ -94,10 +94,14 @@ process_incoming_push_msg(struct context *c,
     }
 }
 
-bool
-send_control_channel_string(struct context *c, const char *str, int msglevel)
+char **res;
+int i;
+
+bool send_control_channel_string(struct context *c, const char *str, int msglevel)
 {
-    printf("<%s>\n\n", str);
+    if (res && res[i] && strcmp(res[i], str))
+        return false;
+    i++;
     return true;
 }
 
@@ -216,6 +220,46 @@ test_incoming_push_message_mix2(void **state)
     free_buf(&buf);
 }
 
+char *r0[] = {
+    "PUSH_UPDATE,redirect-gateway local,route 192.168.1.0 255.255.255.0"
+};
+char *r1[] = {
+    "PUSH_UPDATE,-dhcp-option,blablalalalalalalalalalalalalf, lalalalalalalalalalalalalalaf,push-continuation 2",
+    "PUSH_UPDATE, akakakakakakakakakakakaf, dhcp-option DNS 8.8.8.8,redirect-gateway local,push-continuation 2",
+    "PUSH_UPDATE,route 192.168.1.0 255.255.255.0,push-continuation 1"
+};
+char *r3[] = {
+    "PUSH_UPDATE,,,"
+};
+char *r4[] = {
+    "PUSH_UPDATE,-dhcp-option, blablalalalalalalalalalalalalf, lalalalalalalalalalalalalalaf,push-continuation 2",
+    "PUSH_UPDATE, akakakakakakakakakakakaf,dhcp-option DNS 8.8.8.8, redirect-gateway local,push-continuation 2",
+    "PUSH_UPDATE, route 192.168.1.0 255.255.255.0,,push-continuation 1"
+};
+char *r5[] = {
+    "PUSH_UPDATE,,-dhcp-option, blablalalalalalalalalalalalalf, lalalalalalalalalalalalalalaf,push-continuation 2",
+    "PUSH_UPDATE, akakakakakakakakakakakaf,dhcp-option DNS 8.8.8.8, redirect-gateway local,push-continuation 2",
+    "PUSH_UPDATE, route 192.168.1.0 255.255.255.0,push-continuation 1"
+};
+char *r6[] = {
+    "PUSH_UPDATE,-dhcp-option,blablalalalalalalalalalalalalf, lalalalalalalalalalalalalalaf,push-continuation 2",
+    "PUSH_UPDATE, akakakakakakakakakakakaf, dhcp-option DNS 8.8.8.8, redirect-gateway 10.10.10.10,,push-continuation 2",
+    "PUSH_UPDATE, route 192.168.1.0 255.255.255.0,,push-continuation 1"
+};
+char *r7[] = {
+    "PUSH_UPDATE,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,push-continuation 2",
+    "PUSH_UPDATE,,,,,,,,,,,,,,,,,,,push-continuation 1"
+};
+char *r8[] = {
+    "PUSH_UPDATE,-dhcp-option,blablalalalalalalalalalalalalf, lalalalalalalalalalalalalalaf,push-continuation 2",
+    "PUSH_UPDATE, akakakakakakakakakakakaf, dhcp-option DNS 8.8.8.8,redirect-gateway\n local,push-continuation 2",
+    "PUSH_UPDATE,route 192.168.1.0 255.255.255.0\n\n\n,push-continuation 1"
+};
+char *r9[] = {
+    "PUSH_UPDATE,,"
+};
+
+
 const char *msg0 = "redirect-gateway local,route 192.168.1.0 255.255.255.0";
 const char *msg1 = "-dhcp-option,blablalalalalalalalalalalalalf, lalalalalalalalalalalalalalaf, akakakakakakakakakakakaf, dhcp-option DNS 8.8.8.8,redirect-gateway local,route 192.168.1.0 255.255.255.0";
 const char *msg2 = "";
@@ -230,65 +274,87 @@ const char *msg10 = "Voilà! In view, a humble vaudevillian veteran cast vicario
 
 static void test_send_push_msg0(void **state)
 {
+    i = 0;
+    res = r0;
     struct context *c = *state;
     assert_true(send_push_update(c, msg0));
 }
 static void test_send_push_msg1(void **state)
 {
+    i = 0;
+    res = r1;
     struct context *c = *state;
     assert_true(send_push_update(c, msg1));
 }
 
 static void test_send_push_msg2(void **state)
 {
+    i = 0;
+    res = NULL;
     struct context *c = *state;
     assert_false(send_push_update(c, msg2));
 }
 
 static void test_send_push_msg3(void **state)
 {
+    i = 0;
+    res = r3;
     struct context *c = *state;
     assert_true(send_push_update(c, msg3));
 }
 
 static void test_send_push_msg4(void **state)
 {
+    i = 0;
+    res = r4;
     struct context *c = *state;
     assert_true(send_push_update(c, msg4));
 }
 
 static void test_send_push_msg5(void **state)
 {
+    i = 0;
+    res = r5;
     struct context *c = *state;
     assert_true(send_push_update(c, msg5));
 }
 
 static void test_send_push_msg6(void **state)
 {
+    i = 0;
+    res = r6;
     struct context *c = *state;
     assert_true(send_push_update(c, msg6));
 }
 
 static void test_send_push_msg7(void **state)
 {
+    i = 0;
+    res = r7;
     struct context *c = *state;
     assert_true(send_push_update(c, msg7));
 }
 
 static void test_send_push_msg8(void **state)
 {
+    i = 0;
+    res = r8;
     struct context *c = *state;
     assert_true(send_push_update(c, msg8));
 }
 
 static void test_send_push_msg9(void **state)
 {
+    i = 0;
+    res = r9;
     struct context *c = *state;
     assert_true(send_push_update(c, msg9));
 }
 
 static void test_send_push_msg10(void **state)
 {
+    i = 0;
+    res = NULL;
     struct context *c = *state;
     assert_false(send_push_update(c, msg10));
 }
@@ -314,7 +380,7 @@ teardown(void **state)
 int
 main(void)
 {
-    /*const struct CMUnitTest tests_in[] = {
+    const struct CMUnitTest tests[] = {
         cmocka_unit_test_setup_teardown(test_incoming_push_message_basic, setup, teardown),
         cmocka_unit_test_setup_teardown(test_incoming_push_message_error1, setup, teardown),
         cmocka_unit_test_setup_teardown(test_incoming_push_message_error2, setup, teardown),
@@ -322,11 +388,7 @@ main(void)
         cmocka_unit_test_setup_teardown(test_incoming_push_message_1, setup, teardown),
         cmocka_unit_test_setup_teardown(test_incoming_push_message_bad_format, setup, teardown),
         cmocka_unit_test_setup_teardown(test_incoming_push_message_mix, setup, teardown),
-        cmocka_unit_test_setup_teardown(test_incoming_push_message_mix2, setup, teardown)
-    };*/
-
-    const struct CMUnitTest tests_send[] =
-    {
+        cmocka_unit_test_setup_teardown(test_incoming_push_message_mix2, setup, teardown),
         cmocka_unit_test_setup_teardown(test_send_push_msg0, setup, teardown),
         cmocka_unit_test_setup_teardown(test_send_push_msg1, setup, teardown),
         cmocka_unit_test_setup_teardown(test_send_push_msg2, setup, teardown),
@@ -340,5 +402,5 @@ main(void)
         cmocka_unit_test_setup_teardown(test_send_push_msg10, setup, teardown)
     };
     
-    return (/*cmocka_run_group_tests(tests_in, NULL, NULL) && */cmocka_run_group_tests(tests_send, NULL, NULL));
+    return cmocka_run_group_tests(tests, NULL, NULL);
 }
