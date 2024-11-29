@@ -92,15 +92,14 @@ static bool message_splitter(char *str, char **mexs, struct gc_arena *gc, const 
     return true;
 }
 
-
 bool
-send_push_update(struct context *c, const char *mex)
+send_push_update(struct context *c, const char *mex, const int push_bundle_size)
 {
     if (!mex || !*mex)
         return false;
     const int extra = 84; /* extra space for possible trailing ifconfig and push-continuation */
     struct gc_arena gc = gc_new();
-    struct buffer buf = alloc_buf_gc(PUSH_BUNDLE_SIZE, &gc);
+    struct buffer buf = alloc_buf_gc(push_bundle_size, &gc);
     const int safe_cap = BCAP(&buf) - extra;
     int mlen = strlen(mex);
     int mexnum = (mlen / (safe_cap  - sizeof(push_update_cmd))) + 1;
@@ -136,7 +135,7 @@ send_push_update(struct context *c, const char *mex)
             const bool status = send_control_channel_string(c, BSTR(&buf), D_PUSH);
             if (!status)//should send buf with push-continuation 1 if it fails?
                 goto fail;
-            buf = alloc_buf_gc(PUSH_BUNDLE_SIZE, &gc);
+            buf = alloc_buf_gc(push_bundle_size, &gc);
             i++;
         }
     }

@@ -85,7 +85,7 @@ typedef unsigned long ptr_type;
  * This parameter controls the maximum size of a bundle
  * of pushed options.
  */
-#define PUSH_BUNDLE_SIZE 184
+#define PUSH_BUNDLE_SIZE 1024
 
 /*
  * In how many seconds does client re-send PUSH_REQUEST if we haven't yet received a reply

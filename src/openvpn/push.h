@@ -136,6 +136,6 @@ void
 receive_auth_pending(struct context *c, const struct buffer *buffer);
 
 bool
-send_push_update(struct context *c, const char *mex);
+send_push_update(struct context *c, const char *mex, const int push_bundle_size);
 
 #endif /* ifndef PUSH_H */
