@@ -494,7 +494,9 @@ dco_p2p_add_new_peer(struct context *c)
     }
 #endif
     int ret = dco_new_peer(&c->c1.tuntap->dco, multi->peer_id,
-                           c->c2.link_socket->sd, NULL, remoteaddr, NULL, NULL);
+                           c->c2.link_socket->sd, NULL,
+                           proto_is_dgram(ls->info.proto) ? remoteaddr : NULL,
+                           NULL, NULL);
     if (ret < 0)
     {
         return ret;
