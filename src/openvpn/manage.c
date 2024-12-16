@@ -24,7 +24,6 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
-
 #include "syshead.h"
 
 #ifdef ENABLE_MANAGEMENT
@@ -56,6 +55,11 @@
 #else
 #define MANAGEMENT_ECHO_FLAGS 0
 #endif
+
+#define MAN_P_U_BROAD (1<<0)
+#define MAN_P_U_CID (1<<1)
+#define MAN_P_U_CN (1<<2)
+#define MAN_P_U_ADDR (1<<3)
 
 /* tag for blank username/password */
 static const char blank_up[] = "[[BLANK]]";
@@ -124,6 +128,8 @@ man_help(void)
     msg(M_CLIENT, "username type u        : Enter username u for a queried OpenVPN username.");
     msg(M_CLIENT, "verb [n]               : Set log verbosity level to n, or show if n is absent.");
     msg(M_CLIENT, "version [n]            : Set client's version to n or show current version of daemon.");
+    msg(M_CLIENT, "push-update options    : Send a message to update the specified options.");
+    msg(M_CLIENT, "                         Ex. push-update \"route something, -dns\"");
     msg(M_CLIENT, "END");
 }
 
@@ -1326,6 +1332,100 @@ set_client_version(struct management *man, const char *version)
 }
 
 static void
+man_push_update(struct management *man, const char *target, const char *options, const int type)
+{
+    if (type & MAN_P_U_BROAD)
+    {
+        if (man->persist.callback.push_update_broadcast)
+        {
+            const bool status = (*man->persist.callback.push_update_broadcast)(man->persist.callback.arg, options);
+            if (status)
+                msg(M_CLIENT, "SUCCESS: push-update-broad command succeeded");
+            else
+                msg(M_CLIENT, "ERROR: push-update-broad command failed");
+        }
+        else
+            man_command_unsupported("push-update-broad");
+    }
+    else if (type & MAN_P_U_CID)
+    {
+        unsigned long cid = 0;
+        if (parse_cid(target, &cid))
+        {
+            if (man->persist.callback.push_update_by_cid)
+            {
+                const bool status = (*man->persist.callback.push_update_by_cid)(man->persist.callback.arg, cid, options);
+                if (status)
+                    msg(M_CLIENT, "SUCCESS: push-update-cid command succeeded");
+                else
+                    msg(M_CLIENT, "ERROR: push-update-cid command failed");
+            }
+            else
+                man_command_unsupported("push-update-cid");
+        }
+    }
+    else if (type & MAN_P_U_CN)
+    {
+        if (man->persist.callback.push_update_by_cn)
+        {
+            const bool status = (*man->persist.callback.push_update_by_cn)(man->persist.callback.arg, target, options);
+            if (status)
+                msg(M_CLIENT, "SUCCESS: push-update-cn command succeeded");
+            else
+                msg(M_CLIENT, "ERROR: push-update-cn command failed");
+        }
+        else
+            man_command_unsupported("push-update-cn");
+    }
+    else if (type & MAN_P_U_ADDR)
+    {
+        if (man->persist.callback.push_update_by_addr)
+        {
+            struct gc_arena gc = gc_new();
+            struct buffer buf;
+            char p1[128];
+            char p2[128];
+            
+            buf_set_read(&buf, (uint8_t *) target, strlen(target) + 1);
+            buf_parse(&buf, ':', p1, sizeof(p1));
+            buf_parse(&buf, ':', p2, sizeof(p2));
+
+            if (strlen(p1) && strlen(p2))
+            {
+                /* IP:port specified */
+                bool status;
+                const in_addr_t addr = getaddr(GETADDR_HOST_ORDER|GETADDR_MSG_VIRT_OUT, p1, 0, &status, NULL);
+                if (status)
+                {
+                    const int port = atoi(p2);
+                    if (port > 0 && port < 65536)
+                    {
+                        if ((*man->persist.callback.push_update_by_addr)(man->persist.callback.arg, addr, port, options))
+                            msg(M_CLIENT, "SUCCESS: push-update sent to %s:%d address",
+                                print_in_addr_t(addr, 0, &gc),
+                                port);
+                        else
+                            msg(M_CLIENT, "ERROR: no client found at addrress %s:%d",
+                                print_in_addr_t(addr, 0, &gc),
+                                port);
+                    }
+                    else
+                        msg(M_CLIENT, "ERROR: port number is out of range: %s", p2);
+                }
+                else
+                    msg(M_CLIENT, "ERROR: error parsing IP address: %s", p1);
+            }
+            else
+                msg(M_CLIENT, "ERROR: push-update-addr parse");
+            
+            gc_free(&gc);
+        }
+        else
+            man_command_unsupported("push-update-addr");
+    }
+}
+
+static void
 man_dispatch_command(struct management *man, struct status_output *so, const char **p, const int nparms)
 {
     struct gc_arena gc = gc_new();
@@ -1645,6 +1745,34 @@ man_dispatch_command(struct management *man, struct status_output *so, const cha
         if (man_need(man, p, 1, MN_AT_LEAST))
         {
             man_remote(man, p);
+        }
+    }
+    else if (streq(p[0], "broad-push-update"))
+    {
+        if (man_need(man, p, 1, 0))
+        {
+            man_push_update(man, NULL, p[1], MAN_P_U_BROAD);
+        }
+    }
+    else if (streq(p[0], "cid-push-update"))
+    {
+        if (man_need(man, p, 2, 0))
+        {
+            man_push_update(man, p[1], p[2], MAN_P_U_CID);
+        }
+    }
+    else if (streq(p[0], "cn-push-update"))
+    {
+        if (man_need(man, p, 2, 0))
+        {
+            man_push_update(man, p[1], p[2], MAN_P_U_CN);
+        }
+    }
+    else if (streq(p[0], "addr-push-update"))
+    {
+        if (man_need(man, p, 2, 0))
+        {
+            man_push_update(man, p[1], p[2], MAN_P_U_ADDR);
         }
     }
 #if 1

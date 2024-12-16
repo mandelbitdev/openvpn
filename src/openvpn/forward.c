@@ -404,8 +404,10 @@ reschedule_multi_process(struct context *c)
 bool
 send_control_channel_string(struct context *c, const char *str, int msglevel)
 {
+    printf("\n\nno way\n\n");
     if (c->c2.tls_multi)
     {
+        printf("\n\nSENDING:'%s'\n\n\n",str);
         struct tls_session *session = &c->c2.tls_multi->session[TM_ACTIVE];
         bool ret = send_control_channel_string_dowork(session, str, msglevel);
         reschedule_multi_process(c);

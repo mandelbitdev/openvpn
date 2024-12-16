@@ -135,7 +135,16 @@ void send_push_reply_auth_token(struct tls_multi *multi);
 void
 receive_auth_pending(struct context *c, const struct buffer *buffer);
 
-bool
-send_push_update(struct context *c, const char *mex, const int push_bundle_size);
+#ifdef ENABLE_MANAGEMENT
+
+bool management_callback_send_push_update_broadcast(void *arg, const char *options);
+
+bool management_callback_send_push_update_by_cid(void *arg, const unsigned long cid, const char *options);
+
+bool management_callback_send_push_update_by_cn(void *arg, const char *cn, const char *options);
+
+bool management_callback_send_push_update_by_addr(void *arg, const in_addr_t addr, const int port, const char *options);
+
+#endif /* ifdef ENABLE_MANAGEMENT*/
 
 #endif /* ifndef PUSH_H */
