@@ -100,7 +100,7 @@ static bool message_splitter(char *str, char **mexs, struct gc_arena *gc, const 
 }
 
 static bool
-send_single_push_update(struct context *c, const char **mexs, struct buffer *buf, struct gc_arena *gc, const int push_bundle_size)
+send_single_push_update(struct context *c, char **mexs, struct buffer *buf, struct gc_arena *gc, const int push_bundle_size)
 {
     if (!mexs[0] || !*mexs[0])
     {
@@ -135,6 +135,7 @@ send_single_push_update(struct context *c, const char **mexs, struct buffer *buf
             i++;
         }
     }
+    return true;
 }
 
 #define SEND_PUSH_UPDATE(curr_mi, mexs, buf, gc, push_bundle_size, count) \
@@ -177,7 +178,7 @@ send_push_update(struct multi_context *m, struct multi_instance *mi, const char 
         {
             while ((he = hash_iterator_next(&hi)))
             {
-                const struct multi_instance *curr_mi = (struct multi_instance *) he->value;
+                struct multi_instance *curr_mi = (struct multi_instance *) he->value;
 
                 if (!curr_mi->halt)
                 {
@@ -191,7 +192,7 @@ send_push_update(struct multi_context *m, struct multi_instance *mi, const char 
             const char *cn = tls_common_name(mi->context.c2.tls_multi, false);
             while ((he = hash_iterator_next(&hi)))
             {
-                const struct multi_instance *curr_mi = (struct multi_instance *) he->value;
+                struct multi_instance *curr_mi = (struct multi_instance *) he->value;
                 const char *curr_cn = tls_common_name(curr_mi->context.c2.tls_multi, false);
 
                 if (!curr_mi->halt && curr_cn && streq(cn, curr_cn))
