@@ -128,8 +128,11 @@ man_help(void)
     msg(M_CLIENT, "username type u        : Enter username u for a queried OpenVPN username.");
     msg(M_CLIENT, "verb [n]               : Set log verbosity level to n, or show if n is absent.");
     msg(M_CLIENT, "version [n]            : Set client's version to n or show current version of daemon.");
-    msg(M_CLIENT, "push-update options    : Send a message to update the specified options.");
-    msg(M_CLIENT, "                         Ex. push-update \"route something, -dns\"");
+    msg(M_CLIENT, "push-update-broad options : Broadcast a message to update the specified options.");
+    msg(M_CLIENT, "                            Ex. push-update-broad \"route something, -dns\"");
+    msg(M_CLIENT, "push-update-cid CID options : Send an update message to the client identified by CID.");
+    msg(M_CLIENT, "push-update-cn CN options : Send an update message to the client(s) with the specified Common Name.");
+    msg(M_CLIENT, "push-update-addr ip:port options : Send an update message to the client(s) connecting from IP:port.");
     msg(M_CLIENT, "END");
 }
 
