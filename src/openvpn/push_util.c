@@ -109,8 +109,7 @@ send_single_push_update(struct context *c, char **mexs, struct buffer *buf, stru
     else if (!mexs[1] || !*mexs[1])
     {
         buf_printf(buf, "%s%c%s", push_update_cmd, ',', mexs[0]);
-        const bool status = send_control_channel_string(c, BSTR(buf), D_PUSH);
-        if (!status)
+        if (!send_control_channel_string(c, BSTR(buf), D_PUSH))
             return false;
     }
     else
@@ -122,9 +121,8 @@ send_single_push_update(struct context *c, char **mexs, struct buffer *buf, stru
                 buf_printf(buf, "%s%c%s%s", push_update_cmd, ',', mexs[i], ",push-continuation 2");
             else
                 buf_printf(buf, "%s%c%s%s", push_update_cmd, ',', mexs[i], ",push-continuation 1");
-
-            const bool status = send_control_channel_string(c, BSTR(buf), D_PUSH);
-            if (!status)
+            
+            if (!send_control_channel_string(c, BSTR(buf), D_PUSH))
             {
                 *buf = alloc_buf_gc(push_bundle_size, gc);
                 buf_printf(buf, "%s%s", push_update_cmd, ",push-continuation 1");
@@ -147,7 +145,7 @@ send_single_push_update(struct context *c, char **mexs, struct buffer *buf, stru
             (count)++; \
     } while (0)
 
-static int
+int
 send_push_update(struct multi_context *m, struct multi_instance *mi, const char *mex, const int mode, const int push_bundle_size)
 {
     if (!mex || !*mex || (!m && !mi))
@@ -165,7 +163,7 @@ send_push_update(struct multi_context *m, struct multi_instance *mi, const char 
     if (!message_splitter(gc_strdup(mex, &gc), mexs, &gc, safe_cap))
     {
         gc_free(&gc);
-        return -1;
+        return -2;
     }
 
     if (m)
