@@ -8,6 +8,7 @@
 #include <cmocka.h>
 #include "push.h"
 #include "options_util.h"
+#include "multi.h"
 
 /* mocks */
 
@@ -403,16 +404,19 @@ teardown(void **state)
 static int
 setup2(void **state)
 {
-    struct multi_instance *mi = calloc(1, sizeof(struct context));
-    *state = mi;
+    struct multi_context *m = calloc(1, sizeof(struct multi_context));
+    struct multi_instance *mi = calloc(1, sizeof(struct multi_instance));
+    *(m->instances) = mi;
+    *state = m;
     return 0;
 }
 
 static int
 teardown2(void **state)
 {
-    struct context *mi = *state;
-    free(mi);
+    struct multi_context *m = *state;
+    free(*(m->instances));
+    free(m);
     return 0;
 }
 

@@ -41,6 +41,7 @@
 #include "manage.h"
 #include "openvpn.h"
 #include "dco.h"
+#include "push.h"
 
 #include "memdbg.h"
 
@@ -55,11 +56,6 @@
 #else
 #define MANAGEMENT_ECHO_FLAGS 0
 #endif
-
-#define MAN_P_U_BROAD (1<<0)
-#define MAN_P_U_CID (1<<1)
-#define MAN_P_U_CN (1<<2)
-#define MAN_P_U_ADDR (1<<3)
 
 /* tag for blank username/password */
 static const char blank_up[] = "[[BLANK]]";
@@ -1335,9 +1331,9 @@ set_client_version(struct management *man, const char *version)
 }
 
 static void
-man_push_update(struct management *man, const char *target, const char *options, const int type)
+man_push_update(struct management *man, const char *target, const char *options, const push_update_type type)
 {
-    if (type & MAN_P_U_BROAD)
+    if (type == UPT_BROADCAST)
     {
         if (man->persist.callback.push_update_broadcast)
         {
@@ -1350,7 +1346,7 @@ man_push_update(struct management *man, const char *target, const char *options,
         else
             man_command_unsupported("push-update-broad");
     }
-    else if (type & MAN_P_U_CID)
+    else if (type == UPT_BY_CID)
     {
         unsigned long cid = 0;
         if (parse_cid(target, &cid))
@@ -1367,7 +1363,7 @@ man_push_update(struct management *man, const char *target, const char *options,
                 man_command_unsupported("push-update-cid");
         }
     }
-    else if (type & MAN_P_U_CN)
+    else if (type == UPT_BY_CN)
     {
         if (man->persist.callback.push_update_by_cn)
         {
@@ -1380,7 +1376,7 @@ man_push_update(struct management *man, const char *target, const char *options,
         else
             man_command_unsupported("push-update-cn");
     }
-    else if (type & MAN_P_U_ADDR)
+    else if (type == UPT_BY_ADDR)
     {
         if (man->persist.callback.push_update_by_addr)
         {
@@ -1754,28 +1750,28 @@ man_dispatch_command(struct management *man, struct status_output *so, const cha
     {
         if (man_need(man, p, 1, 0))
         {
-            man_push_update(man, NULL, p[1], MAN_P_U_BROAD);
+            man_push_update(man, NULL, p[1], UPT_BROADCAST);
         }
     }
     else if (streq(p[0], "cid-push-update"))
     {
         if (man_need(man, p, 2, 0))
         {
-            man_push_update(man, p[1], p[2], MAN_P_U_CID);
+            man_push_update(man, p[1], p[2], UPT_BY_CID);
         }
     }
     else if (streq(p[0], "cn-push-update"))
     {
         if (man_need(man, p, 2, 0))
         {
-            man_push_update(man, p[1], p[2], MAN_P_U_CN);
+            man_push_update(man, p[1], p[2], UPT_BY_CN);
         }
     }
     else if (streq(p[0], "addr-push-update"))
     {
         if (man_need(man, p, 2, 0))
         {
-            man_push_update(man, p[1], p[2], MAN_P_U_ADDR);
+            man_push_update(man, p[1], p[2], UPT_BY_ADDR);
         }
     }
 #if 1

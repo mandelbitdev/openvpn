@@ -6,11 +6,6 @@
 #include "multi.h"
 #include "ssl_verify.h"
 
-#define UPT_BROAD   0
-#define UPT_BY_ADDR 1
-#define UPT_BY_CN   2
-#define UPT_BY_CID  3
-
 int
 process_incoming_push_update(struct context *c,
                              unsigned int permission_mask,
@@ -149,10 +144,13 @@ send_single_push_update(struct context *c, char **mexs, struct buffer *buf, stru
     } while (0)
 
 int
-send_push_update(struct multi_context *m, struct multi_instance *mi, const char *mex, const int mode, const int push_bundle_size)
+send_push_update(struct multi_context *m, void *target, const char *mex, const push_update_type type, const int push_bundle_size)
 {
-    if (!mex || !*mex || (!m && !mi))
+    if (!mex || !*mex || !m ||
+        (!target && type != UPT_BROADCAST))
+    {
         return -1;
+    }
     const int extra = 84; /* extra space for possible trailing ifconfig and push-continuation */
     struct gc_arena gc = gc_new();
     struct buffer buf = alloc_buf_gc(push_bundle_size, &gc);
@@ -169,58 +167,58 @@ send_push_update(struct multi_context *m, struct multi_instance *mi, const char 
         return -2;
     }
 
-    if (m)
+#ifdef ENABLE_MANAGEMENT
+    if (type == UPT_BY_CID)
     {
-        struct hash_iterator hi;
-        const struct hash_element *he;
-        hash_iterator_init(m->iter, &hi);
-        
-        if (!mi)/* broadcast */
+        struct multi_instance *mi = lookup_by_cid(m, *((unsigned int *)target));
+    
+        if (!mi)
         {
-            while ((he = hash_iterator_next(&hi)))
-            {
-                struct multi_instance *curr_mi = (struct multi_instance *) he->value;
-
-                if (!curr_mi->halt)
-                {
-                    SEND_PUSH_UPDATE(curr_mi, mexs, &buf, &gc, push_bundle_size, count);
-                }
-            }
+            return -3;
         }
-        else if (mode == UPT_BY_CN)/* common name multicast */
+        if (!mi->halt &&
+            send_single_push_update(&mi->context, mexs, &buf, &gc, push_bundle_size))
         {
-            /// OPTIMIZATION(?): find position of mi in it and start from there
-            const char *cn = tls_common_name(mi->context.c2.tls_multi, false);
-            while ((he = hash_iterator_next(&hi)))
-            {
-                struct multi_instance *curr_mi = (struct multi_instance *) he->value;
-                const char *curr_cn = tls_common_name(curr_mi->context.c2.tls_multi, false);
-
-                if (!curr_mi->halt && curr_cn && streq(cn, curr_cn))
-                {
-                    SEND_PUSH_UPDATE(curr_mi, mexs, &buf, &gc, push_bundle_size, count);
-                }
-            }
+            count++;
         }
-        else if (mode == UPT_BY_ADDR)/* address multicast */
-        {
-            /// OPTIMIZATION(?)
-            struct mroute_addr *maddr = &mi->real;
-            while ((he = hash_iterator_next(&hi)))
-            {
-                struct multi_instance *curr_mi = (struct multi_instance *) he->value;
-                if (!mi->halt && maddr && mroute_addr_equal(maddr, &curr_mi->real))
-                {
-                    SEND_PUSH_UPDATE(curr_mi, mexs, &buf, &gc, push_bundle_size, count);
-                }
-            }
-        }
-        hash_iterator_free(&hi);
+        goto end;
     }
-    else if (!mi->halt &&
-             send_single_push_update(&mi->context, mexs, &buf, &gc, push_bundle_size))/* unicast */
-        count++;
+#endif
 
+    struct hash_iterator hi;
+    const struct hash_element *he;
+    hash_iterator_init(m->iter, &hi);
+
+    while((he = hash_iterator_next(&hi)))
+    {
+        struct multi_instance *curr_mi = he->value;
+
+        if (curr_mi->halt)
+        {
+            continue;
+        }
+        if (type == UPT_BY_ADDR)
+        {
+            if (!mroute_addr_equal(target, &curr_mi->real))
+            {
+                continue;
+            }
+        }
+        else if (type == UPT_BY_CN)
+        {
+            const char *curr_cn = tls_common_name(curr_mi->context.c2.tls_multi, false);
+            if (strcmp(curr_cn, target))
+            {
+                continue;
+            }
+        }
+        
+        SEND_PUSH_UPDATE(curr_mi, mexs, &buf, &gc, push_bundle_size, count);
+    }
+    
+    hash_iterator_free(&hi);
+
+end:
     gc_free(&gc);
     return count;
 }
@@ -242,53 +240,34 @@ send_push_update(struct multi_context *m, struct multi_instance *mi, const char 
 bool
 management_callback_send_push_update_broadcast(void *arg, const char *options)
 {
-    struct multi_context *m = (struct multi_context *) arg;
-    int n_sent = send_push_update(m, NULL, options, 0, PUSH_BUNDLE_SIZE);
+    struct multi_context *m = arg;
+    int n_sent = send_push_update(m, NULL, options, UPT_BROADCAST, PUSH_BUNDLE_SIZE);
+
     RETURN_UPDATE_STATUS(n_sent);
 }
 
 bool
-management_callback_send_push_update_by_cid(void *arg, const unsigned long cid, const char *options)
+management_callback_send_push_update_by_cid(void *arg, unsigned long cid, const char *options)
 {
-    struct multi_context *m = (struct multi_context *) arg;
-    bool status;
-    struct multi_instance *mi = lookup_by_cid(m, cid);
-    
-    if (!mi)
+    struct multi_context *m = arg;
+    int ret = send_push_update(m, &cid, options, UPT_BY_CID, PUSH_BUNDLE_SIZE);
+
+    if (ret == -3)
     {
         msg(M_CLIENT, "ERROR: no client found with CID: %lu", cid);
-        return false;
     }
-    status = send_push_update(NULL, mi, options, 0, PUSH_BUNDLE_SIZE) > 0;
-    return status;
+
+    return (ret > 0);
 }
 
 bool
 management_callback_send_push_update_by_cn(void *arg, const char *cn, const char *options)
 {
-    struct multi_context *m = (struct multi_context *) arg;
-
-    struct hash_iterator hi;
-    struct hash_element *he;
-    int n_sent = 0;
-
-    hash_iterator_init(m->iter, &hi);
-    while ((he = hash_iterator_next(&hi)))
-    {
-        struct multi_instance *mi = (struct multi_instance *) he->value;
-        if (mi->halt)
-        {
-            continue;
-        }
-        const char *curr_cn = tls_common_name(mi->context.c2.tls_multi, false);
-        if (!curr_cn || !streq(cn, curr_cn))
-        {
-            continue;
-        }
-        n_sent = send_push_update(m, mi, options, UPT_BY_CN, PUSH_BUNDLE_SIZE);
-        break;
-    }
-    hash_iterator_free(&hi);
+    struct multi_context *m = arg;
+    struct gc_arena gc = gc_new();
+    char *target = gc_strdup(cn, &gc);
+    int n_sent = send_push_update(m, target, options, UPT_BY_CN, PUSH_BUNDLE_SIZE);
+    gc_free(&gc);
 
     RETURN_UPDATE_STATUS(n_sent);
 }
@@ -296,9 +275,7 @@ management_callback_send_push_update_by_cn(void *arg, const char *cn, const char
 bool
 management_callback_send_push_update_by_addr(void *arg, const in_addr_t addr, const int port, const char *options)
 {
-    struct multi_context *m = (struct multi_context *) arg;
-    struct hash_iterator hi;
-    struct hash_element *he;
+    struct multi_context *m = arg;
     struct openvpn_sockaddr saddr;
     struct mroute_addr maddr;
     int n_sent = 0;
@@ -307,19 +284,9 @@ management_callback_send_push_update_by_addr(void *arg, const in_addr_t addr, co
     saddr.addr.in4.sin_family = AF_INET;
     saddr.addr.in4.sin_addr.s_addr = htonl(addr);
     saddr.addr.in4.sin_port = htons(port);
-    if (mroute_extract_openvpn_sockaddr(&maddr, &saddr, true))
+    if (!mroute_extract_openvpn_sockaddr(&maddr, &saddr, true))
     {
-        hash_iterator_init(m->iter, &hi);
-        while ((he = hash_iterator_next(&hi)))
-        {
-            struct multi_instance *mi = (struct multi_instance *) he->value;
-            if (!mi->halt && mroute_addr_equal(&maddr, &mi->real))
-            {
-                n_sent = send_push_update(m, mi, options, UPT_BY_ADDR, PUSH_BUNDLE_SIZE);
-                break;
-            }
-        }
-        hash_iterator_free(&hi);
+        n_sent = send_push_update(m, &maddr, options, UPT_BY_ADDR, PUSH_BUNDLE_SIZE);
     }
     
     RETURN_UPDATE_STATUS(n_sent);

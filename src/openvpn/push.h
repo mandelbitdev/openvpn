@@ -42,6 +42,15 @@
 #define PUSH_OPT_TO_REMOVE (1<<0)
 #define PUSH_OPT_OPTIONAL (1<<1)
 
+typedef enum {
+    UPT_BROADCAST = 0,
+    UPT_BY_ADDR = 1,
+    UPT_BY_CN = 2,
+#ifdef ENABLE_MANAGEMENT
+    UPT_BY_CID = 3
+#endif
+} push_update_type;
+
 int process_incoming_push_request(struct context *c);
 
 /**
@@ -136,13 +145,13 @@ void
 receive_auth_pending(struct context *c, const struct buffer *buffer);
 
 int
-send_push_update(struct multi_context *m, struct multi_instance *mi, const char *mex, const int mode, const int push_bundle_size);
+send_push_update(struct multi_context *m, void *target, const char *mex, const push_update_type type, const int push_bundle_size);
 
 #ifdef ENABLE_MANAGEMENT
 
 bool management_callback_send_push_update_broadcast(void *arg, const char *options);
 
-bool management_callback_send_push_update_by_cid(void *arg, const unsigned long cid, const char *options);
+bool management_callback_send_push_update_by_cid(void *arg, unsigned long cid, const char *options);
 
 bool management_callback_send_push_update_by_cn(void *arg, const char *cn, const char *options);
 

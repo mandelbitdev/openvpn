@@ -205,7 +205,7 @@ struct management_callback
     unsigned int (*remote_entry_count)(void *arg);
     bool (*remote_entry_get)(void *arg, unsigned int index, char **remote);
     bool (*push_update_broadcast)(void *arg, const char *options);
-    bool (*push_update_by_cid)(void *arg, const unsigned long cid, const char *options);
+    bool (*push_update_by_cid)(void *arg, unsigned long cid, const char *options);
     bool (*push_update_by_cn)(void *arg, const char *cn, const char *options);
     bool (*push_update_by_addr)(void *arg, const in_addr_t addr, const int port, const char *options);
 };
