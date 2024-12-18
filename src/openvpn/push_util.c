@@ -6,8 +6,10 @@
 #include "multi.h"
 #include "ssl_verify.h"
 
-#define UPT_BY_ADDR (1<<0)
-#define UPT_BY_CN   (1<<1)
+#define UPT_BROAD   0
+#define UPT_BY_ADDR 1
+#define UPT_BY_CN   2
+#define UPT_BY_CID  3
 
 int
 process_incoming_push_update(struct context *c,
@@ -78,14 +80,18 @@ static bool message_splitter(char *str, char **mexs, struct gc_arena *gc, const 
     int im = 0;
     while (*str)
     {
-        if (strlen(str) + sizeof(push_update_cmd) > safe_cap)/* sizeof(push_update_cmd) + ',' - '/0' */
+        /* sizeof(push_update_cmd) + ',' - '/0' */
+        if (strlen(str) + sizeof(push_update_cmd) > safe_cap)
         {
             int ci = find_first_comma_of_next_bundle(str, safe_cap - sizeof(push_update_cmd));
             if (!ci)
-               return false;/* if no commas were found go to fail, do not send any message */
-            
+            {
+                /* if no commas were found go to fail, do not send any message */
+                return false;
+            }
             str[ci] = '\0';
-            mexs[im] = gc_strdup(str, gc);/* copy from i to (ci -1) */
+            /* copy from i to (ci -1) */
+            mexs[im] = gc_strdup(str, gc);
             i = ci + 1; 
         }
         else
@@ -124,9 +130,6 @@ send_single_push_update(struct context *c, char **mexs, struct buffer *buf, stru
             
             if (!send_control_channel_string(c, BSTR(buf), D_PUSH))
             {
-                *buf = alloc_buf_gc(push_bundle_size, gc);
-                buf_printf(buf, "%s%s", push_update_cmd, ",push-continuation 1");
-                send_control_channel_string(c, BSTR(buf), D_PUSH);///should i?
                 return false;
             }
             *buf = alloc_buf_gc(push_bundle_size, gc);
@@ -184,7 +187,7 @@ send_push_update(struct multi_context *m, struct multi_instance *mi, const char 
                 }
             }
         }
-        else if (mode & UPT_BY_CN)/* common name multicast */
+        else if (mode == UPT_BY_CN)/* common name multicast */
         {
             /// OPTIMIZATION(?): find position of mi in it and start from there
             const char *cn = tls_common_name(mi->context.c2.tls_multi, false);
@@ -199,7 +202,7 @@ send_push_update(struct multi_context *m, struct multi_instance *mi, const char 
                 }
             }
         }
-        else if (mode & UPT_BY_ADDR)/* address multicast */
+        else if (mode == UPT_BY_ADDR)/* address multicast */
         {
             /// OPTIMIZATION(?)
             struct mroute_addr *maddr = &mi->real;
@@ -250,16 +253,14 @@ management_callback_send_push_update_by_cid(void *arg, const unsigned long cid, 
     struct multi_context *m = (struct multi_context *) arg;
     bool status;
     struct multi_instance *mi = lookup_by_cid(m, cid);
-    if (mi)
+    
+    if (!mi)
     {
-        status = send_push_update(NULL, mi, options, 0, PUSH_BUNDLE_SIZE) > 0;
-        return status;
-    }
-    else
-    {   
         msg(M_CLIENT, "ERROR: no client found with CID: %lu", cid);
         return false;
     }
+    status = send_push_update(NULL, mi, options, 0, PUSH_BUNDLE_SIZE) > 0;
+    return status;
 }
 
 bool
@@ -275,15 +276,17 @@ management_callback_send_push_update_by_cn(void *arg, const char *cn, const char
     while ((he = hash_iterator_next(&hi)))
     {
         struct multi_instance *mi = (struct multi_instance *) he->value;
-        if (!mi->halt)
+        if (mi->halt)
         {
-            const char *curr_cn = tls_common_name(mi->context.c2.tls_multi, false);
-            if (curr_cn && streq(cn, curr_cn))
-            {
-                n_sent = send_push_update(m, mi, options, UPT_BY_CN, PUSH_BUNDLE_SIZE);
-                break;
-            }
+            continue;
         }
+        const char *curr_cn = tls_common_name(mi->context.c2.tls_multi, false);
+        if (!curr_cn || !streq(cn, curr_cn))
+        {
+            continue;
+        }
+        n_sent = send_push_update(m, mi, options, UPT_BY_CN, PUSH_BUNDLE_SIZE);
+        break;
     }
     hash_iterator_free(&hi);
 
@@ -322,3 +325,4 @@ management_callback_send_push_update_by_addr(void *arg, const in_addr_t addr, co
     RETURN_UPDATE_STATUS(n_sent);
 }
 #endif
+//getaddrinfo()
