@@ -2666,7 +2666,10 @@ options_postprocess_verify_ce(const struct options *options,
         }
         if (!(proto_is_udp(ce->proto) || ce->proto == PROTO_TCP_SERVER))
         {
+#ifndef ENABLE_PLUGIN
             msg(M_USAGE, USAGE_VALID_SERVER_PROTOS);
+#endif
+            /*msg(M_USAGE, USAGE_VALID_SERVER_PROTOS); */
         }
 #if PORT_SHARE
         if ((options->port_share_host || options->port_share_port)
@@ -2717,7 +2720,9 @@ options_postprocess_verify_ce(const struct options *options,
         }
         if (!(proto_is_dgram(ce->proto) || ce->proto == PROTO_TCP_SERVER))
         {
+#ifndef ENABLE_PLUGIN
             msg(M_USAGE, USAGE_VALID_SERVER_PROTOS);
+#endif
         }
         if (!proto_is_udp(ce->proto) && (options->cf_max || options->cf_per))
         {
