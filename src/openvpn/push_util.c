@@ -135,12 +135,12 @@ send_single_push_update(struct context *c, char **mexs, struct buffer *buf, stru
 }
 
 int
-send_push_update(struct multi_context *m, void *target, const char *mex, const push_update_type type, const int push_bundle_size)
+send_push_update(struct multi_context *m, const void *target, const char *mex, const push_update_type type, const int push_bundle_size)
 {
     if (!mex || !*mex || !m ||
         (!target && type != UPT_BROADCAST))
     {
-        return -1;
+        return -EINVAL;
     }
     const int extra = 84; /* extra space for possible trailing ifconfig and push-continuation */
     struct gc_arena gc = gc_new();
@@ -149,13 +149,12 @@ send_push_update(struct multi_context *m, void *target, const char *mex, const p
     int mexnum = (strlen(mex) / (safe_cap  - sizeof(push_update_cmd))) + 1;
     char **mexs = gc_malloc(sizeof(char *) * (mexnum + 1), true, &gc);
     mexs[mexnum] = NULL;
-    int count = 0;
 
     
     if (!message_splitter(gc_strdup(mex, &gc), mexs, &gc, safe_cap))
     {
         gc_free(&gc);
-        return -2;
+        return -EINVAL;
     }
 
 #ifdef ENABLE_MANAGEMENT
@@ -165,17 +164,18 @@ send_push_update(struct multi_context *m, void *target, const char *mex, const p
     
         if (!mi)
         {
-            return -3;
+            return -ENOENT;
         }
         if (!mi->halt &&
             send_single_push_update(&mi->context, mexs, &buf, &gc, push_bundle_size))
         {
-            count++;
+            gc_free(&gc);
+            return 1;
         }
-        goto end;
     }
 #endif
-
+    
+    int count = 0;
     struct hash_iterator hi;
     const struct hash_element *he;
     hash_iterator_init(m->iter, &hi);
@@ -203,18 +203,17 @@ send_push_update(struct multi_context *m, void *target, const char *mex, const p
                 continue;
             }
         }
+        /* Either we found a matching client or type is UPT_BROADCAST so we update every client */
         if (!send_single_push_update(&curr_mi->context, mexs, &buf, &gc, push_bundle_size))
         {
             msg(M_CLIENT, "ERROR: Peer ID: %u has not been updated",
-            curr_mi->context.c2.tls_multi ? curr_mi->context.c2.tls_multi->peer_id : UINT32_MAX);
+                curr_mi->context.c2.tls_multi ? curr_mi->context.c2.tls_multi->peer_id : UINT32_MAX);
             continue;
         }
         count++;
     }
-    
-    hash_iterator_free(&hi);
 
-end:
+    hash_iterator_free(&hi);
     gc_free(&gc);
     return count;
 }
@@ -235,8 +234,7 @@ end:
 bool
 management_callback_send_push_update_broadcast(void *arg, const char *options)
 {
-    struct multi_context *m = arg;
-    int n_sent = send_push_update(m, NULL, options, UPT_BROADCAST, PUSH_BUNDLE_SIZE);
+    int n_sent = send_push_update(arg, NULL, options, UPT_BROADCAST, PUSH_BUNDLE_SIZE);
 
     RETURN_UPDATE_STATUS(n_sent);
 }
@@ -244,10 +242,9 @@ management_callback_send_push_update_broadcast(void *arg, const char *options)
 bool
 management_callback_send_push_update_by_cid(void *arg, unsigned long cid, const char *options)
 {
-    struct multi_context *m = arg;
-    int ret = send_push_update(m, &cid, options, UPT_BY_CID, PUSH_BUNDLE_SIZE);
+    int ret = send_push_update(arg, &cid, options, UPT_BY_CID, PUSH_BUNDLE_SIZE);
 
-    if (ret == -3)
+    if (ret == -ENOENT)
     {
         msg(M_CLIENT, "ERROR: no client found with CID: %lu", cid);
     }
@@ -258,11 +255,7 @@ management_callback_send_push_update_by_cid(void *arg, unsigned long cid, const 
 bool
 management_callback_send_push_update_by_cn(void *arg, const char *cn, const char *options)
 {
-    struct multi_context *m = arg;
-    struct gc_arena gc = gc_new();
-    char *target = gc_strdup(cn, &gc);
-    int n_sent = send_push_update(m, target, options, UPT_BY_CN, PUSH_BUNDLE_SIZE);
-    gc_free(&gc);
+    int n_sent = send_push_update(arg, cn, options, UPT_BY_CN, PUSH_BUNDLE_SIZE);
 
     RETURN_UPDATE_STATUS(n_sent);
 }
@@ -270,7 +263,6 @@ management_callback_send_push_update_by_cn(void *arg, const char *cn, const char
 bool
 management_callback_send_push_update_by_addr(void *arg, const in_addr_t addr, const int port, const char *options)
 {
-    struct multi_context *m = arg;
     struct openvpn_sockaddr saddr;
     struct mroute_addr maddr;
     int n_sent = 0;
@@ -281,7 +273,7 @@ management_callback_send_push_update_by_addr(void *arg, const in_addr_t addr, co
     saddr.addr.in4.sin_port = htons(port);
     if (!mroute_extract_openvpn_sockaddr(&maddr, &saddr, true))
     {
-        n_sent = send_push_update(m, &maddr, options, UPT_BY_ADDR, PUSH_BUNDLE_SIZE);
+        n_sent = send_push_update(arg, &maddr, options, UPT_BY_ADDR, PUSH_BUNDLE_SIZE);
     }
     
     RETURN_UPDATE_STATUS(n_sent);

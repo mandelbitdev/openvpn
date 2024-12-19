@@ -145,7 +145,7 @@ void
 receive_auth_pending(struct context *c, const struct buffer *buffer);
 
 int
-send_push_update(struct multi_context *m, void *target, const char *mex, const push_update_type type, const int push_bundle_size);
+send_push_update(struct multi_context *m, const void *target, const char *mex, const push_update_type type, const int push_bundle_size);
 
 #ifdef ENABLE_MANAGEMENT
 
