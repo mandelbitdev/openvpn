@@ -206,7 +206,7 @@ send_push_update(struct multi_context *m, void *target, const char *mex, const p
         if (!send_single_push_update(&curr_mi->context, mexs, &buf, &gc, push_bundle_size))
         {
             msg(M_CLIENT, "ERROR: Peer ID: %u has not been updated",
-            (curr_mi)->context.c2.tls_multi ? (curr_mi)->context.c2.tls_multi->peer_id : UINT32_MAX);
+            curr_mi->context.c2.tls_multi ? curr_mi->context.c2.tls_multi->peer_id : UINT32_MAX);
             continue;
         }
         count++;
@@ -218,7 +218,6 @@ end:
     gc_free(&gc);
     return count;
 }
-#undef SEND_PUSH_UPDATE
 
 #ifdef ENABLE_MANAGEMENT
 #define RETURN_UPDATE_STATUS(n_sent) \
