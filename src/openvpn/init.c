@@ -4925,7 +4925,7 @@ inherit_context_child(struct context *dest,
     CLEAR(*dest);
 
     /* proto_is_dgram will ASSERT(0) if proto is invalid */
-    dest->mode = proto_is_dgram(src->options.ce.proto) ? CM_CHILD_UDP : CM_CHILD_TCP;
+    dest->mode = (proto_is_dgram(src->options.ce.proto) || proto_is_indirect(src->options.ce.proto)) ? CM_CHILD_UDP : CM_CHILD_TCP;
 
     dest->gc = gc_new();
 
@@ -5043,7 +5043,7 @@ inherit_context_top(struct context *dest,
     dest->c2.es_owned = false;
 
     dest->c2.event_set = NULL;
-    if (proto_is_dgram(src->options.ce.proto))
+    if (proto_is_dgram(src->options.ce.proto) || proto_is_indirect(src->options.ce.proto))
     {
         do_event_set_init(dest, false);
     }
