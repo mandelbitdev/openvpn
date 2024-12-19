@@ -32,7 +32,7 @@ openvpn_plugin_open_v3(int version, struct openvpn_plugin_args_open_in const *ar
     context = (struct obfs_test_context *) calloc(1, sizeof(struct obfs_test_context));
     if (!context)
     {
-        return OPENVPN_PLUGIN_FUNC_ERROR;
+        goto err;
     }
 
     context->global_vtab = args->callbacks;
