@@ -134,15 +134,6 @@ send_single_push_update(struct context *c, char **mexs, struct buffer *buf, stru
     return true;
 }
 
-#define SEND_PUSH_UPDATE(curr_mi, mexs, buf, gc, push_bundle_size, count) \
-    do { \
-        if (!send_single_push_update(&(curr_mi)->context, (mexs), (buf), (gc), (push_bundle_size))) \
-            msg(M_CLIENT, "ERROR: Peer ID: %u has not been updated", \
-                (curr_mi)->context.c2.tls_multi ? (curr_mi)->context.c2.tls_multi->peer_id : UINT32_MAX); \
-        else \
-            (count)++; \
-    } while (0)
-
 int
 send_push_update(struct multi_context *m, void *target, const char *mex, const push_update_type type, const int push_bundle_size)
 {
@@ -212,8 +203,13 @@ send_push_update(struct multi_context *m, void *target, const char *mex, const p
                 continue;
             }
         }
-        
-        SEND_PUSH_UPDATE(curr_mi, mexs, &buf, &gc, push_bundle_size, count);
+        if (!send_single_push_update(&curr_mi->context, mexs, &buf, &gc, push_bundle_size))
+        {
+            msg(M_CLIENT, "ERROR: Peer ID: %u has not been updated",
+            (curr_mi)->context.c2.tls_multi ? (curr_mi)->context.c2.tls_multi->peer_id : UINT32_MAX);
+            continue;
+        }
+        count++;
     }
     
     hash_iterator_free(&hi);
