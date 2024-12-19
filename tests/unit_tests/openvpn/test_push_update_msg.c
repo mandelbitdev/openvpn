@@ -95,6 +95,7 @@ process_incoming_push_msg(struct context *c,
     }
 }
 
+#ifdef ENABLE_MANAGEMENT
 char **res;
 int i;
 
@@ -115,7 +116,7 @@ tls_common_name(const struct tls_multi *multi, const bool null)
 struct multi_instance *
 lookup_by_cid(struct multi_context *m, const unsigned long cid)
 {
-    return NULL;
+    return *(m->instances);
 }
 
 bool
@@ -125,6 +126,7 @@ mroute_extract_openvpn_sockaddr(struct mroute_addr *addr,
 {
     return true;
 }
+#endif
 
 /* tests */
 
@@ -240,6 +242,7 @@ test_incoming_push_message_mix2(void **state)
     free_buf(&buf);
 }
 
+#ifdef ENABLE_MANAGEMENT
 char *r0[] = {
     "PUSH_UPDATE,redirect-gateway local,route 192.168.1.0 255.255.255.0"
 };
@@ -298,90 +301,123 @@ static void test_send_push_msg0(void **state)
 {
     i = 0;
     res = r0;
-    struct multi_instance *mi = *state;
-    assert_int_equal(send_push_update(NULL, mi, msg0, 0, PUSH_BUNDLE_SIZE_TEST), 1);
+    struct multi_context *m = *state;
+    const unsigned int cid = 0;
+    assert_int_equal(send_push_update(m, &cid, msg0, UPT_BY_CID, PUSH_BUNDLE_SIZE_TEST), 1);
 }
 static void test_send_push_msg1(void **state)
 {
     i = 0;
     res = r1;
-    struct multi_instance *mi = *state;
-    assert_int_equal(send_push_update(NULL, mi, msg1, 0, PUSH_BUNDLE_SIZE_TEST), 1);
+    struct multi_context *m = *state;
+    const unsigned int cid = 0;
+    assert_int_equal(send_push_update(m, &cid, msg1, UPT_BY_CID, PUSH_BUNDLE_SIZE_TEST), 1);
 }
 
 static void test_send_push_msg2(void **state)
 {
     i = 0;
     res = NULL;
-    struct multi_instance *mi = *state;
-    assert_int_equal(send_push_update(NULL, mi, msg2, 0, PUSH_BUNDLE_SIZE_TEST), -1);
+    struct multi_context *m = *state;
+    const unsigned int cid = 0;
+    assert_int_equal(send_push_update(m, &cid, msg2, UPT_BY_CID, PUSH_BUNDLE_SIZE_TEST), -EINVAL);
 }
 
 static void test_send_push_msg3(void **state)
 {
     i = 0;
     res = r3;
-    struct multi_instance *mi = *state;
-    assert_int_equal(send_push_update(NULL, mi, msg3, 0, PUSH_BUNDLE_SIZE_TEST), 1);
+    struct multi_context *m = *state;
+    const unsigned int cid = 0;
+    assert_int_equal(send_push_update(m, &cid, msg3, UPT_BY_CID, PUSH_BUNDLE_SIZE_TEST), 1);
 }
 
 static void test_send_push_msg4(void **state)
 {
     i = 0;
     res = r4;
-    struct multi_instance *mi = *state;
-    assert_int_equal(send_push_update(NULL, mi, msg4, 0, PUSH_BUNDLE_SIZE_TEST), 1);
+    struct multi_context *m = *state;
+    const unsigned int cid = 0;
+    assert_int_equal(send_push_update(m, &cid, msg4, UPT_BY_CID, PUSH_BUNDLE_SIZE_TEST), 1);
 }
 
 static void test_send_push_msg5(void **state)
 {
     i = 0;
     res = r5;
-    struct multi_instance *mi = *state;
-    assert_int_equal(send_push_update(NULL, mi, msg5, 0, PUSH_BUNDLE_SIZE_TEST), 1);
+    struct multi_context *m = *state;
+    const unsigned int cid = 0;
+    assert_int_equal(send_push_update(m, &cid, msg5, UPT_BY_CID, PUSH_BUNDLE_SIZE_TEST), 1);
 }
 
 static void test_send_push_msg6(void **state)
 {
     i = 0;
     res = r6;
-    struct multi_instance *mi = *state;
-    assert_int_equal(send_push_update(NULL, mi, msg6, 0, PUSH_BUNDLE_SIZE_TEST), 1);
+    struct multi_context *m = *state;
+    const unsigned int cid = 0;
+    assert_int_equal(send_push_update(m, &cid, msg6, UPT_BY_CID, PUSH_BUNDLE_SIZE_TEST), 1);
 }
 
 static void test_send_push_msg7(void **state)
 {
     i = 0;
     res = r7;
-    struct multi_instance *mi = *state;
-    assert_int_equal(send_push_update(NULL, mi, msg7, 0, PUSH_BUNDLE_SIZE_TEST), 1);
+    struct multi_context *m = *state;
+    const unsigned int cid = 0;
+    assert_int_equal(send_push_update(m, &cid, msg7, UPT_BY_CID, PUSH_BUNDLE_SIZE_TEST), 1);
 }
 
 static void test_send_push_msg8(void **state)
 {
     i = 0;
     res = r8;
-    struct multi_instance *mi = *state;
-    assert_int_equal(send_push_update(NULL, mi, msg8, 0, PUSH_BUNDLE_SIZE_TEST), 1);
+    struct multi_context *m = *state;
+    const unsigned int cid = 0;
+    assert_int_equal(send_push_update(m, &cid, msg8, UPT_BY_CID, PUSH_BUNDLE_SIZE_TEST), 1);
 }
 
 static void test_send_push_msg9(void **state)
 {
     i = 0;
     res = r9;
-    struct multi_instance *mi = *state;
-    assert_int_equal(send_push_update(NULL, mi, msg9, 0, PUSH_BUNDLE_SIZE_TEST), 1);
+    struct multi_context *m = *state;
+    const unsigned int cid = 0;
+    assert_int_equal(send_push_update(m, &cid, msg9, UPT_BY_CID, PUSH_BUNDLE_SIZE_TEST), 1);
 }
 
 static void test_send_push_msg10(void **state)
 {
     i = 0;
     res = NULL;
-    struct multi_instance *mi = *state;
-    assert_int_equal(send_push_update(NULL, mi, msg10, 0, PUSH_BUNDLE_SIZE_TEST), -2);
+    struct multi_context *m = *state;
+    const unsigned int cid = 0;
+    assert_int_equal(send_push_update(m, &cid, msg10, UPT_BY_CID, PUSH_BUNDLE_SIZE_TEST), -EINVAL);
 }
 
 #undef PUSH_BUNDLE_SIZE_TEST
+
+static int
+setup2(void **state)
+{
+    struct multi_context *m = calloc(1, sizeof(struct multi_context));
+    m->instances = calloc(1, sizeof(struct multi_instance *));
+    struct multi_instance *mi = calloc(1, sizeof(struct multi_instance));
+    *(m->instances) = mi;
+    *state = m;
+    return 0;
+}
+
+static int
+teardown2(void **state)
+{
+    struct multi_context *m = *state;
+    free(*(m->instances));
+    free(m->instances);
+    free(m);
+    return 0;
+}
+#endif
 
 static int
 setup(void **state)
@@ -401,25 +437,6 @@ teardown(void **state)
     return 0;
 }
 
-static int
-setup2(void **state)
-{
-    struct multi_context *m = calloc(1, sizeof(struct multi_context));
-    struct multi_instance *mi = calloc(1, sizeof(struct multi_instance));
-    *(m->instances) = mi;
-    *state = m;
-    return 0;
-}
-
-static int
-teardown2(void **state)
-{
-    struct multi_context *m = *state;
-    free(*(m->instances));
-    free(m);
-    return 0;
-}
-
 int
 main(void)
 {
@@ -432,6 +449,7 @@ main(void)
         cmocka_unit_test_setup_teardown(test_incoming_push_message_bad_format, setup, teardown),
         cmocka_unit_test_setup_teardown(test_incoming_push_message_mix, setup, teardown),
         cmocka_unit_test_setup_teardown(test_incoming_push_message_mix2, setup, teardown),
+#ifdef ENABLE_MANAGEMENT
         cmocka_unit_test_setup_teardown(test_send_push_msg0, setup2, teardown2),
         cmocka_unit_test_setup_teardown(test_send_push_msg1, setup2, teardown2),
         cmocka_unit_test_setup_teardown(test_send_push_msg2, setup2, teardown2),
@@ -443,6 +461,7 @@ main(void)
         cmocka_unit_test_setup_teardown(test_send_push_msg8, setup2, teardown2),
         cmocka_unit_test_setup_teardown(test_send_push_msg9, setup2, teardown2),
         cmocka_unit_test_setup_teardown(test_send_push_msg10, setup2, teardown2)
+#endif
     };
     
     return cmocka_run_group_tests(tests, NULL, NULL);
