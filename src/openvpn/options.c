@@ -2685,7 +2685,10 @@ options_postprocess_verify_ce(const struct options *options,
         }
         if (!(proto_is_udp(ce->proto) || ce->proto == PROTO_TCP_SERVER))
         {
+#ifndef ENABLE_PLUGIN
             msg(M_USAGE, USAGE_VALID_SERVER_PROTOS);
+#endif
+            /*msg(M_USAGE, USAGE_VALID_SERVER_PROTOS); */
         }
 #if PORT_SHARE
         if ((options->port_share_host || options->port_share_port)
@@ -2721,7 +2724,9 @@ options_postprocess_verify_ce(const struct options *options,
         }
         if (!(proto_is_dgram(ce->proto) || ce->proto == PROTO_TCP_SERVER))
         {
+#ifndef ENABLE_PLUGIN
             msg(M_USAGE, USAGE_VALID_SERVER_PROTOS);
+#endif
         }
         if (!proto_is_udp(ce->proto) && (options->cf_max || options->cf_per))
         {
@@ -3726,12 +3731,6 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
     for (i = 0; i < o->connection_list->len; ++i)
     {
         o->connection_list->array[i]->local_list = o->ce.local_list;
-    }
-
-    if (has_tcp_in_local_list(o))
-    {
-        o->fast_io = false;
-        msg(M_INFO, "NOTE: --fast-io is disabled while using multi-socket");
     }
 
     if (o->tls_server)

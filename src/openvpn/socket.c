@@ -1180,6 +1180,7 @@ create_socket_indirect(struct link_socket *sock, sa_family_t ai_family)
                                     sock->info.transport_plugin_argv,
                                     ai_family,
                                     bind_addresses);
+    /*sock->ev_arg.type = EVENT_ARG_LINK_SOCKET; */
 }
 
 bool
@@ -1203,6 +1204,7 @@ create_socket(struct link_socket *sock, struct addrinfo *addr)
     if (proto_is_indirect(sock->info.proto))
     {
         create_socket_indirect(sock, addr->ai_family);
+        return;
     }
 
     if (addr->ai_protocol == IPPROTO_UDP || addr->ai_socktype == SOCK_DGRAM)
@@ -4179,7 +4181,7 @@ socket_set(struct link_socket *s,
             {
                 transport_request_events(s->indirect, es, rwflags);
             }
-            else
+            /*else */
 #endif
             {
                 event_ctl(es, socket_event_handle(s), rwflags, arg);

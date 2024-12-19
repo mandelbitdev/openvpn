@@ -78,6 +78,8 @@ void transport_request_events(openvpn_transport_socket_t indirect,
  * an int, otherwise the buffer structure would already be corrupted.
  */
 
+int transport_get_sd(openvpn_transport_socket_t indirect);
+
 static inline int
 transport_write(openvpn_transport_socket_t indirect,
                 struct buffer *buf, struct sockaddr *addr, socklen_t addrlen)

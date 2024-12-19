@@ -182,7 +182,7 @@ multi_io_wait(struct multi_context *m)
                                      &m->top.c2.link_sockets[i]->ev_arg);
     }
 
-    if (has_udp_in_local_list(&m->top.options))
+    if (has_udp_in_local_list(&m->top.options) || proto_is_indirect(m->top.options.ce.proto))
     {
         get_io_flags_udp(&m->top, m->multi_io, p2mp_iow_flags(m));
     }
@@ -481,13 +481,18 @@ multi_io_process_io(struct multi_context *m)
                         break;
                     }
                     /* new incoming TCP client attempting to connect? */
-                    if (!proto_is_dgram(ev_arg->u.sock->info.proto))
+                    if (proto_is_tcp(ev_arg->u.sock->info.proto))
                     {
                         socket_reset_listen_persistent(ev_arg->u.sock);
                         mi = multi_create_instance_tcp(m, ev_arg->u.sock);
                     }
                     else
                     {
+#ifdef ENABLE_PLUGIN
+                        multi_io->udp_flags |=
+                            (socket_indirect_pump(ev_arg->u.sock, multi_io->esr, &multi_io->n_esr) & 3)
+                                << SOCKET_SHIFT;
+#endif
                         multi_process_io_udp(m, ev_arg->u.sock);
                         mi = m->pending;
                     }

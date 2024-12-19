@@ -80,6 +80,12 @@ error:
     return NULL;
 }
 
+static int
+obfs_test_posix_get_sd(openvpn_transport_socket_t handle)
+{
+    return ((struct obfs_test_socket_posix *) handle)->fd;
+}
+
 static void
 obfs_test_posix_request_event(openvpn_transport_socket_t handle,
                               openvpn_transport_event_set_handle_t event_set, unsigned rwflags)
@@ -198,6 +204,7 @@ void
 obfs_test_initialize_vtabs_platform(void)
 {
     obfs_test_bind_vtab.bind = obfs_test_posix_bind;
+    obfs_test_socket_vtab.get_sd = obfs_test_posix_get_sd;
     obfs_test_socket_vtab.request_event = obfs_test_posix_request_event;
     obfs_test_socket_vtab.update_event = obfs_test_posix_update_event;
     obfs_test_socket_vtab.pump = obfs_test_posix_pump;
