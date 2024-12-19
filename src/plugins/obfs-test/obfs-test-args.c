@@ -56,5 +56,5 @@ void
 obfs_test_freeargs(openvpn_transport_args_t args_)
 {
     free(args_);
-    struct obfs_test_args *args = (struct obfs_test_args *) args_;
+    //struct obfs_test_args *args = (struct obfs_test_args *) args_;
 }

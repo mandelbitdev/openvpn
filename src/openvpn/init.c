@@ -4961,7 +4961,7 @@ inherit_context_top(struct context *dest,
     dest->c2.es_owned = false;
 
     dest->c2.event_set = NULL;
-    if (proto_is_dgram(src->options.ce.proto))
+    if (proto_is_dgram(src->options.ce.proto) || proto_is_indirect(src->options.ce.proto))
     {
         do_event_set_init(dest, false);
     }

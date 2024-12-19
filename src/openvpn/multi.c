@@ -4156,7 +4156,7 @@ tunnel_server(struct context *top)
 {
     ASSERT(top->options.mode == MODE_SERVER);
 
-    if (proto_is_dgram(top->options.ce.proto))
+    if (proto_is_dgram(top->options.ce.proto) || proto_is_indirect(top->options.ce.proto))
     {
         tunnel_server_udp(top);
     }

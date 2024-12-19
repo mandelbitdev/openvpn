@@ -1141,9 +1141,10 @@ create_socket_indirect(struct link_socket *sock, sa_family_t ai_family)
 static void
 create_socket(struct link_socket *sock, struct addrinfo *addr)
 {
-    if (proto_is_indirect(sock->info.proto))
+    if (proto_is_indirect(sock->info.proto) && (!sock->indirect))
     {
         create_socket_indirect(sock, addr->ai_family);
+        return;
     }
 
     if (addr->ai_protocol == IPPROTO_UDP || addr->ai_socktype == SOCK_DGRAM)
@@ -3368,7 +3369,7 @@ link_socket_read_indirect(struct link_socket *sock,
                           struct buffer *buf,
                           struct link_socket_actual *from)
 {
-    ASSERT(sock->indirect);
+    //ASSERT(sock->indirect);
     socklen_t fromlen = sizeof(from->dest.addr);
     socklen_t expectedlen = af_addr_size(sock->info.af);
     addr_zero_host(&from->dest);
@@ -3528,7 +3529,7 @@ link_socket_write_indirect(struct link_socket *sock,
                            struct buffer *buf,
                            struct link_socket_actual *to)
 {
-    ASSERT(sock->indirect);
+    //ASSERT(sock->indirect);
     struct sockaddr *addr = (struct sockaddr *) &to->dest.addr.sa;
     socklen_t addrlen = (socklen_t) af_addr_size(to->dest.addr.sa.sa_family);
     return transport_write(sock->indirect, buf, addr, addrlen);
