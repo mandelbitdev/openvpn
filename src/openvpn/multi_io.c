@@ -157,7 +157,7 @@ multi_io_wait(struct multi_context *m)
 
     if (has_udp_in_local_list(&m->top.options))
     {
-        get_io_flags_udp(&m->top, m->multi_io, p2mp_iow_flags(m));
+        io_wait(&m->top, m->multi_io, p2mp_iow_flags(m));
     }
 
 #ifdef _WIN32
@@ -218,13 +218,13 @@ multi_io_wait_lite(struct multi_context *m, struct multi_instance *mi, const int
         case TA_TUN_READ:
             looking_for = TUN_READ;
             tun_input_pending = NULL;
-            io_wait(c, IOW_READ_TUN);
+            io_wait(c, NULL, IOW_READ_TUN);
             break;
 
         case TA_SOCKET_READ:
             looking_for = SOCKET_READ;
             tun_input_pending = NULL;
-            io_wait(c, IOW_READ_LINK);
+            io_wait(c, NULL, IOW_READ_LINK);
             break;
 
         case TA_TUN_WRITE:
@@ -232,13 +232,13 @@ multi_io_wait_lite(struct multi_context *m, struct multi_instance *mi, const int
             tun_input_pending = NULL;
             c->c2.timeval.tv_sec = 1; /* For some reason, the Linux 2.2 TUN/TAP driver hits this timeout */
             perf_push(PERF_PROC_OUT_TUN_MTCP);
-            io_wait(c, IOW_TO_TUN);
+            io_wait(c, NULL, IOW_TO_TUN);
             perf_pop();
             break;
 
         case TA_SOCKET_WRITE:
             looking_for = SOCKET_WRITE;
-            io_wait(c, IOW_TO_LINK|IOW_READ_TUN_FORCE);
+            io_wait(c, NULL, IOW_TO_LINK|IOW_READ_TUN_FORCE);
             break;
 
         default:

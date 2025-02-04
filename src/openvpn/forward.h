@@ -374,8 +374,10 @@ p2p_iow_flags(const struct context *c)
  * for TCP in server mode.
  */
 static inline void
-io_wait(struct context *c, const unsigned int flags)
+io_wait(struct context *c, struct multi_io *multi_io, const unsigned int flags)
 {
+    unsigned int *io_flags;
+    multi_io != NULL ? io_flags = &multi_io->udp_flags : &c->c2.event_set_status;
     if (c->c2.fast_io && (flags & (IOW_TO_TUN|IOW_TO_LINK|IOW_MBUF)))
     {
         /* fast path -- only for TUN/TAP/UDP writes */
@@ -388,7 +390,7 @@ io_wait(struct context *c, const unsigned int flags)
         {
             ret |= SOCKET_WRITE;
         }
-        c->c2.event_set_status = ret;
+        io_flags = &ret;
     }
     else
     {
@@ -414,13 +416,13 @@ io_wait(struct context *c, const unsigned int flags)
             {
                 ret |= TUN_READ;
             }
-            c->c2.event_set_status = ret;
+            io_flags = &ret;
         }
         else
 #endif /* ifdef _WIN32 */
         {
             /* slow path */
-            io_wait_dowork(c, flags);
+            io_wait_dowork(c, multi_io, flags);
         }
     }
 }

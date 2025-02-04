@@ -80,7 +80,7 @@ tunnel_point_to_point(struct context *c)
         P2P_CHECK_SIG();
 
         /* set up and do the I/O wait */
-        io_wait(c, p2p_iow_flags(c));
+        io_wait(c, NULL, p2p_iow_flags(c));
         P2P_CHECK_SIG();
 
         /* timeout? */
