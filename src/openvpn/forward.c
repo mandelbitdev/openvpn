@@ -2057,26 +2057,22 @@ pre_select(struct context *c)
     check_timeout_random_component(c);
 }
 
-/*
- * Wait for I/O events.  Used for both TCP & UDP sockets
- * in point-to-point mode and for UDP sockets in
- * point-to-multipoint mode.
- */
-
 void
-get_io_flags_dowork_udp(struct context *c, struct multi_io *multi_io, const unsigned int flags)
+multi_io_process_flags(struct context *c, struct event_set *es,
+                       const unsigned int flags, unsigned int *out_socket,
+                       unsigned int *out_tuntap)
 {
     unsigned int socket = 0;
     unsigned int tuntap = 0;
-    static uintptr_t tun_shift = 2;
-    static uintptr_t err_shift = 4;
+    static uintptr_t tun_shift = TUN_SHIFT;
+    static uintptr_t err_shift = ERR_SHIFT;
 
     /*
      * Calculate the flags based on the provided 'flags' argument.
      */
     if (flags & IOW_WAIT_SIGNAL)
     {
-        wait_signal(multi_io->es, (void *)err_shift);
+        wait_signal(es, (void *)err_shift);
     }
 
     if (flags & IOW_TO_LINK)
@@ -2168,13 +2164,37 @@ get_io_flags_dowork_udp(struct context *c, struct multi_io *multi_io, const unsi
     {
         if (proto_is_dgram(c->c2.link_sockets[i]->info.proto))
         {
-            socket_set(c->c2.link_sockets[i], multi_io->es, socket,
+            socket_set(c->c2.link_sockets[i], es, socket,
                        &c->c2.link_sockets[i]->ev_arg, NULL);
         }
     }
-    tun_set(c->c1.tuntap, multi_io->es, tuntap, (void *)tun_shift, NULL);
+    tun_set(c->c1.tuntap, es, tuntap, (void *)tun_shift, NULL);
 
-    multi_io->udp_flags = socket | tuntap;
+    if (out_socket)
+    {
+        *out_socket = socket;
+    }
+
+    if (out_tuntap)
+    {
+        *out_tuntap = tuntap;
+    }
+
+}
+
+/*
+ * Wait for I/O events.  Used for both TCP & UDP sockets
+ * in point-to-point mode and for UDP sockets in
+ * point-to-multipoint mode.
+ */
+
+void
+get_io_flags_dowork_udp(struct context *c, struct multi_io *multi_io, const unsigned int flags)
+{
+    unsigned int out_socket, out_tuntap;
+
+    multi_io_process_flags(c, multi_io->es, flags, &out_socket, &out_tuntap);
+    multi_io->udp_flags = out_socket | out_tuntap;
 }
 
 void
@@ -2233,14 +2253,11 @@ get_io_flags_udp(struct context *c, struct multi_io *multi_io, const unsigned in
 void
 io_wait_dowork(struct context *c, const unsigned int flags)
 {
-    unsigned int socket = 0;
-    unsigned int tuntap = 0;
+    unsigned int out_socket;
     struct event_set_return esr[4];
 
     /* These shifts all depend on EVENT_READ and EVENT_WRITE */
     static uintptr_t socket_shift = SOCKET_SHIFT;   /* depends on SOCKET_READ and SOCKET_WRITE */
-    static uintptr_t tun_shift = TUN_SHIFT;      /* depends on TUN_READ and TUN_WRITE */
-    static uintptr_t err_shift = ERR_SHIFT;      /* depends on ES_ERROR */
 #ifdef ENABLE_MANAGEMENT
     static uintptr_t management_shift = MANAGEMENT_SHIFT; /* depends on MANAGEMENT_READ and MANAGEMENT_WRITE */
 #endif
@@ -2251,118 +2268,10 @@ io_wait_dowork(struct context *c, const unsigned int flags)
     static uintptr_t dco_shift = DCO_SHIFT;    /* Event from DCO linux kernel module */
 #endif
 
-    /*
-     * Decide what kind of events we want to wait for.
-     */
-    event_reset(c->c2.event_set);
+    multi_io_process_flags(c, c->c2.event_set, flags, &out_socket, NULL);
 
-    /*
-     * On win32 we use the keyboard or an event object as a source
-     * of asynchronous signals.
-     */
-    if (flags & IOW_WAIT_SIGNAL)
-    {
-        wait_signal(c->c2.event_set, (void *)err_shift);
-    }
-
-    /*
-     * If outgoing data (for TCP/UDP port) pending, wait for ready-to-send
-     * status from TCP/UDP port. Otherwise, wait for incoming data on
-     * TUN/TAP device.
-     */
-    if (flags & IOW_TO_LINK)
-    {
-        if (flags & IOW_SHAPER)
-        {
-            /*
-             * If sending this packet would put us over our traffic shaping
-             * quota, don't send -- instead compute the delay we must wait
-             * until it will be OK to send the packet.
-             */
-            int delay = 0;
-
-            /* set traffic shaping delay in microseconds */
-            if (c->options.shaper)
-            {
-                delay = max_int(delay, shaper_delay(&c->c2.shaper));
-            }
-
-            if (delay < 1000)
-            {
-                socket |= EVENT_WRITE;
-            }
-            else
-            {
-                shaper_soonest_event(&c->c2.timeval, delay);
-            }
-        }
-        else
-        {
-            socket |= EVENT_WRITE;
-        }
-    }
-    else if (!((flags & IOW_FRAG) && TO_LINK_FRAG(c)))
-    {
-        if (flags & IOW_READ_TUN)
-        {
-            tuntap |= EVENT_READ;
-        }
-    }
-
-    /*
-     * If outgoing data (for TUN/TAP device) pending, wait for ready-to-send status
-     * from device.  Otherwise, wait for incoming data on TCP/UDP port.
-     */
-    if (flags & IOW_TO_TUN)
-    {
-        tuntap |= EVENT_WRITE;
-    }
-    else
-    {
-        if (flags & IOW_READ_LINK)
-        {
-            socket |= EVENT_READ;
-        }
-    }
-
-    /*
-     * outgoing bcast buffer waiting to be sent?
-     */
-    if (flags & IOW_MBUF)
-    {
-        socket |= EVENT_WRITE;
-    }
-
-    /*
-     * Force wait on TUN input, even if also waiting on TCP/UDP output
-     */
-    if (flags & IOW_READ_TUN_FORCE)
-    {
-        tuntap |= EVENT_READ;
-    }
-
-#ifdef _WIN32
-    if (tuntap_is_wintun(c->c1.tuntap))
-    {
-        /*
-         * With wintun we are only interested in read event. Ring buffer is
-         * always ready for write, so we don't do wait.
-         */
-        tuntap = EVENT_READ;
-    }
-#endif
-
-    /*
-     * Configure event wait based on socket, tuntap flags.
-     */
-    for (int i = 0; i < c->c1.link_sockets_num; i++)
-    {
-        socket_set(c->c2.link_sockets[i], c->c2.event_set, socket,
-                   &c->c2.link_sockets[i]->ev_arg, NULL);
-    }
-    tun_set(c->c1.tuntap, c->c2.event_set, tuntap, (void *)tun_shift, NULL);
 #if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
-    if (socket & EVENT_READ && c->c2.did_open_tun)
+    if (out_socket & EVENT_READ && c->c2.did_open_tun)
     {
         dco_event_set(&c->c1.tuntap->dco, c->c2.event_set, (void *)dco_shift);
     }
