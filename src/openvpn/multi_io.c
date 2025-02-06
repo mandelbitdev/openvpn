@@ -403,9 +403,9 @@ multi_io_post(struct multi_context *m, struct multi_instance *mi, const int acti
         }
     }
 
-    dmsg(D_MULTI_DEBUG, "MULTI IO: multi_io_post %s -> %s",
+    dmsg(D_MULTI_DEBUG, "MULTI IO: multi_io_post %s -> %s flags=%#2x",
          pract(action),
-         pract(newaction));
+         pract(newaction), flags);
 
     return newaction;
 }
@@ -416,14 +416,22 @@ multi_io_process_io(struct multi_context *m)
     struct multi_io *multi_io = m->multi_io;
     int i;
 
+    dmsg(D_MULTI_DEBUG, "multi_io_process_io n_esr=%u", multi_io->n_esr);
+
     for (i = 0; i < multi_io->n_esr; ++i)
     {
         struct event_set_return *e = &multi_io->esr[i];
         struct event_arg *ev_arg = (struct event_arg *)e->arg;
 
+        dmsg(D_MULTI_DEBUG, "multi_io_process_io i=%u e->arg=%#lx", i,
+             (uintptr_t)e->arg);
+
         /* incoming data for instance or listening socket? */
         if (e->arg >= MULTI_N)
         {
+            dmsg(D_MULTI_DEBUG, "multi_io_process_io i=%u ev_arg->type=%u", i,
+                  ev_arg->type);
+
             switch (ev_arg->type)
             {
                 struct multi_instance *mi;
@@ -473,6 +481,10 @@ multi_io_process_io(struct multi_context *m)
         }
         else
         {
+
+            dmsg(D_MULTI_DEBUG, "multi_io_process_io i=%u e->rwflags=%#x", i,
+                 e->rwflags);
+
 #ifdef ENABLE_MANAGEMENT
             if (e->arg == MULTI_IO_MANAGEMENT)
             {
@@ -629,6 +641,7 @@ multi_io_action(struct multi_context *m, struct multi_instance *mi, int action, 
         }
 
     } while (action != TA_UNDEF);
+    dmsg(D_MULTI_DEBUG, "exiting multi_io_action");
 }
 
 void
