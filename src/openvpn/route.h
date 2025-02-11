@@ -286,6 +286,26 @@ bool add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags
                const struct route_gateway_info *rgi, const struct env_set *es,
                openvpn_net_ctx_t *ctx);
 
+bool
+add_route3(in_addr_t network,
+           in_addr_t netmask,
+           in_addr_t gateway,
+           const struct tuntap *tt,
+           unsigned int flags,
+           const struct route_gateway_info *rgi,
+           const struct env_set *es,
+           openvpn_net_ctx_t *ctx);
+
+void
+del_route3(in_addr_t network,
+           in_addr_t netmask,
+           in_addr_t gateway,
+           const struct tuntap *tt,
+           unsigned int flags,
+           const struct route_gateway_info *rgi,
+           const struct env_set *es,
+           openvpn_net_ctx_t *ctx);
+
 void add_route_to_option_list(struct route_option_list *l,
                               const char *network,
                               const char *netmask,
@@ -352,6 +372,9 @@ void get_default_gateway_ipv6(struct route_ipv6_gateway_info *rgi,
 void print_default_gateway(const int msglevel,
                            const struct route_gateway_info *rgi,
                            const struct route_ipv6_gateway_info *rgi6);
+
+/* Return a `route_ipv6 *` /128 IPv6 route toward the remote host */
+struct route_ipv6 *create_host_route_ipv6(struct in6_addr remote_host_ipv6, struct route_ipv6_list *rl6);
 
 /*
  * Test if addr is reachable via a local interface (return ILA_LOCAL),
