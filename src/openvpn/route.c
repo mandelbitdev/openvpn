@@ -884,30 +884,14 @@ init_route_ipv6_list(struct route_ipv6_list *rl6,
     }
 
     /* add VPN server host route if needed */
-    if (need_remote_ipv6_route)
+    if (need_remote_ipv6_route
+        && !(rl6->iflags & RL_DID_LOCAL))
     {
         if ( (rl6->rgi6.flags & (RGI_ADDR_DEFINED|RGI_IFACE_DEFINED) ) ==
              (RGI_ADDR_DEFINED|RGI_IFACE_DEFINED) )
         {
-            struct route_ipv6 *r6;
-            ALLOC_OBJ_CLEAR_GC(r6, struct route_ipv6, &rl6->gc);
-
-            r6->network = *remote_host_ipv6;
-            r6->netbits = 128;
-            if (!(rl6->rgi6.flags & RGI_ON_LINK) )
-            {
-                r6->gateway = rl6->rgi6.gateway.addr_ipv6;
-            }
-            r6->metric = 1;
-#ifdef _WIN32
-            r6->adapter_index = rl6->rgi6.adapter_index;
-#else
-            r6->iface = rl6->rgi6.iface;
-#endif
-            r6->flags = RT_DEFINED | RT_METRIC_DEFINED;
-
-            r6->next = rl6->routes_ipv6;
-            rl6->routes_ipv6 = r6;
+            rl6->routes_ipv6 = create_host_route_ipv6(*remote_host_ipv6, rl6);
+            rl6->iflags |= RL_DID_LOCAL;
         }
         else
         {
@@ -919,7 +903,31 @@ init_route_ipv6_list(struct route_ipv6_list *rl6,
     return ret;
 }
 
-static bool
+struct route_ipv6 *
+create_host_route_ipv6(struct in6_addr remote_host_ipv6, struct route_ipv6_list *rl6)
+{
+    struct route_ipv6 *r6;
+    ALLOC_OBJ_CLEAR_GC(r6, struct route_ipv6, &rl6->gc);
+
+    r6->network = remote_host_ipv6;
+    r6->netbits = 128;
+    if (!(rl6->rgi6.flags & RGI_ON_LINK) )
+    {
+        r6->gateway = rl6->rgi6.gateway.addr_ipv6;
+    }
+    r6->metric = 1;
+#ifdef _WIN32
+    r6->adapter_index = rl6->rgi6.adapter_index;
+#else
+    r6->iface = rl6->rgi6.iface;
+#endif
+    r6->flags = RT_DEFINED | RT_METRIC_DEFINED;
+    r6->next = rl6->routes_ipv6;
+
+    return r6;
+}
+
+bool
 add_route3(in_addr_t network,
            in_addr_t netmask,
            in_addr_t gateway,
@@ -938,7 +946,7 @@ add_route3(in_addr_t network,
     return add_route(&r, tt, flags, rgi, es, ctx);
 }
 
-static void
+void
 del_route3(in_addr_t network,
            in_addr_t netmask,
            in_addr_t gateway,
@@ -1055,7 +1063,8 @@ redirect_default_route_to_vpn(struct route_list *rl, const struct tuntap *tt,
                 /* if remote_host is not ipv4 (ie: ipv6), just skip
                  * adding this special /32 route */
                 if ((rl->spec.flags & RTSA_REMOTE_HOST)
-                    && rl->spec.remote_host != IPV4_INVALID_ADDR)
+                    && rl->spec.remote_host != IPV4_INVALID_ADDR
+                    && !(rl->iflags & RL_DID_LOCAL))
                 {
                     ret = add_route3(rl->spec.remote_host, IPV4_NETMASK_HOST,
                                      rl->rgi.gateway.addr, tt, flags | ROUTE_REF_GW,
@@ -1282,7 +1291,7 @@ delete_routes(struct route_list *rl, struct route_ipv6_list *rl6,
         {
             delete_route_ipv6(r6, tt, flags, es, ctx);
         }
-        rl6->iflags &= ~RL_ROUTES_ADDED;
+        rl6->iflags &= ~(RL_ROUTES_ADDED | RL_DID_LOCAL);
     }
 
     if (rl6)
