@@ -668,9 +668,9 @@ multi_close_instance(struct multi_context *m,
         if (!is_dgram)
         {
             multi_tcp_dereference_instance(m->multi_io, mi);
+            mbuf_dereference_instance(m->mbuf, mi);
         }
 
-        mbuf_dereference_instance(m->mbuf, mi);
     }
 
 #ifdef ENABLE_MANAGEMENT
@@ -3350,8 +3350,9 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
     bool ret = true;
     bool floated = false;
 
-    if (m->pending)
+    if (m->pending && (m->pending->context.c2.link_sockets[0]->info.proto == ls->info.proto))
     {
+        printf("\nMulti_process_incoming_link pending: %s triggered by %d sock\n", m->pending->context.c2.tls_multi->locked_cn, ls->info.proto);
         return true;
     }
 
@@ -3560,6 +3561,7 @@ multi_process_incoming_tun(struct multi_context *m, const unsigned int mpp_flags
 
         if (m->pending)
         {
+            printf("\nincoming tun pending: %s\n", m->pending->context.c2.tls_multi->locked_cn);
             return true;
         }
 

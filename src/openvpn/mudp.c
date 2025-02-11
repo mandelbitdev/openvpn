@@ -381,7 +381,8 @@ multi_process_io_udp(struct multi_context *m, struct link_socket *sock)
     /* TUN device ready to accept write */
     else if (status & TUN_WRITE)
     {
-        multi_process_outgoing_tun(m, mpp_flags);
+        printf("\nUDP process.\n");
+        multi_process_outgoing_tun(m, NULL, mpp_flags);
     }
     /* Incoming data on UDP port */
     else if (status & SOCKET_READ)

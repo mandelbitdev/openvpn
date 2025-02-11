@@ -438,11 +438,15 @@ multi_process_outgoing_link_pre(struct multi_context *m)
 
     if (m->pending)
     {
+        //printf("\nmi from pending\n");
         mi = m->pending;
+        printf("\nProcessing: %s\n", mi->context.c2.tls_multi->locked_cn);
     }
     else if (mbuf_defined(m->mbuf))
     {
+        //printf("\nmi from mbuf\n");
         mi = multi_get_queue(m->mbuf);
+        printf("\nProcessing: %s\n", mi->context.c2.tls_multi->locked_cn);
     }
     return mi;
 }
@@ -659,16 +663,24 @@ multi_get_timeout(struct multi_context *m, struct timeval *dest)
  *  - Falls, if the \c multi_instance was closed.
  */
 static inline bool
-multi_process_outgoing_tun(struct multi_context *m, const unsigned int mpp_flags)
+multi_process_outgoing_tun(struct multi_context *m, struct multi_instance *previous, const unsigned int mpp_flags)
 {
-    struct multi_instance *mi = m->pending;
+    struct multi_instance *mi;
+    if (previous)
+    {
+        mi = previous;
+    }
+    else
+    {
+        mi = multi_process_outgoing_link_pre(m);
+    }
     bool ret = true;
 
     ASSERT(mi);
 
 #ifdef MULTI_DEBUG_EVENT_LOOP
     printf("%s -> TUN len=%d\n",
-           id(mi),
+           mi->context.c2.tls_multi->locked_cn,
            mi->context.c2.to_tun.len);
 #endif
     set_prefix(mi);
@@ -702,6 +714,14 @@ multi_process_outgoing_link_dowork(struct multi_context *m, struct multi_instanc
 static inline void
 multi_set_pending(struct multi_context *m, struct multi_instance *mi)
 {
+    if (mi)
+    {
+        printf("\nCurrent pending for %s\n", mi->context.c2.tls_multi->locked_cn);
+    }
+    else
+    {
+        printf("\nNULL pending\n");
+    }
     m->pending = mi;
 }
 /**

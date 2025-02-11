@@ -154,6 +154,9 @@ multi_tcp_set_global_rw_flags(struct multi_context *m, struct multi_instance *mi
 {
     if (mi)
     {
+        /*if (proto_is_dgram(mi->context.c2.link_sockets[0]->info.proto))
+            printf("\nmulti set global rw_flags for UDP\n");*/
+        
         mi->socket_set_called = true;
         socket_set(mi->context.c2.link_sockets[0],
                    m->multi_io->es,

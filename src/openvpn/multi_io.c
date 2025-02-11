@@ -316,7 +316,7 @@ multi_io_dispatch(struct multi_context *m, struct multi_instance *mi, const int 
             break;
 
         case TA_TUN_WRITE:
-            multi_process_outgoing_tun(m, mpp_flags);
+            multi_process_outgoing_tun(m, mi, mpp_flags);
             break;
 
         case TA_TUN_WRITE_TIMEOUT:
@@ -338,6 +338,7 @@ multi_io_dispatch(struct multi_context *m, struct multi_instance *mi, const int 
 
         case TA_INITIAL:
             ASSERT(mi);
+            printf("\nmulti_tcp_set_global_rw_flags called\n");
             multi_tcp_set_global_rw_flags(m, mi);
             multi_process_post(m, mi, mpp_flags);
             break;
@@ -388,6 +389,7 @@ multi_io_post(struct multi_context *m, struct multi_instance *mi, const int acti
             }
             else
             {
+                printf("\nmulti_tcp_set_global_rw_flags called\n");
                 multi_tcp_set_global_rw_flags(m, mi);
             }
             break;
@@ -415,16 +417,19 @@ multi_io_process_io(struct multi_context *m)
 {
     struct multi_io *multi_io = m->multi_io;
     int i;
+    bool floated = false;
+    struct multi_instance *outgoing_mi = NULL;
 
     dmsg(D_MULTI_DEBUG, "multi_io_process_io n_esr=%u", multi_io->n_esr);
 
     for (i = 0; i < multi_io->n_esr; ++i)
     {
+        printf("\nhandling %d events, current: %d\n", multi_io->n_esr, i);
         struct event_set_return *e = &multi_io->esr[i];
         struct event_arg *ev_arg = (struct event_arg *)e->arg;
 
-        dmsg(D_MULTI_DEBUG, "multi_io_process_io i=%u e->arg=%#lx", i,
-             (uintptr_t)e->arg);
+        dmsg(D_MULTI_DEBUG, "multi_io_process_io i=%u e->arg=%#lx e=%p", i,
+             (uintptr_t)e->arg, (void*)&e);
 
         /* incoming data for instance or listening socket? */
         if (e->arg >= MULTI_N)
@@ -443,7 +448,8 @@ multi_io_process_io(struct multi_context *m)
                         msg(D_MULTI_ERRORS, "MULTI IO: multi_io_proc_io: null minstance");
                         break;
                     }
-
+                    dmsg(D_MULTI_DEBUG, "multi_io_process_io i=%u ev_arg->type=%u", i,
+                         ev_arg->type);
                     mi = ev_arg->u.mi;
                     if (e->rwflags & EVENT_WRITE)
                     {
@@ -461,6 +467,8 @@ multi_io_process_io(struct multi_context *m)
                         msg(D_MULTI_ERRORS, "MULTI IO: multi_io_proc_io: null socket");
                         break;
                     }
+                    dmsg(D_MULTI_DEBUG, "multi_io_process_io i=%u ev_arg->type=%u", i,
+                         ev_arg->type);
                     /* new incoming TCP client attempting to connect? */
                     if (!proto_is_dgram(ev_arg->u.sock->info.proto))
                     {
@@ -475,6 +483,7 @@ multi_io_process_io(struct multi_context *m)
                     else
                     {
                         multi_process_io_udp(m, ev_arg->u.sock);
+                        outgoing_mi = multi_get_create_instance_udp(m, &floated, ev_arg->u.sock);
                         break;
                     }
             }
@@ -482,7 +491,7 @@ multi_io_process_io(struct multi_context *m)
         else
         {
 
-            dmsg(D_MULTI_DEBUG, "multi_io_process_io i=%u e->rwflags=%#x", i,
+            dmsg(D_MULTI_DEBUG, "multi_io_process_io i=%u e=%p e->rwflags=%#x", i, (void*)&e,
                  e->rwflags);
 
 #ifdef ENABLE_MANAGEMENT
@@ -496,14 +505,18 @@ multi_io_process_io(struct multi_context *m)
             /* incoming data on TUN? */
             if (e->arg == MULTI_IO_TUN)
             {
+                dmsg(D_MULTI_DEBUG, "multi_io_process_io i=%u e=%p e->rwflags=%#x", i, (void*)&e,
+                 e->rwflags);
                 if (e->rwflags & EVENT_WRITE)
                 {
-                    multi_io_action(m, NULL, TA_TUN_WRITE, false);
+                    multi_io_action(m, outgoing_mi, TA_TUN_WRITE, false);
                 }
                 else if (e->rwflags & EVENT_READ)
                 {
-                    multi_io_action(m, NULL, TA_TUN_READ, false);
+                    multi_io_action(m, outgoing_mi, TA_TUN_READ, false);
                 }
+                e->rwflags = 0;
+                break;
             }
             /* new incoming TCP client attempting to connect? */
             else if (e->arg == MULTI_IO_SOCKET)
@@ -540,6 +553,12 @@ multi_io_process_io(struct multi_context *m)
         {
             break;
         }
+        /* Prevent dangling events */
+        /*if (multi_io->n_esr > 1)
+        {
+            e->rwflags = 0;
+            i++;
+        }*/
     }
     multi_io->n_esr = 0;
 
