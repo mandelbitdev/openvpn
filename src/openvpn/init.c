@@ -2184,6 +2184,10 @@ do_close_tun(struct context *c, bool force)
                         "route-pre-down",
                         c->c2.es);
 
+            if (c->mode == CM_P2P && c->options.persist_tun)
+            {
+                del_route_towards_remote(c);
+            }
             delete_routes(c->c1.route_list, c->c1.route_ipv6_list,
                           c->c1.tuntap, ROUTE_OPTION_FLAGS(&c->options),
                           c->c2.es, &c->net_ctx);
@@ -2243,6 +2247,11 @@ do_close_tun(struct context *c, bool force)
                                            c->sig->signal_text),
                         "down",
                         c->c2.es);
+        }
+
+        if (c->mode == CM_P2P && c->options.persist_tun)
+        {
+            del_route_towards_remote(c);
         }
 
         del_wfp_block(c, adapter_index);
@@ -4823,6 +4832,17 @@ init_instance(struct context *c, const struct env_set *env, const unsigned int f
             frame_calculate_dynamic(&c->c2.frame, &c->c1.ks.key_type, &c->options,
                                     &c->c2.link_sockets[i]->info);
         }
+    }
+
+    /**
+     * When using both --redirect-gateway and --persist-tun,
+     * if the connection to the server is lost, a /32 (or /128 if IPv6) route must be added
+     * to ensure connectivity to the next remote.
+     */
+    if (c->mode == CM_P2P
+        && c->options.persist_tun)
+    {
+        add_route_towards_remote(c);
     }
 
     /*
