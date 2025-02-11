@@ -309,6 +309,14 @@ bool add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags
                const struct route_gateway_info *rgi, const struct env_set *es,
                openvpn_net_ctx_t *ctx);
 
+/* Function to add a route towards the new remote when using
+ * `--redirect-gateway` and `--persist-tun` options together. */
+void add_route_towards_remote(struct context *c);
+
+/* Function to delete the route towards the remote when using
+ * `--redirect-gateway` and `--persist-tun` options together. */
+void del_route_towards_remote(struct context *c);
+
 void add_route_to_option_list(struct route_option_list *l, const char *network, const char *netmask,
                               const char *gateway, const char *metric, int table_id);
 
@@ -358,6 +366,9 @@ void get_default_gateway_ipv6(struct route_ipv6_gateway_info *rgi, const struct 
 
 void print_default_gateway(const msglvl_t msglevel, const struct route_gateway_info *rgi,
                            const struct route_ipv6_gateway_info *rgi6);
+
+/* Return a `route_ipv6 *` /128 IPv6 route toward the remote host */
+struct route_ipv6 *create_host_route_ipv6(struct in6_addr remote_host_ipv6, struct route_ipv6_list *rl6);
 
 /*
  * Test if addr is reachable via a local interface (return ILA_LOCAL),
