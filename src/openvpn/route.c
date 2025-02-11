@@ -42,6 +42,7 @@
 #include "options.h"
 #include "networking.h"
 #include "integer.h"
+#include "openvpn.h"
 
 #include "memdbg.h"
 
@@ -840,30 +841,14 @@ init_route_ipv6_list(struct route_ipv6_list *rl6, const struct route_ipv6_option
     }
 
     /* add VPN server host route if needed */
-    if (need_remote_ipv6_route)
+    if (need_remote_ipv6_route
+        && !(rl6->iflags & RL_DID_LOCAL))
     {
         if ((rl6->rgi6.flags & (RGI_ADDR_DEFINED | RGI_IFACE_DEFINED))
             == (RGI_ADDR_DEFINED | RGI_IFACE_DEFINED))
         {
-            struct route_ipv6 *r6;
-            ALLOC_OBJ_CLEAR_GC(r6, struct route_ipv6, &rl6->gc);
-
-            r6->network = *remote_host_ipv6;
-            r6->netbits = 128;
-            if (!(rl6->rgi6.flags & RGI_ON_LINK))
-            {
-                r6->gateway = rl6->rgi6.gateway.addr_ipv6;
-            }
-            r6->metric = 1;
-#ifdef _WIN32
-            r6->adapter_index = rl6->rgi6.adapter_index;
-#else
-            r6->iface = rl6->rgi6.iface;
-#endif
-            r6->flags = RT_DEFINED | RT_METRIC_DEFINED;
-
-            r6->next = rl6->routes_ipv6;
-            rl6->routes_ipv6 = r6;
+            rl6->routes_ipv6 = create_host_route_ipv6(*remote_host_ipv6, rl6);
+            rl6->iflags |= RL_DID_LOCAL;
         }
         else
         {
@@ -874,6 +859,30 @@ init_route_ipv6_list(struct route_ipv6_list *rl6, const struct route_ipv6_option
 
     gc_free(&gc);
     return ret;
+}
+
+struct route_ipv6 *
+create_host_route_ipv6(struct in6_addr remote_host_ipv6, struct route_ipv6_list *rl6)
+{
+    struct route_ipv6 *r6;
+    ALLOC_OBJ_CLEAR_GC(r6, struct route_ipv6, &rl6->gc);
+
+    r6->network = remote_host_ipv6;
+    r6->netbits = 128;
+    if (!(rl6->rgi6.flags & RGI_ON_LINK))
+    {
+        r6->gateway = rl6->rgi6.gateway.addr_ipv6;
+    }
+    r6->metric = 1;
+#ifdef _WIN32
+    r6->adapter_index = rl6->rgi6.adapter_index;
+#else
+    r6->iface = rl6->rgi6.iface;
+#endif
+    r6->flags = RT_DEFINED | RT_METRIC_DEFINED;
+    r6->next = rl6->routes_ipv6;
+
+    return r6;
 }
 
 static bool
@@ -988,7 +997,8 @@ redirect_default_route_to_vpn(struct route_list *rl, const struct tuntap *tt, un
                 /* if remote_host is not ipv4 (ie: ipv6), just skip
                  * adding this special /32 route */
                 if ((rl->spec.flags & RTSA_REMOTE_HOST)
-                    && rl->spec.remote_host != IPV4_INVALID_ADDR)
+                    && rl->spec.remote_host != IPV4_INVALID_ADDR
+                    && !(rl->iflags & RL_DID_LOCAL))
                 {
                     ret = add_route3(rl->spec.remote_host, IPV4_NETMASK_HOST, rl->rgi.gateway.addr,
                                      tt, flags | ROUTE_REF_GW, &rl->rgi, es, ctx);
@@ -1199,12 +1209,138 @@ delete_routes_v6(struct route_ipv6_list *rl6, const struct tuntap *tt, unsigned 
         {
             delete_route_ipv6(r6, tt, es, ctx);
         }
-        rl6->iflags &= ~RL_ROUTES_ADDED;
+        rl6->iflags &= ~(RL_ROUTES_ADDED | RL_DID_LOCAL);
     }
 
     if (rl6)
     {
         clear_route_ipv6_list(rl6);
+    }
+}
+
+void
+add_route_towards_remote(struct context *c)
+{
+    ASSERT(c->c1.link_socket_addrs);
+
+    struct openvpn_sockaddr dest = c->c1.link_socket_addrs[0].actual.dest;
+
+    int current_remote_family = dest.addr.sa.sa_family;
+
+    if (current_remote_family == AF_INET && c->c1.route_list
+        && (c->c1.route_list->flags & RG_REROUTE_GW))
+    {
+        if (c->c1.route_list->iflags & RL_DID_LOCAL)
+        {
+            del_route_towards_remote(c);
+        }
+
+        in_addr_t current_remote = ntohl(dest.addr.in4.sin_addr.s_addr);
+
+        if (add_route3(current_remote,
+                       IPV4_NETMASK_HOST,
+                       c->c1.route_list->rgi.gateway.addr,
+                       c->c1.tuntap,
+                       ROUTE_OPTION_FLAGS(&c->options) | ROUTE_REF_GW,
+                       &c->c1.route_list->rgi,
+                       c->c2.es,
+                       &c->net_ctx))
+        {
+            c->c1.route_list->iflags |= RL_DID_LOCAL;
+            c->c1.route_list->spec.remote_host = current_remote;
+        }
+    }
+    else if (current_remote_family == AF_INET6 && c->c1.route_ipv6_list
+             && (c->c1.route_ipv6_list->flags & RG_REROUTE_GW))
+    {
+        if (c->c1.route_ipv6_list->iflags & RL_DID_LOCAL)
+        {
+            del_route_towards_remote(c);
+        }
+
+        const struct in6_addr *remote_host_ipv6 = &(dest.addr.in6.sin6_addr);
+        struct route_ipv6_list *rl6 = c->c1.route_ipv6_list;
+
+        if ((rl6->rgi6.flags & (RGI_ADDR_DEFINED | RGI_IFACE_DEFINED)) == (RGI_ADDR_DEFINED | RGI_IFACE_DEFINED))
+        {
+            struct route_ipv6 *r6 = create_host_route_ipv6(*remote_host_ipv6, rl6);
+
+            if (add_route_ipv6(r6, c->c1.tuntap,
+                               ROUTE_OPTION_FLAGS(&c->options), c->c2.es, &c->net_ctx))
+            {
+                rl6->routes_ipv6 = r6;
+                rl6->iflags |= RL_DID_LOCAL;
+            }
+        }
+        else
+        {
+            msg(M_WARN, "ROUTE6: IPv6 route overlaps with IPv6 remote address, but could not determine IPv6 gateway address + interface, expect failure\n");
+        }
+    }
+}
+
+void
+del_route_towards_remote(struct context *c)
+{
+    /* If the function is called from do_close_tun() it means that the socket
+     * has already been closed and c->c2.link_sockets[0]->info.lsa` used in
+     * `add_route_towards_remote()` cleaned up. So we should use
+     * `c->c1.link_socket_addrs[0]` instead.
+     */
+    ASSERT(c->c1.link_socket_addrs);
+
+    int current_remote_family = 0;
+
+    if (c->c1.link_socket_addrs[0].actual.dest.addr.sa.sa_family)
+    {
+        current_remote_family = c->c1.link_socket_addrs[0].actual.dest.addr.sa.sa_family;
+    }
+    else if (c->c1.link_socket_addrs[0].current_remote)
+    {
+        current_remote_family = c->c1.link_socket_addrs[0].current_remote->ai_family;
+    }
+
+    if (current_remote_family == AF_INET && c->c1.route_list
+        && (c->c1.route_list->flags & RG_REROUTE_GW)
+        && (c->c1.route_list->iflags & RL_DID_LOCAL))
+    {
+        del_route3(c->c1.route_list->spec.remote_host,
+                   IPV4_NETMASK_HOST,
+                   c->c1.route_list->rgi.gateway.addr,
+                   c->c1.tuntap,
+                   ROUTE_OPTION_FLAGS(&c->options) | ROUTE_REF_GW,
+                   &c->c1.route_list->rgi,
+                   c->c2.es,
+                   &c->net_ctx);
+        c->c1.route_list->iflags &= ~RL_DID_LOCAL;
+    }
+    else if (current_remote_family == AF_INET6 && c->c1.route_ipv6_list
+             && (c->c1.route_ipv6_list->flags & RG_REROUTE_GW)
+             && (c->c1.route_ipv6_list->iflags & RL_DID_LOCAL))
+    {
+        struct in6_addr *remote_host_ipv6 = &c->c1.route_ipv6_list->remote_host_ipv6;
+        struct route_ipv6 *host_route = create_host_route_ipv6(*remote_host_ipv6, c->c1.route_ipv6_list);
+
+        for (struct route_ipv6 *prev = NULL, *r6 = c->c1.route_ipv6_list->routes_ipv6; r6; r6 = r6->next)
+        {
+            if (memcmp(&r6->network, &host_route->network, sizeof(struct in6_addr))
+                || r6->netbits != host_route->netbits
+                || memcmp(&r6->gateway, &host_route->gateway, sizeof(struct in6_addr)))
+            {
+                continue;
+            }
+
+            delete_route_ipv6(r6, c->c1.tuntap, c->c2.es, &c->net_ctx);
+            if (!prev)
+            {
+                c->c1.route_ipv6_list->routes_ipv6 = r6->next;
+            }
+            else
+            {
+                prev->next = r6->next;
+            }
+            c->c1.route_ipv6_list->iflags &= ~RL_DID_LOCAL;
+        }
     }
 }
 
