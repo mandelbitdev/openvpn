@@ -2163,9 +2163,9 @@ del_route_towards_remote(struct context *c)
 
         for (struct route_ipv6 *prev = NULL, *r6 = c->c1.route_ipv6_list->routes_ipv6; r6; r6 = r6->next)
         {
-            if (memcmp(&r6->network, &host_route->network, sizeof(struct in6_addr))
+            if (!memcmp(&r6->network, &host_route->network, sizeof(struct in6_addr))
                 && r6->netbits == host_route->netbits
-                && memcmp(&r6->gateway, &host_route->gateway, sizeof(struct in6_addr)))
+                && !memcmp(&r6->gateway, &host_route->gateway, sizeof(struct in6_addr)))
             {
                 delete_route_ipv6(r6, c->c1.tuntap, ROUTE_OPTION_FLAGS(&c->options), c->c2.es, &c->net_ctx);
                 if (!prev)
