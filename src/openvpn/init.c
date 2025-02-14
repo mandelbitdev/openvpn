@@ -2127,22 +2127,35 @@ do_close_tun_simple(struct context *c)
 static void
 del_route_towards_remote(struct context *c)
 {
+    printf("DEL_ROUTE\n");
     int current_remote_type;
+
+    if (!c->c1.link_socket_addrs)
+    {
+        printf("NO `c->c1.link_socket_addrs` DEL_ROUTE FINE\n");
+        return;
+    }
 
     if (c->c1.link_socket_addrs->actual.dest.addr.sa.sa_family)
     {
         current_remote_type = c->c1.link_socket_addrs->actual.dest.addr.sa.sa_family;
     }
-    else
+    else if (c->c1.link_socket_addrs->current_remote)
     {
         current_remote_type = c->c1.link_socket_addrs->current_remote->ai_family;
+    }
+    else
+    {
+        printf("NO c->c1.link_socket_addrs `actual` or `current` and no `lsi` DEL_ROUTE FINE\n");
+        return;
     }
 
     if (current_remote_type == AF_INET
         && c->c1.route_list
-        && (c->c1.route_list->iflags & RL_DID_REDIRECT_DEFAULT_GATEWAY)
+        && (c->c1.route_list->flags & RG_REROUTE_GW)
         && (c->c1.route_list->iflags & RL_DID_LOCAL))
     {
+        printf("V4\n");
         del_route3(c->c1.route_list->spec.remote_host,
                    IPV4_NETMASK_HOST,
                    c->c1.route_list->rgi.gateway.addr,
@@ -2158,6 +2171,7 @@ del_route_towards_remote(struct context *c)
              && (c->c1.route_ipv6_list->flags & RG_REROUTE_GW)
              && (c->c1.route_ipv6_list->iflags & RL_DID_LOCAL))
     {
+        printf("V6\n");
         struct in6_addr *remote_host_ipv6 = &c->c1.route_ipv6_list->remote_host_ipv6;
         struct route_ipv6 *host_route = create_host_route_ipv6(*remote_host_ipv6, c->c1.route_ipv6_list);
 
@@ -2180,11 +2194,26 @@ del_route_towards_remote(struct context *c)
             }
         }
     }
+    else if(current_remote_type != AF_INET && current_remote_type != AF_INET6)
+    {
+        printf("NO FAMILY\n");
+    }
+    else if (current_remote_type == AF_INET && !c->c1.route_list)
+    {
+        printf("NO ROUTE LIST\n");
+    }
+    else if (current_remote_type == AF_INET6 && !c->c1.route_ipv6_list)
+    {
+        printf("NO ROUTE IPV6 LIST\n");
+    }
+    printf("DEL_ROUTE FINE\n");
 }
 
 static void
 do_close_tun(struct context *c, bool force)
 {
+    printf("\n-----------------------------------------\n");
+    printf("DO_CLOSE_TUN\n");
     /* With dco-win we open tun handle in the very beginning.
      * In case when tun wasn't opened - like we haven't connected,
      * we still need to close tun handle
@@ -2211,6 +2240,7 @@ do_close_tun(struct context *c, bool force)
 
     if (force || !(c->sig->signal_received == SIGUSR1 && c->options.persist_tun))
     {
+        printf("DCT IF\n");
         static_context = NULL;
 
 #ifdef ENABLE_MANAGEMENT
@@ -2242,6 +2272,10 @@ do_close_tun(struct context *c, bool force)
                         "route-pre-down",
                         c->c2.es);
 
+            if (c->mode == CM_P2P && c->options.persist_tun)
+            {
+                del_route_towards_remote(c);
+            }
             delete_routes(c->c1.route_list, c->c1.route_ipv6_list,
                           c->c1.tuntap, ROUTE_OPTION_FLAGS(&c->options),
                           c->c2.es, &c->net_ctx);
@@ -2282,6 +2316,7 @@ do_close_tun(struct context *c, bool force)
     }
     else
     {
+        printf("DCT ELSE\n");
         /* run the down script on this restart if --up-restart was specified */
         if (c->options.up_restart)
         {
@@ -2303,16 +2338,15 @@ do_close_tun(struct context *c, bool force)
                         c->c2.es);
         }
 
-        if (c->mode == CM_P2P && c->options.persist_tun
-            && c->c1.link_socket_addrs
-            && (c->c1.link_socket_addrs->actual.dest.addr.sa.sa_family
-                || c->c1.link_socket_addrs->current_remote))
+        if (c->mode == CM_P2P && c->options.persist_tun)
         {
             del_route_towards_remote(c);
         }
 
         del_wfp_block(c, adapter_index);
     }
+    printf("DO_CLOSE_TUN FINE\n");
+    printf("-----------------------------------------\n");
     gc_free(&gc);
 }
 
@@ -4616,14 +4650,45 @@ init_instance_handle_signals(struct context *c, const struct env_set *env, const
 static void
 add_route_towards_remote(struct context *c)
 {
-    int current_remote_type = c->c2.link_sockets[0]->info.lsa->actual.dest.addr.sa.sa_family;
+    printf("\n-----------------------------------------\n");
+    printf("ADD_ROUTE\n");
+
+    if (!c->c2.link_sockets[0])
+    {
+        printf("NO SOCKET, ADD_ROUTE FINE\n");
+        printf("-----------------------------------------\n");
+        return;
+    }
+
+    int current_remote_type;
+
+    if (c->c2.link_sockets[0]->info.lsa->actual.dest.addr.sa.sa_family)
+    {
+        current_remote_type = c->c2.link_sockets[0]->info.lsa->actual.dest.addr.sa.sa_family;
+    }
+    else
+    {
+        current_remote_type = c->c2.link_sockets[0]->info.lsa->current_remote->ai_family;
+    }
+
+    if (current_remote_type != AF_INET && current_remote_type != AF_INET6)
+    {
+        printf("NO FAMILY\n");
+    }
 
     if (current_remote_type == AF_INET
         && c->c1.route_list
-        && (c->c1.route_list->flags & RG_REROUTE_GW)
-        && !(c->c1.route_list->iflags & RL_DID_LOCAL))
+        && (c->c1.route_list->flags & RG_REROUTE_GW))
     {
-        if (add_route3(link_socket_current_remote(&c->c2.link_sockets[0]->info),
+        printf("V4\n");
+        if (c->c1.route_list->iflags & RL_DID_LOCAL)
+        {
+            del_route_towards_remote(c);
+        }
+
+        in_addr_t current_remote = link_socket_current_remote(&c->c2.link_sockets[0]->info);
+        
+        if (add_route3(current_remote,
                        IPV4_NETMASK_HOST,
                        c->c1.route_list->rgi.gateway.addr,
                        c->c1.tuntap,
@@ -4633,14 +4698,19 @@ add_route_towards_remote(struct context *c)
                        &c->net_ctx))
         {
             c->c1.route_list->iflags |= RL_DID_LOCAL;
-            c->c1.route_list->spec.remote_host = link_socket_current_remote(&c->c2.link_sockets[0]->info);
+            c->c1.route_list->spec.remote_host = current_remote;
         }
     }
     else if (current_remote_type == AF_INET6
              && c->c1.route_ipv6_list
-             && (c->c1.route_ipv6_list->flags & RG_REROUTE_GW)
-             && !(c->c1.route_ipv6_list->iflags & RL_DID_LOCAL))
+             && (c->c1.route_ipv6_list->flags & RG_REROUTE_GW))
     {
+        printf("V6\n");
+        if (c->c1.route_ipv6_list->iflags & RL_DID_LOCAL)
+        {
+            del_route_towards_remote(c);
+        }
+
         const struct in6_addr *remote_host_ipv6 = link_socket_current_remote_ipv6(&c->c2.link_sockets[0]->info);
         struct route_ipv6_list *rl6 = c->c1.route_ipv6_list;
 
@@ -4660,6 +4730,8 @@ add_route_towards_remote(struct context *c)
             msg(M_WARN, "ROUTE6: IPv6 route overlaps with IPv6 remote address, but could not determine IPv6 gateway address + interface, expect failure\n" );
         }
     }
+    printf("ADD_ROUTE FINE\n");
+    printf("-----------------------------------------\n");
 }
 
 /*
@@ -4914,9 +4986,11 @@ init_instance(struct context *c, const struct env_set *env, const unsigned int f
      * if the connection to the server is lost, a /32 (or /128 if IPv6) route must be added
      * to ensure connectivity to the next remote.
      */
+    printf("-----------------------------------------\n");
+    printf("is_p2p:%d\npersist:%d\n",c->mode == CM_P2P, c->options.persist_tun);
+    printf("-----------------------------------------\n");
     if (c->mode == CM_P2P
-        && c->options.persist_tun
-        && c->c2.link_sockets[0])
+        && c->options.persist_tun)
     {
         add_route_towards_remote(c);
     }

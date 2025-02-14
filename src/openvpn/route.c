@@ -1017,6 +1017,7 @@ redirect_default_route_to_vpn(struct route_list *rl, const struct tuntap *tt,
                               unsigned int flags, const struct env_set *es,
                               openvpn_net_ctx_t *ctx)
 {
+    printf("\nREDIRECT_DEFAULT_GATEWAY_TO_VPN\n");
     const char err[] = "NOTE: unable to redirect IPv4 default gateway --";
     bool ret = true;
 
@@ -1071,13 +1072,23 @@ redirect_default_route_to_vpn(struct route_list *rl, const struct tuntap *tt,
                                      &rl->rgi, es, ctx);
                     if (ret)
                     {
+                        printf("SI ADD_ROUTE3(REDIRECT_DEFAULT_ROUTE_TO_VPN)\n");
                         rl->iflags |= RL_DID_LOCAL;
+                    }
+                    else
+                    {
+                        printf("NO1 ADD_ROUTE3(REDIRECT_DEFAULT_ROUTE_TO_VPN)\n");
                     }
                 }
                 else
                 {
                     dmsg(D_ROUTE, "ROUTE remote_host protocol differs from tunneled");
+                    printf("NO2 ADD_ROUTE3(REDIRECT_DEFAULT_ROUTE_TO_VPN)\n");
                 }
+            }
+            else
+            {
+                printf("NO3 ADD_ROUTE3(REDIRECT_DEFAULT_ROUTE_TO_VPN)\n");
             }
 #endif /* ifndef TARGET_ANDROID */
 
@@ -1126,6 +1137,7 @@ undo_redirect_default_route_to_vpn(struct route_list *rl,
                                    const struct env_set *es,
                                    openvpn_net_ctx_t *ctx)
 {
+    printf("\nUNDO_REDIRECT_DEFAULT_ROUTE_TO_VPN\n");
     if (rl && rl->iflags & RL_DID_REDIRECT_DEFAULT_GATEWAY)
     {
         /* delete remote host route */
@@ -1140,6 +1152,11 @@ undo_redirect_default_route_to_vpn(struct route_list *rl,
                        es,
                        ctx);
             rl->iflags &= ~RL_DID_LOCAL;
+            printf("SI DEL_ROUTE3(UNDO_REDIRECT_DEFAULT_ROUTE_TO_VPN)\n");
+        }
+        else
+        {
+            printf("NO DEL_ROUTE3(UNDO_REDIRECT_DEFAULT_ROUTE_TO_VPN)\n");
         }
 
         /* delete special DHCP/DNS bypass route */
@@ -3385,6 +3402,7 @@ get_default_gateway(struct route_gateway_info *rgi, in_addr_t dest, openvpn_net_
     CLEAR(*rgi);
     CLEAR(best_name);
 
+    
     /* find best route to 'dest', get gateway IP addr + interface */
     if (net_route_v4_best_gw(ctx, &dest, &rgi->gateway.addr, best_name) == 0)
     {
