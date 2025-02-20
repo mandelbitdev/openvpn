@@ -1555,7 +1555,7 @@ do_init_route_ipv6_list(const struct options *options,
 
     /* redirect (IPv6) gateway to VPN?  if yes, add a few more specifics
      */
-    if (options->routes_ipv6->flags & RG_REROUTE_GW)
+    if (options->routes_ipv6->flags & RG_REROUTE_GW && options->ifconfig_ipv6_local)
     {
         char *opt_list[] = { "::/3", "2000::/4", "3000::/4", "fc00::/7", NULL };
         int i;
@@ -1773,6 +1773,12 @@ do_route(const struct options *options,
 static void
 do_init_tun(struct context *c)
 {
+    printf("\n\nifconfig_ipv4:%s %s\nifconfig_ipv6: %s/%d %s\n\n\n",c->options.ifconfig_local,
+                                                                    c->options.ifconfig_remote_netmask,
+                                                                    c->options.ifconfig_ipv6_local,
+                                                                    c->options.ifconfig_ipv6_netbits,
+                                                                    c->options.ifconfig_ipv6_remote);
+
     c->c1.tuntap = init_tun(c->options.dev,
                             c->options.dev_type,
                             c->options.topology,
