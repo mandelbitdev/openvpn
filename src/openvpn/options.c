@@ -5464,6 +5464,11 @@ apply_push_options(struct context *c, struct options *options, struct buffer *bu
     const msglvl_t msglevel = D_PUSH_ERRORS | M_OPTERR;
     unsigned int update_options_found = 0;
 
+    options->ifconfig_local = NULL;
+    options->ifconfig_remote_netmask = NULL;
+    options->ifconfig_ipv6_local = NULL;
+    options->ifconfig_ipv6_netbits = 0;
+    options->ifconfig_ipv6_remote = NULL;
     while (buf_parse(buf, ',', line, sizeof(line)))
     {
         char *p[MAX_PARMS + 1];
