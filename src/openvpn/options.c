@@ -5459,6 +5459,17 @@ parse_argv(struct options *options, const int argc, char *argv[], const msglvl_t
     }
 }
 
+/* Reset all ifconfig and ifconfig-ipv6 related options to their default/NULL state */
+#define RESET_IFCONFIG_OPTIONS(opt)            \
+    do                                         \
+    {                                          \
+        (opt)->ifconfig_local = NULL;          \
+        (opt)->ifconfig_remote_netmask = NULL; \
+        (opt)->ifconfig_ipv6_local = NULL;     \
+        (opt)->ifconfig_ipv6_netbits = 0;      \
+        (opt)->ifconfig_ipv6_remote = NULL;    \
+    } while (0)
+
 bool
 apply_push_options(struct context *c, struct options *options, struct buffer *buf,
                    unsigned int permission_mask, unsigned int *option_types_found,
@@ -5469,6 +5480,14 @@ apply_push_options(struct context *c, struct options *options, struct buffer *bu
     const char *file = "[PUSH-OPTIONS]";
     const msglvl_t msglevel = D_PUSH_ERRORS | M_OPTERR;
     unsigned int update_options_found = 0;
+
+    /* When receiving a PUSH_REPLY, reset the ifconfig options to prevent
+     * stale data conflicts. This could be necessary when the new address has a
+     * different address family than the previous one. */
+    if (!is_update)
+    {
+        RESET_IFCONFIG_OPTIONS(options);
+    }
 
     while (buf_parse(buf, ',', line, sizeof(line)))
     {
@@ -6014,7 +6033,48 @@ update_option(struct context *c, struct options *options, char *p[], bool is_inl
     const bool pull_mode = BOOL_CAST(permission_mask & OPT_P_PULL_MODE);
     ASSERT(MAX_PARMS >= 7);
 
-    if (streq(p[0], "route") && p[1] && !p[5])
+    if (streq(p[0], "ifconfig") && p[1] && p[2] && !p[3])
+    {
+        VERIFY_PERMISSION(OPT_P_UP);
+        if (ip_or_dns_addr_safe(p[1], options->allow_pull_fqdn)
+            && ip_or_dns_addr_safe(p[2], options->allow_pull_fqdn)) /* FQDN -- may be DNS name */
+        {
+            /* When receiving a PUSH_UPDATE containing a valid ifconfig option,
+             * we should reset the ifconfig and ifconfig-ipv6 options to prevent
+             * stale data conflicts. This could be necessary when the new address has a
+             * different address family than the previous one. Same is true when a valid
+             * ifconfig-ipv6 option is received. */
+            RESET_IFCONFIG_OPTIONS(options);
+        }
+        else
+        {
+            msg(msglevel, "ifconfig parms '%s' and '%s' must be valid addresses", p[1], p[2]);
+            goto err;
+        }
+    }
+    else if (streq(p[0], "ifconfig-ipv6") && p[1] && p[2] && !p[3])
+    {
+        unsigned int netbits;
+
+        VERIFY_PERMISSION(OPT_P_UP);
+        if (get_ipv6_addr(p[1], NULL, &netbits, msglevel) && ipv6_addr_safe(p[2]))
+        {
+            if (netbits < 64 || netbits > 124)
+            {
+                msg(msglevel, "ifconfig-ipv6: /netbits must be between 64 and 124, not '/%d'",
+                    netbits);
+                goto err;
+            }
+
+            RESET_IFCONFIG_OPTIONS(options);
+        }
+        else
+        {
+            msg(msglevel, "ifconfig-ipv6 parms '%s' and '%s' must be valid addresses", p[1], p[2]);
+            goto err;
+        }
+    }
+    else if (streq(p[0], "route") && p[1] && !p[5])
     {
         if (!(*update_options_found & OPT_P_U_ROUTE))
         {
