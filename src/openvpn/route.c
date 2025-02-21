@@ -655,10 +655,12 @@ init_route_list(struct route_list *rl,
         rl->spec.flags |= RTSA_DEFAULT_METRIC;
     }
 
-    get_default_gateway(&rl->rgi, remote_host != IPV4_INVALID_ADDR ? remote_host : INADDR_ANY, ctx);
-    if (rl->rgi.flags & RGI_ADDR_DEFINED)
+    struct route_gateway_info ngi;
+
+    get_default_gateway(&ngi, INADDR_ANY, ctx);
+    if (ngi.flags & RGI_ADDR_DEFINED)
     {
-        setenv_route_addr(es, "net_gateway", rl->rgi.gateway.addr, -1);
+        setenv_route_addr(es, "net_gateway", ngi.gateway.addr, -1);
 #if defined(ENABLE_DEBUG) && !defined(ENABLE_SMALL)
         print_default_gateway(D_ROUTE, &rl->rgi, NULL);
 #endif
@@ -667,6 +669,8 @@ init_route_list(struct route_list *rl,
     {
         dmsg(D_ROUTE, "ROUTE: default_gateway=UNDEF");
     }
+
+    get_default_gateway(&rl->rgi, remote_host != IPV4_INVALID_ADDR ? remote_host : INADDR_ANY, ctx);
 
     if (rl->spec.flags & RTSA_REMOTE_HOST)
     {
@@ -818,10 +822,12 @@ init_route_ipv6_list(struct route_ipv6_list *rl6,
     msg(D_ROUTE, "GDG6: remote_host_ipv6=%s",
         remote_host_ipv6 ?  print_in6_addr(*remote_host_ipv6, 0, &gc) : "n/a" );
 
-    get_default_gateway_ipv6(&rl6->rgi6, remote_host_ipv6, ctx);
-    if (rl6->rgi6.flags & RGI_ADDR_DEFINED)
+    struct route_ipv6_gateway_info ngi6;
+
+    get_default_gateway_ipv6(&ngi6, NULL, ctx);
+    if (ngi6.flags & RGI_ADDR_DEFINED)
     {
-        setenv_str(es, "net_gateway_ipv6", print_in6_addr(rl6->rgi6.gateway.addr_ipv6, 0, &gc));
+        setenv_str(es, "net_gateway_ipv6", print_in6_addr(ngi6.gateway.addr_ipv6, 0, &gc));
 #if defined(ENABLE_DEBUG) && !defined(ENABLE_SMALL)
         print_default_gateway(D_ROUTE, NULL, &rl6->rgi6);
 #endif
@@ -830,6 +836,8 @@ init_route_ipv6_list(struct route_ipv6_list *rl6,
     {
         dmsg(D_ROUTE, "ROUTE6: default_gateway=UNDEF");
     }
+
+    get_default_gateway_ipv6(&rl6->rgi6, remote_host_ipv6, ctx);
 
     if (is_route_parm_defined( remote_endpoint ))
     {
