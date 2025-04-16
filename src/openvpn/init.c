@@ -1442,6 +1442,10 @@ do_init_timers(struct context *c, bool deferred)
          * tls_multi_process in the main event loop */
         interval_init(&c->c2.tmp_int, TLS_MULTI_HORIZON, TLS_MULTI_REFRESH);
     }
+#ifdef ENABLE_PLUGIN
+/* Initialize the timer for the time-based plugin hook */
+    event_timeout_init(&c->c2.plugin_time_event_interval, 60, now);
+#endif /* ENABLE_PLUGIN */
 }
 
 /*

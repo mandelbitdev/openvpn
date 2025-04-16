@@ -447,6 +447,10 @@ struct context_2
     struct event_timeout scheduled_exit;
     int scheduled_exit_signal;
 
+#ifdef ENABLE_PLUGIN
+    struct event_timeout plugin_time_event_interval;
+#endif
+
     /* packet filter */
 
 #ifdef ENABLE_MANAGEMENT

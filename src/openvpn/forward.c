@@ -833,6 +833,26 @@ process_coarse_timers(struct context *c)
         management_check_bytecount(c, management, &c->c2.timeval);
     }
 #endif /* ENABLE_MANAGEMENT */
+
+#ifdef ENABLE_PLUGIN
+    /* length of 2**64 - 1, +1 for '/0' */
+    char read_bytes[21];
+    char write_bytes[21];
+
+    sprintf(read_bytes, "%" PRIu64, c->c2.tun_read_bytes);
+    sprintf(write_bytes, "%" PRIu64, c->c2.tun_write_bytes);
+    setenv_str(c->c2.es, "read_bytes", read_bytes);
+    setenv_str(c->c2.es, "write_bytes", write_bytes);
+
+    /* Trigger the plugin hook for time-based events */
+    if (event_timeout_trigger(&c->c2.plugin_time_event_interval, &c->c2.timeval, ETT_DEFAULT))
+    {
+        plugin_call(c->plugins, OPENVPN_PLUGIN_TIME_EVENT, NULL, NULL, c->c2.es);
+        event_timeout_reset(&c->c2.plugin_time_event_interval);
+    }
+    setenv_del(c->c2.es, "read_bytes");
+    setenv_del(c->c2.es, "write_bytes");
+#endif /* ENABLE_PLUGIN */
 }
 
 static void
