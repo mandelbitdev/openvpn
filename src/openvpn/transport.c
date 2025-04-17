@@ -300,4 +300,10 @@ transport_request_events(openvpn_transport_socket_t indirect,
     indirect->vtab->request_event(indirect, &encapsulated_es.handle, vrwflags);
 }
 
+int
+transport_get_sd(openvpn_transport_socket_t indirect)
+{
+    return indirect->vtab->get_sd(indirect);
+}
+
 #endif  /* ENABLE_PLUGIN */

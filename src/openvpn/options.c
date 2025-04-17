@@ -2685,7 +2685,9 @@ options_postprocess_verify_ce(const struct options *options,
         }
         if (!(proto_is_udp(ce->proto) || ce->proto == PROTO_TCP_SERVER))
         {
+#ifndef ENABLE_PLUGIN
             msg(M_USAGE, USAGE_VALID_SERVER_PROTOS);
+#endif
         }
 #if PORT_SHARE
         if ((options->port_share_host || options->port_share_port)
@@ -2721,7 +2723,9 @@ options_postprocess_verify_ce(const struct options *options,
         }
         if (!(proto_is_dgram(ce->proto) || ce->proto == PROTO_TCP_SERVER))
         {
+#ifndef ENABLE_PLUGIN
             msg(M_USAGE, USAGE_VALID_SERVER_PROTOS);
+#endif
         }
         if (!proto_is_udp(ce->proto) && (options->cf_max || options->cf_per))
         {
@@ -9598,7 +9602,8 @@ has_udp_in_local_list(const struct options *options)
     {
         for (int i = 0; i < options->ce.local_list->len; i++)
         {
-            if (proto_is_dgram(options->ce.local_list->array[i]->proto))
+            if ((proto_is_dgram(options->ce.local_list->array[i]->proto)
+                 || proto_is_indirect(options->ce.local_list->array[i]->proto)))
             {
                 return true;
             }

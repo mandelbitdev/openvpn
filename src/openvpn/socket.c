@@ -1195,6 +1195,7 @@ create_socket(struct link_socket *sock, struct addrinfo *addr)
     if (proto_is_indirect(sock->info.proto))
     {
         create_socket_indirect(sock, addr->ai_family);
+        return;
     }
 
     if (addr->ai_protocol == IPPROTO_UDP || addr->ai_socktype == SOCK_DGRAM)
@@ -4167,7 +4168,7 @@ socket_set(struct link_socket *s,
             {
                 transport_request_events(s->indirect, es, rwflags);
             }
-            else
+            /*else */
 #endif
             {
                 event_ctl(es, socket_event_handle(s), rwflags, arg);
