@@ -426,7 +426,7 @@ p2p_ncp_set_options(struct tls_multi *multi, struct tls_session *session,
     if (iv_proto_peer & IV_PROTO_DATA_V2)
     {
         multi->use_peer_id = true;
-        multi->peer_id = 0x76706e; /* 'v' 'p' 'n' */
+        multi->rx_peer_id = 0x76706e; /* 'v' 'p' 'n' */
     }
 
     if (iv_proto_peer & IV_PROTO_CC_EXIT_NOTIFY)
@@ -469,7 +469,7 @@ p2p_ncp_set_options(struct tls_multi *multi, struct tls_session *session,
             }
             else
             {
-                multi->peer_id = (peerid[0] << 16) + (peerid[1] << 8) + peerid[2];
+                multi->rx_peer_id = (peerid[0] << 16) + (peerid[1] << 8) + peerid[2];
             }
 
         }
@@ -516,7 +516,7 @@ p2p_mode_ncp(struct tls_multi *multi, struct tls_session *session)
         "TLS_export=%d, DATA_v2=%d, peer-id %d, epoch=%d, cipher=%s",
         (bool)(session->opt->crypto_flags & CO_USE_TLS_KEY_MATERIAL_EXPORT),
         multi->use_peer_id,
-        multi->peer_id,
+        multi->rx_peer_id,
         (bool)(session->opt->crypto_flags & CO_EPOCH_DATA_KEY_FORMAT),
         common_cipher);
 

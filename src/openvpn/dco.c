@@ -513,7 +513,7 @@ dco_p2p_add_new_peer(struct context *c)
         c->c2.tls_multi->dco_peer_id = -1;
     }
 #endif
-    int ret = dco_new_peer(&c->c1.tuntap->dco, multi->peer_id, sock->sd, NULL,
+    int ret = dco_new_peer(&c->c1.tuntap->dco, multi->rx_peer_id, sock->sd, NULL,
                            proto_is_dgram(sock->info.proto) ? remoteaddr : NULL,
                            NULL, NULL);
     if (ret < 0)
@@ -521,7 +521,7 @@ dco_p2p_add_new_peer(struct context *c)
         return ret;
     }
 
-    c->c2.tls_multi->dco_peer_id = multi->peer_id;
+    c->c2.tls_multi->dco_peer_id = multi->rx_peer_id;
 
     return 0;
 }
@@ -595,7 +595,7 @@ dco_multi_add_new_peer(struct multi_context *m, struct multi_instance *mi)
 {
     struct context *c = &mi->context;
 
-    int peer_id = c->c2.tls_multi->peer_id;
+    int peer_id = c->c2.tls_multi->rx_peer_id;
     struct sockaddr *remoteaddr, *localaddr = NULL;
     struct sockaddr_storage local = { 0 };
     int sd = c->c2.link_sockets[0]->sd;

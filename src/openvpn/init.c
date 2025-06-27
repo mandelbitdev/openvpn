@@ -2328,7 +2328,7 @@ tls_print_deferred_options_results(struct context *c)
 
     if (o->use_peer_id)
     {
-        buf_printf(&out, ", peer-id: %d", o->peer_id);
+        buf_printf(&out, ", rx_peer-id: %u, tx_peer-id: %u", c->c2.tls_multi->rx_peer_id, c->c2.tls_multi->tx_peer_id);
     }
 
 #ifdef USE_COMP
@@ -2778,7 +2778,7 @@ do_deferred_options(struct context *c, const unsigned int found)
     {
         msg(D_PUSH_DEBUG, "OPTIONS IMPORT: peer-id set");
         c->c2.tls_multi->use_peer_id = true;
-        c->c2.tls_multi->peer_id = c->options.peer_id;
+        c->c2.tls_multi->tx_peer_id = c->options.rx_peer_id;
     }
 
     /* process (potentially) pushed options */
@@ -2803,7 +2803,7 @@ do_deferred_options(struct context *c, const unsigned int found)
     /* Ensure that for epoch data format is only enabled if also data v2
      * is enabled */
     bool epoch_data = (c->options.imported_protocol_flags & CO_EPOCH_DATA_KEY_FORMAT);
-    bool datav2_enabled = (c->options.peer_id >= 0 && c->options.peer_id < MAX_PEER_ID);
+    bool datav2_enabled = (c->options.rx_peer_id >= 0 && c->options.rx_peer_id < MAX_PEER_ID);
 
     if (epoch_data && !datav2_enabled)
     {

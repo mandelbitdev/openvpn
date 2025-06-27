@@ -74,6 +74,25 @@ extract_iv_proto(const char *peer_info)
     return 0;
 }
 
+uint32_t
+extract_asymmetric_peer_id(const char *peer_info)
+{
+    const char *optstr = peer_info ? strstr(peer_info, "ID=") : NULL;
+    if (optstr)
+    {
+        uint32_t peer_id = 0;
+        int r = sscanf(optstr, "ID=%x", &peer_id);
+        {
+            if (r == 1 && peer_id >= 0)
+            {
+                printf("\nextracted peer-id:%u\n", peer_id);
+                return peer_id;
+            }
+        }
+    }
+    return 0;
+}
+
 const char *
 options_string_compat_lzo(const char *options, struct gc_arena *gc)
 {

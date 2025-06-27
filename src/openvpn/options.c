@@ -9559,7 +9559,7 @@ add_option(struct options *options,
     {
         VERIFY_PERMISSION(OPT_P_PEER_ID);
         options->use_peer_id = true;
-        options->peer_id = atoi_warn(p[1], msglevel);
+        options->tx_peer_id = atoi_warn(p[1], msglevel);
     }
     else if (streq(p[0], "keying-material-exporter") && p[1] && p[2])
     {

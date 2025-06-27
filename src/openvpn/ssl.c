@@ -1181,7 +1181,8 @@ tls_multi_init(struct tls_options *tls_options)
     /* get command line derived options */
     ret->opt = *tls_options;
     ret->dco_peer_id = -1;
-    ret->peer_id = MAX_PEER_ID;
+    ret->rx_peer_id = MAX_PEER_ID;
+    ret->tx_peer_id = MAX_PEER_ID;
 
     return ret;
 }
@@ -2039,6 +2040,9 @@ push_peer_info(struct buffer *buf, struct tls_session *session)
 
         buf_printf(&out, "IV_PROTO=%d\n", iv_proto);
 
+        /*TODO: find a more reliable way*/
+        buf_printf(&out, "ID=%x\n", 2033);
+
         if (session->opt->push_peer_info_detail > 1)
         {
             /* push compression status */
@@ -2219,6 +2223,12 @@ key_method_2_write(struct buffer *buf, struct tls_multi *multi, struct tls_sessi
         {
             goto error;
         }
+    }
+
+    if (session->opt->mode != MODE_SERVER)
+    {
+        /*TODO: add a more reliable way*/
+        multi->rx_peer_id = 2033;
     }
 
     if (!push_peer_info(buf, session))
@@ -4145,7 +4155,7 @@ tls_prepend_opcode_v2(const struct tls_multi *multi, struct buffer *buf)
     ASSERT(ks);
 
     peer = htonl(((P_DATA_V2 << P_OPCODE_SHIFT) | ks->key_id) << 24
-                 | (multi->peer_id & 0xFFFFFF));
+                 | (multi->tx_peer_id & 0xFFFFFF));
     ASSERT(buf_write_prepend(buf, &peer, 4));
 }
 
