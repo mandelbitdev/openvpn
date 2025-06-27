@@ -178,13 +178,13 @@ send_single_push_update(struct context *c, struct buffer *msgs, unsigned int *op
         buf_string_compare_advance(&tmp_msg, push_update_cmd);
         if (process_incoming_push_update(c, pull_permission_mask(c), option_types_found, &tmp_msg, true) == PUSH_MSG_ERROR)
         {
-            msg(M_WARN, "Failed to process push update message sent to client ID: %u", c->c2.tls_multi->peer_id);
+            msg(M_WARN, "Failed to process push update message sent to client ID: %u", c->c2.tls_multi->rx_peer_id);
             continue;
         }
         c->options.push_option_types_found |= *option_types_found;
         if (!options_postprocess_pull(&c->options, c->c2.es))
         {
-            msg(M_WARN, "Failed to post-process push update message sent to client ID: %u", c->c2.tls_multi->peer_id);
+            msg(M_WARN, "Failed to post-process push update message sent to client ID: %u", c->c2.tls_multi->rx_peer_id);
         }
     }
     return true;
@@ -250,7 +250,7 @@ send_push_update(struct multi_context *m, const void *target, const char *msg, c
 
         if (!support_push_update(mi))
         {
-            msg(M_CLIENT, "PUSH_UPDATE: not sending message to unsupported peer with ID: %u", mi->context.c2.tls_multi->peer_id);
+            msg(M_CLIENT, "PUSH_UPDATE: not sending message to unsupported peer with ID: %u", mi->context.c2.tls_multi->rx_peer_id);
             gc_free(&gc);
             return 0;
         }
@@ -294,7 +294,7 @@ send_push_update(struct multi_context *m, const void *target, const char *msg, c
         const char *old_ipv6 = curr_mi->context.options.ifconfig_ipv6_local;
         if (!send_single_push_update(&curr_mi->context, msgs, &option_types_found))
         {
-            msg(M_CLIENT, "ERROR: Peer ID: %u has not been updated", curr_mi->context.c2.tls_multi->peer_id);
+            msg(M_CLIENT, "ERROR: Peer ID: %u has not been updated", curr_mi->context.c2.tls_multi->rx_peer_id);
             continue;
         }
         if (option_types_found & OPT_P_UP)
