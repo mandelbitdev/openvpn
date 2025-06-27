@@ -705,7 +705,8 @@ struct options
 #endif
 
     bool use_peer_id;
-    uint32_t peer_id;
+    uint32_t rx_peer_id;
+    uint32_t tx_peer_id;
 
     /* Keying Material Exporters [RFC 5705] */
     const char *keying_material_exporter_label;

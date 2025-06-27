@@ -72,6 +72,24 @@ extract_iv_proto(const char *peer_info)
     return 0;
 }
 
+uint32_t
+extract_asymmetric_peer_id(const char *peer_info)
+{
+    const char *optstr = peer_info ? strstr(peer_info, "ID=") : NULL;
+    if (optstr)
+    {
+        uint32_t peer_id = 0;
+        int r = sscanf(optstr, "ID=%x", &peer_id);
+        {
+            if (r == 1 && peer_id >= 0)
+            {
+                return peer_id;
+            }
+        }
+    }
+    return UINT32_MAX;
+}
+
 const char *
 options_string_compat_lzo(const char *options, struct gc_arena *gc)
 {
