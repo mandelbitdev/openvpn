@@ -53,6 +53,8 @@ char *extract_var_peer_info(const char *peer_info, const char *var, struct gc_ar
  */
 unsigned int extract_iv_proto(const char *peer_info);
 
+uint32_t extract_asymmetric_peer_id(const char *peer_info);
+
 /**
  * Takes a locally produced OCC string for TLS server mode and modifies as
  * if the option comp-lzo was enabled. This is to send a client in
