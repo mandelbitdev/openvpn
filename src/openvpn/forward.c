@@ -1069,7 +1069,22 @@ process_incoming_link_part1(struct context *c, struct link_socket_info *lsi, boo
 
         if (c->c2.tls_multi)
         {
-            uint8_t opcode = *BPTR(&c->c2.buf) >> P_OPCODE_SHIFT;
+            uint8_t *ptr = BPTR(&c->c2.buf);
+            uint8_t opcode = ptr[0] >> P_OPCODE_SHIFT;
+            bool v2 = (opcode == P_DATA_V2) && (c->c2.buf.len >= (1 + 3));
+            if (v2)
+            {
+                uint32_t peer_id = ntohl(*(uint32_t *)ptr) & 0xFFFFFF;
+                if (c->mode != MODE_SERVER)
+                {
+                    if (peer_id != c->c2.tls_multi->rx_peer_id)
+                    {
+                        msg(D_LINK_ERRORS,
+                            "Wrong peer-id: %u", peer_id);
+                        c->c2.buf.len = 0;
+                    }
+                }
+            }
 
             /*
              * If DCO is enabled, the kernel drivers require that the
