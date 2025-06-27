@@ -777,7 +777,8 @@ output_peer_info_env(struct env_set *es, const char *peer_info)
     {
         chomp(line);
         if (validate_peer_info_line(line)
-            && (strncmp(line, "IV_", 3) == 0 || strncmp(line, "UV_", 3) == 0) )
+            && (strncmp(line, "IV_", 3) == 0 || strncmp(line, "UV_", 3) == 0
+                || strncmp(line, "ID", 2) == 0))
         {
             msg(M_INFO, "peer info: %s", line);
             env_set_add(es, line);
