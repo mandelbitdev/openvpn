@@ -3880,6 +3880,7 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
                      "incompatible with each other.");
     }
 
+
     if (dco_enabled(o))
     {
         /* check if any option should force disabling DCO */

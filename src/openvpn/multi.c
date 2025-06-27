@@ -438,7 +438,7 @@ multi_instance_string(const struct multi_instance *mi, bool null, struct gc_aren
         if (mi->context.c2.tls_multi && check_debug_level(D_DCO_DEBUG)
             && dco_enabled(&mi->context.options))
         {
-            buf_printf(&out, " peer-id=%d", mi->context.c2.tls_multi->peer_id);
+            buf_printf(&out, " rx-peer-id=%d", mi->context.c2.tls_multi->rx_peer_id);
         }
         return BSTR(&out);
     }
@@ -610,9 +610,9 @@ multi_close_instance(struct multi_context *m, struct multi_instance *mi, bool sh
         }
 #endif
 
-        if (mi->context.c2.tls_multi->peer_id != MAX_PEER_ID)
+        if (mi->context.c2.tls_multi->rx_peer_id != MAX_PEER_ID)
         {
-            m->instances[mi->context.c2.tls_multi->peer_id] = NULL;
+            m->instances[mi->context.c2.tls_multi->rx_peer_id] = NULL;
         }
 
         schedule_remove_entry(m->schedule, (struct schedule_entry *)mi);
@@ -925,8 +925,7 @@ multi_print_status(struct multi_context *m, struct status_output *so, const int 
 #else
                         sep,
 #endif
-                        sep,
-                        mi->context.c2.tls_multi ? mi->context.c2.tls_multi->peer_id : UINT32_MAX,
+                        sep, mi->context.c2.tls_multi ? mi->context.c2.tls_multi->rx_peer_id : UINT32_MAX,
                         sep, translate_cipher_name_to_openvpn(mi->context.options.ciphername));
                 }
                 gc_free(&gc);
@@ -1750,6 +1749,7 @@ multi_client_set_protocol_options(struct context *c)
         tls_multi->use_peer_id = true;
         o->use_peer_id = true;
     }
+
     else if (dco_enabled(o))
     {
         msg(M_INFO, "Client does not support DATA_V2. Data channel offloading "
@@ -3149,12 +3149,12 @@ multi_process_float(struct multi_context *m, struct multi_instance *mi, struct l
          * has, so we disallow it. This can happen if a DCO netlink notification
          * gets lost and we miss a floating step.
          */
-        if (m1->peer_id == m2->peer_id)
+        if (m1->rx_peer_id == m2->rx_peer_id)
         {
             msg(M_WARN,
                 "disallowing peer %" PRIu32 " (%s) from floating to "
                 "its own address (%s)",
-                m1->peer_id, tls_common_name(mi->context.c2.tls_multi, false),
+                m1->rx_peer_id, tls_common_name(mi->context.c2.tls_multi, false),
                 mroute_addr_print(&mi->real, &gc));
             goto done;
         }
@@ -3167,9 +3167,10 @@ multi_process_float(struct multi_context *m, struct multi_instance *mi, struct l
     }
 
     msg(D_MULTI_MEDIUM, "peer %" PRIu32 " (%s) floated from %s to %s",
-        mi->context.c2.tls_multi->peer_id, tls_common_name(mi->context.c2.tls_multi, false),
-        mroute_addr_print_ex(&mi->real, MAPF_SHOW_FAMILY, &gc),
-        mroute_addr_print_ex(&real, MAPF_SHOW_FAMILY, &gc));
+        mi->context.c2.tls_multi->rx_peer_id,
+        tls_common_name(mi->context.c2.tls_multi, false),
+        mroute_addr_print(&mi->real, &gc),
+        print_link_socket_actual(&m->top.c2.from, &gc));
 
     /* remove old address from hash table before changing address */
     ASSERT(hash_remove(m->hash, &mi->real));
@@ -4129,7 +4130,7 @@ multi_assign_peer_id(struct multi_context *m, struct multi_instance *mi)
     {
         if (!m->instances[i])
         {
-            mi->context.c2.tls_multi->peer_id = i;
+            mi->context.c2.tls_multi->rx_peer_id = i;
             m->instances[i] = mi;
             break;
         }
@@ -4137,7 +4138,7 @@ multi_assign_peer_id(struct multi_context *m, struct multi_instance *mi)
 
     /* should not really end up here, since multi_create_instance returns null
      * if amount of clients exceeds max_clients */
-    ASSERT(mi->context.c2.tls_multi->peer_id < m->max_clients);
+    ASSERT(mi->context.c2.tls_multi->rx_peer_id < m->max_clients);
 }
 
 /**
