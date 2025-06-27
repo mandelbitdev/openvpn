@@ -3889,6 +3889,7 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
                      "incompatible with each other.");
     }
 
+
     if (dco_enabled(o))
     {
         /* check if any option should force disabling DCO */
@@ -9219,7 +9220,8 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     {
         VERIFY_PERMISSION(OPT_P_PEER_ID);
         options->use_peer_id = true;
-        options->peer_id = atoi_warn(p[1], msglevel);
+        options->rx_peer_id = atoi_warn(p[1], msglevel);
+        options->tx_peer_id = atoi_warn(p[1], msglevel);
     }
     else if (streq(p[0], "keying-material-exporter") && p[1] && p[2])
     {
