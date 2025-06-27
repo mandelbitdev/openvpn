@@ -1181,7 +1181,9 @@ tls_multi_init(struct tls_options *tls_options)
     /* get command line derived options */
     ret->opt = *tls_options;
     ret->dco_peer_id = -1;
-    ret->peer_id = MAX_PEER_ID;
+    ret->use_asymmetric_peer_id = false;
+    ret->rx_peer_id = MAX_PEER_ID;
+    ret->tx_peer_id = MAX_PEER_ID;
 
     return ret;
 }
@@ -1947,7 +1949,7 @@ read_string_alloc(struct buffer *buf)
  * @return          true if no error was encountered
  */
 static bool
-push_peer_info(struct buffer *buf, struct tls_session *session)
+push_peer_info(struct buffer *buf, struct tls_session *session, uint32_t peer_id)
 {
     struct gc_arena gc = gc_new();
     bool ret = false;
@@ -2038,6 +2040,7 @@ push_peer_info(struct buffer *buf, struct tls_session *session)
         iv_proto |= IV_PROTO_DYN_TLS_CRYPT;
 
         buf_printf(&out, "IV_PROTO=%d\n", iv_proto);
+        buf_printf(&out, "ID=%x\n", peer_id);
 
         if (session->opt->push_peer_info_detail > 1)
         {
@@ -2221,7 +2224,7 @@ key_method_2_write(struct buffer *buf, struct tls_multi *multi, struct tls_sessi
         }
     }
 
-    if (!push_peer_info(buf, session))
+    if (!push_peer_info(buf, session, multi->rx_peer_id))
     {
         goto error;
     }
@@ -4143,9 +4146,8 @@ tls_prepend_opcode_v2(const struct tls_multi *multi, struct buffer *buf)
     msg(D_TLS_DEBUG, __func__);
 
     ASSERT(ks);
-
     peer = htonl(((P_DATA_V2 << P_OPCODE_SHIFT) | ks->key_id) << 24
-                 | (multi->peer_id & 0xFFFFFF));
+                 | (multi->tx_peer_id & 0xFFFFFF));
     ASSERT(buf_write_prepend(buf, &peer, 4));
 }
 

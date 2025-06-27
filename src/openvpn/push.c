@@ -654,7 +654,7 @@ prepare_push_reply(struct context *c, struct gc_arena *gc,
     if (tls_multi->use_peer_id)
     {
         push_option_fmt(gc, push_list, M_USAGE, "peer-id %d",
-                        tls_multi->peer_id);
+                        tls_multi->rx_peer_id);
     }
     /*
      * If server uses --auth-gen-token and we have an auth token
