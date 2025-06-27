@@ -2209,7 +2209,7 @@ tls_print_deferred_options_results(struct context *c)
 
     if (o->use_peer_id)
     {
-        buf_printf(&out, ", peer-id: %d", o->peer_id);
+        buf_printf(&out, ", rx-peer-id: %u, tx-peer-id: %u", c->c2.tls_multi->rx_peer_id, c->c2.tls_multi->tx_peer_id);
     }
 
 #ifdef USE_COMP
@@ -2688,7 +2688,12 @@ do_deferred_options(struct context *c, const uint64_t found, const bool is_updat
     {
         msg(D_PUSH_DEBUG, "OPTIONS IMPORT: peer-id set");
         c->c2.tls_multi->use_peer_id = true;
-        c->c2.tls_multi->peer_id = c->options.peer_id;
+        c->c2.tls_multi->tx_peer_id = c->options.peer_id;
+        if (!c->c2.tls_multi->use_asymmetric_peer_id)
+        {
+            c->c2.tls_multi->rx_peer_id = c->options.peer_id;
+            c->c2.tls_multi->tx_peer_id = c->options.peer_id;
+        }
     }
 
     /* process (potentially) pushed options */
@@ -3485,6 +3490,10 @@ do_init_frame_tls(struct context *c)
     if (c->c2.tls_multi)
     {
         tls_multi_init_finalize(c->c2.tls_multi, c->options.ce.tls_mtu);
+        if (c->c2.tls_multi->rx_peer_id != MAX_PEER_ID)
+        {
+            c->options.use_peer_id = true;
+        }
         ASSERT(c->c2.tls_multi->opt.frame.buf.payload_size <= c->c2.frame.buf.payload_size);
         frame_print(&c->c2.tls_multi->opt.frame, D_MTU_INFO, "Control Channel MTU parms");
 
