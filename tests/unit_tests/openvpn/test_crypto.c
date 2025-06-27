@@ -434,7 +434,7 @@ test_mssfix_mtu_calculation(void **state)
     o.authname = "SHA1";
     o.ciphername = "AES-256-GCM";
     o.tls_client = true;
-    o.peer_id = 77;
+    o.rx_peer_id = 77;
     o.use_peer_id = true;
     init_key_type(&kt, o.ciphername, o.authname, true, false);
 
