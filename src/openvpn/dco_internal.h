@@ -60,9 +60,10 @@ dco_get_cipher(const char *cipher)
  * They are implemented by dco_linux.c
  */
 
-int dco_new_peer(dco_context_t *dco, unsigned int peerid, int sd,
-                 struct sockaddr *localaddr, struct sockaddr *remoteaddr,
-                 struct in_addr *vpn_ipv4, struct in6_addr *vpn_ipv6);
+int dco_new_peer(dco_context_t *dco, unsigned int rx_id, unsigned int tx_id,
+                 int sd, struct sockaddr *localaddr,
+                 struct sockaddr *remoteaddr, struct in_addr *vpn_ipv4,
+                 struct in6_addr *vpn_ipv6);
 
 int dco_del_peer(dco_context_t *dco, unsigned int peerid);
 

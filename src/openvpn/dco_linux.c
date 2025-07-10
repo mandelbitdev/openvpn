@@ -218,7 +218,7 @@ mapped_v4_to_v6(struct sockaddr *sock, struct gc_arena *gc)
 }
 
 int
-dco_new_peer(dco_context_t *dco, unsigned int peerid, int sd,
+dco_new_peer(dco_context_t *dco, unsigned int rx_id, unsigned int tx_id, int sd,
              struct sockaddr *localaddr, struct sockaddr *remoteaddr,
              struct in_addr *vpn_ipv4, struct in6_addr *vpn_ipv6)
 {
@@ -228,14 +228,15 @@ dco_new_peer(dco_context_t *dco, unsigned int peerid, int sd,
     {
         remotestr = print_sockaddr(remoteaddr, &gc);
     }
-    msg(D_DCO_DEBUG, "%s: peer-id %d, fd %d, remote addr: %s", __func__,
-        peerid, sd, remotestr);
+    msg(D_DCO_DEBUG, "%s: peer-id %d, fd %d, remote addr: %s", __func__, rx_id,
+        sd, remotestr);
 
     struct nl_msg *nl_msg = ovpn_dco_nlmsg_create(dco, OVPN_CMD_PEER_NEW);
     struct nlattr *attr = nla_nest_start(nl_msg, OVPN_A_PEER);
     int ret = -EMSGSIZE;
 
-    NLA_PUT_U32(nl_msg, OVPN_A_PEER_ID, peerid);
+    NLA_PUT_U32(nl_msg, OVPN_A_PEER_ID, rx_id);
+    NLA_PUT_U32(nl_msg, OVPN_A_PEER_TX_ID, tx_id);
     NLA_PUT_U32(nl_msg, OVPN_A_PEER_SOCKET, sd);
 
     /* Set the remote endpoint if defined (for UDP) */

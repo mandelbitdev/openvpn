@@ -513,7 +513,8 @@ dco_p2p_add_new_peer(struct context *c)
         c->c2.tls_multi->dco_peer_id = -1;
     }
 #endif
-    int ret = dco_new_peer(&c->c1.tuntap->dco, multi->rx_peer_id, sock->sd, NULL,
+    int ret = dco_new_peer(&c->c1.tuntap->dco, multi->rx_peer_id,
+                           multi->tx_peer_id, sock->sd, NULL,
                            proto_is_dgram(sock->info.proto) ? remoteaddr : NULL,
                            NULL, NULL);
     if (ret < 0)
@@ -595,7 +596,8 @@ dco_multi_add_new_peer(struct multi_context *m, struct multi_instance *mi)
 {
     struct context *c = &mi->context;
 
-    int peer_id = c->c2.tls_multi->rx_peer_id;
+    uint32_t rx_id = c->c2.tls_multi->rx_peer_id;
+    uint32_t tx_id = c->c2.tls_multi->tx_peer_id;
     struct sockaddr *remoteaddr, *localaddr = NULL;
     struct sockaddr_storage local = { 0 };
     int sd = c->c2.link_sockets[0]->sd;
@@ -632,14 +634,14 @@ dco_multi_add_new_peer(struct multi_context *m, struct multi_instance *mi)
         localaddr = (struct sockaddr *)&local;
     }
 
-    int ret = dco_new_peer(&c->c1.tuntap->dco, peer_id, sd, localaddr,
+    int ret = dco_new_peer(&c->c1.tuntap->dco, rx_id, tx_id, sd, localaddr,
                            remoteaddr, vpn_addr4, vpn_addr6);
     if (ret < 0)
     {
         return ret;
     }
 
-    c->c2.tls_multi->dco_peer_id = peer_id;
+    c->c2.tls_multi->dco_peer_id = (int)rx_id;
 
     return 0;
 }

@@ -73,7 +73,7 @@ sockaddr_to_nvlist(const struct sockaddr *sa)
 }
 
 int
-dco_new_peer(dco_context_t *dco, unsigned int peerid, int sd,
+dco_new_peer(dco_context_t *dco, unsigned int rx_id, unsigned int tx_id, int sd,
              struct sockaddr *localaddr, struct sockaddr *remoteaddr,
              struct in_addr *vpn_ipv4, struct in6_addr *vpn_ipv6)
 {
@@ -81,9 +81,10 @@ dco_new_peer(dco_context_t *dco, unsigned int peerid, int sd,
     nvlist_t *nvl, *local_nvl, *remote_nvl;
     int ret;
 
+    (void)tx_id;
     nvl = nvlist_create(0);
 
-    msg(D_DCO_DEBUG, "%s: peer-id %d, fd %d", __func__, peerid, sd);
+    msg(D_DCO_DEBUG, "%s: peer-id %d, fd %d", __func__, rx_id, sd);
 
     if (localaddr)
     {
@@ -109,7 +110,7 @@ dco_new_peer(dco_context_t *dco, unsigned int peerid, int sd,
     }
 
     nvlist_add_number(nvl, "fd", sd);
-    nvlist_add_number(nvl, "peerid", peerid);
+    nvlist_add_number(nvl, "peerid", rx_id);
 
     CLEAR(drv);
     snprintf(drv.ifd_name, IFNAMSIZ, "%s", dco->ifname);

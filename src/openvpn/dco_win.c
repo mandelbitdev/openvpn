@@ -411,11 +411,12 @@ dco_p2p_new_peer(HANDLE handle, OVERLAPPED *ov, struct link_socket *sock, struct
 }
 
 int
-dco_new_peer(dco_context_t *dco, unsigned int peerid, int sd,
+dco_new_peer(dco_context_t *dco, unsigned int rx_id, unsigned int tx_id, int sd,
              struct sockaddr *localaddr, struct sockaddr *remoteaddr,
              struct in_addr *vpn_ipv4, struct in6_addr *vpn_ipv6)
 {
-    msg(D_DCO_DEBUG, "%s: peer-id %d, fd %d", __func__, peerid, sd);
+    (void)tx_id;
+    msg(D_DCO_DEBUG, "%s: peer-id %d, fd %d", __func__, rx_id, sd);
 
     if (dco->ifmode == DCO_MODE_P2P)
     {
@@ -450,7 +451,7 @@ dco_new_peer(dco_context_t *dco, unsigned int peerid, int sd,
         newPeer.VpnAddr6 = *vpn_ipv6;
     }
 
-    newPeer.PeerId = peerid;
+    newPeer.PeerId = rx_id;
 
     DWORD bytesReturned;
     if (!DeviceIoControl(dco->tt->hand, OVPN_IOCTL_MP_NEW_PEER, &newPeer, sizeof(newPeer), NULL, 0, &bytesReturned, NULL))
