@@ -3417,6 +3417,10 @@ multi_process_incoming_dco(struct multi_context *m)
                                         &m->top.c2.from.dest,
                                         (struct sockaddr *)&dco->dco_float_peer_ss);
             multi_process_float(m, mi, mi->context.c2.link_sockets[0]);
+            /* multi_process_float() generated and set a new peer prefix, but we
+             * don't to keep it at this point.
+             */
+            clear_prefix();
             CLEAR(dco->dco_float_peer_ss);
         }
 #endif /* if defined(TARGET_LINUX) || defined(TARGET_WIN32) */
