@@ -234,6 +234,7 @@ struct route_list
 
     struct route_special_addr spec;
     struct route_gateway_info rgi;
+    struct route_gateway_info ngi;
     unsigned int flags; /* RG_x flags */
     struct route_ipv4 *routes;
     struct gc_arena gc;
