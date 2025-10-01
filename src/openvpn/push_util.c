@@ -294,10 +294,17 @@ send_push_update(struct multi_context *m, const void *target, const char *msg, c
         }                                                             \
     } while (0)
 
-
 bool
 management_callback_send_push_update_broadcast(void *arg, const char *options)
 {
+    struct multi_context *m = arg;
+    if (dco_enabled(&m->top.options))
+    {
+        msg(M_WARN, "WARN: PUSH_UPDATE messages cannot currently be sent while DCO is enabled."
+                    " To send a PUSH_UPDATE message, be sure to use the --disable-dco option.");
+        return false;
+    }
+
     int n_sent = send_push_update(arg, NULL, options, UPT_BROADCAST, PUSH_BUNDLE_SIZE);
 
     RETURN_UPDATE_STATUS(n_sent);
@@ -306,6 +313,14 @@ management_callback_send_push_update_broadcast(void *arg, const char *options)
 bool
 management_callback_send_push_update_by_cid(void *arg, unsigned long cid, const char *options)
 {
+    struct multi_context *m = arg;
+    if (dco_enabled(&m->top.options))
+    {
+        msg(M_WARN, "WARN: PUSH_UPDATE messages cannot currently be sent while DCO is enabled."
+                    " To send a PUSH_UPDATE message, be sure to use the --disable-dco option.");
+        return false;
+    }
+
     int n_sent = send_push_update(arg, &cid, options, UPT_BY_CID, PUSH_BUNDLE_SIZE);
 
     RETURN_UPDATE_STATUS(n_sent);
