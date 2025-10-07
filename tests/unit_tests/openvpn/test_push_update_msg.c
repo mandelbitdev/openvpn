@@ -29,7 +29,7 @@ pull_permission_mask(const struct context *c)
 }
 
 void
-update_vhash(struct multi_context *m, struct multi_instance *mi, const char *old_ip, const char *old_ipv6)
+update_vhash(struct multi_context *m, struct multi_instance *mi, const char *new_ip, const char *new_ipv6)
 {
     return;
 }
@@ -95,7 +95,7 @@ process_incoming_push_msg(struct context *c, const struct buffer *buffer,
     }
     else if (honor_received_options && buf_string_compare_advance(&buf, push_update_cmd))
     {
-        return process_incoming_push_update(c, permission_mask, option_types_found, &buf, false);
+        return process_push_update(c, &c->options, permission_mask, option_types_found, &buf, false);
     }
     else
     {

@@ -4269,46 +4269,138 @@ tunnel_server(struct context *top)
     close_instance(top);
 }
 
+/* Searches for the address and deletes it if it is owned by the multi_instance */
+static void
+multi_unlearn_addr(struct multi_context *m, struct multi_instance *mi, const struct mroute_addr *addr)
+{
+    struct hash_element *he;
+    const uint32_t hv = hash_value(m->vhash, addr);
+    struct hash_bucket *bucket = hash_bucket(m->vhash, hv);
+    struct multi_route *r = NULL;
+
+    /* if route currently exists, get the instance which owns it */
+    he = hash_lookup_fast(m->vhash, bucket, addr, hv);
+    if (he)
+    {
+        r = (struct multi_route *)he->value;
+    }
+
+    /* if the route does not exist or exists but is not owned by the current instance, return */
+    if (!r || r->instance != mi)
+    {
+        return;
+    }
+
+    struct gc_arena gc = gc_new();
+    dmsg(D_MULTI_DEBUG, "MULTI: DEL %s", mroute_addr_print(&r->addr, &gc));
+    msg(D_MULTI_LOW, "MULTI: Remove: %s -> %s", mroute_addr_print(&r->addr, &gc), multi_instance_string(mi, false, &gc));
+    learn_address_script(m, NULL, "delete", &r->addr);
+    hash_remove_by_value(m->vhash, r);
+    route_quota_dec(mi);
+    multi_instance_dec_refcount(mi);
+
+    gc_free(&gc);
+}
+
+/**
+ * @param m     The multi_context
+ * @param mi    The multi_instance of the client we are updating
+ * @param a     The new IPv4 address in host byte order
+ */
+static void
+multi_unlearn_in_addr_t(struct multi_context *m, struct multi_instance *mi, in_addr_t a)
+{
+    struct openvpn_sockaddr remote_si;
+    struct mroute_addr addr = { 0 };
+
+    CLEAR(remote_si);
+    remote_si.addr.in4.sin_family = AF_INET;
+    remote_si.addr.in4.sin_addr.s_addr = a;
+    addr.proto = 0;
+    ASSERT(mroute_extract_openvpn_sockaddr(&addr, &remote_si, false));
+
+    multi_unlearn_addr(m, mi, &addr);
+}
+
+/**
+ * @param m     The multi_context
+ * @param mi    The multi_instance of the client we are updating
+ * @param a6    The new IPv6 address in host byte order
+ */
+static void
+multi_unlearn_in6_addr(struct multi_context *m, struct multi_instance *mi, struct in6_addr a6)
+{
+    struct mroute_addr addr = { 0 };
+
+    addr.len = 16;
+    addr.type = MR_ADDR_IPV6;
+    addr.netbits = 0;
+    addr.v6.addr = a6;
+
+    multi_unlearn_addr(m, mi, &addr);
+}
+
 /**
  * Update the vhash with new IP/IPv6 addresses in the multi_context when a
  * push-update message containing ifconfig/ifconfig-ipv6 options is sent
- * from the server. This function should be called after a push-update
- * and old_ip/old_ipv6 are the previous addresses of the client in
- * ctx->options.ifconfig_local and ctx->options.ifconfig_ipv6_local.
+ * from the server.
+ *
+ * @param m         The multi_context
+ * @param mi        The multi_instance of the client we are updating
+ * @param new_ip    The new IPv4 address or NULL if no change
+ * @param new_ipv6  The new IPv6 address or NULL if no change
  */
 void
-update_vhash(struct multi_context *m, struct multi_instance *mi, const char *old_ip, const char *old_ipv6)
+update_vhash(struct multi_context *m, struct multi_instance *mi, const char *new_ip, const char *new_ipv6)
 {
-    struct in_addr addr;
-    struct in6_addr new_ipv6;
-
-    if ((mi->context.options.ifconfig_local && (!old_ip || strcmp(old_ip, mi->context.options.ifconfig_local)))
-        && inet_pton(AF_INET, mi->context.options.ifconfig_local, &addr) == 1)
+    if (new_ip)
     {
-        in_addr_t new_ip = ntohl(addr.s_addr);
+        struct in_addr new_addr;
+        struct in_addr old_addr;
+        CLEAR(new_addr);
+        CLEAR(old_addr);
+
+        /* Remove old IP */
+        if (mi->context.c2.push_ifconfig_defined)
+        {
+            old_addr.s_addr = ntohl(mi->context.c2.push_ifconfig_local);
+
+            multi_unlearn_in_addr_t(m, mi, old_addr.s_addr);
+            mi->context.c2.push_ifconfig_defined = false;
+            mi->context.c2.push_ifconfig_local = 0;
+        }
 
         /* Add new IP */
-        multi_learn_in_addr_t(m, mi, new_ip, -1, true);
+        if (inet_pton(AF_INET, new_ip, &new_addr) == 1
+            && multi_learn_in_addr_t(m, mi, ntohl(new_addr.s_addr), -1, true))
+        {
+            mi->context.c2.push_ifconfig_defined = true;
+            mi->context.c2.push_ifconfig_local = new_addr.s_addr;
+        }
     }
 
-    /* TO DO:
-     *  else if (old_ip)
-     *  {
-     *      // remove old IP
-     *  }
-     */
-
-    if ((mi->context.options.ifconfig_ipv6_local && (!old_ipv6 || strcmp(old_ipv6, mi->context.options.ifconfig_ipv6_local)))
-        && inet_pton(AF_INET6, mi->context.options.ifconfig_ipv6_local, &new_ipv6) == 1)
+    if (new_ipv6)
     {
-        /* Add new IPv6 */
-        multi_learn_in6_addr(m, mi, new_ipv6, -1, true);
-    }
+        struct in6_addr new_addr6;
+        struct in6_addr old_addr6;
+        CLEAR(new_addr6);
+        CLEAR(old_addr6);
 
-    /* TO DO:
-     *  else if (old_ipv6)
-     *  {
-     *      // remove old IPv6
-     *  }
-     */
+        /* Remove old IPv6 */
+        if (mi->context.c2.push_ifconfig_ipv6_defined)
+        {
+            old_addr6 = mi->context.c2.push_ifconfig_ipv6_local;
+            multi_unlearn_in6_addr(m, mi, old_addr6);
+            mi->context.c2.push_ifconfig_ipv6_defined = false;
+            CLEAR(mi->context.c2.push_ifconfig_ipv6_local);
+        }
+
+        /* Add new IPv6 */
+        if (inet_pton(AF_INET6, new_ipv6, &new_addr6) == 1
+            && multi_learn_in6_addr(m, mi, new_addr6, -1, true))
+        {
+            mi->context.c2.push_ifconfig_ipv6_defined = true;
+            mi->context.c2.push_ifconfig_ipv6_local = new_addr6;
+        }
+    }
 }
