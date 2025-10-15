@@ -621,8 +621,8 @@ dco_do_read(dco_context_t *dco)
             {
                 const nvlist_t *bytes = nvlist_get_nvlist(nvl, "bytes");
 
-                dco->dco_read_bytes = nvlist_get_number(bytes, "in");
-                dco->dco_write_bytes = nvlist_get_number(bytes, "out");
+                dco->c->c2.dco_read_bytes = nvlist_get_number(bytes, "in");
+                dco->c->c2.dco_write_bytes = nvlist_get_number(bytes, "out");
             }
 
             dco->dco_message_type = OVPN_CMD_DEL_PEER;
