@@ -19,9 +19,17 @@ separate ephemeral encryption key which is rotated at regular intervals.
   the SWEET32 attack vector. For more information see the ``--cipher``
   option.
 
+  When data channel offload (DCO) is enabled, this option is ignored. DCO
+  does not support per-key renegotiation thresholds; automatic key
+  renegotiation mechanisms are preferred.
+
 --reneg-pkts n
   Renegotiate data channel key after **n** packets sent and received
   (disabled by default).
+
+  When data channel offload (DCO) is enabled, this option is ignored. DCO
+  does not support per-key renegotiation thresholds; automatic key
+  renegotiation mechanisms are preferred.
 
 --reneg-sec args
   Renegotiate data channel key after at most ``max`` seconds
