@@ -1883,6 +1883,28 @@ read_string_alloc(struct buffer *buf)
     return str;
 }
 
+static bool
+push_peer_info_server(struct buffer *buf, struct tls_session *session, uint32_t peer_id)
+{
+    struct gc_arena gc = gc_new();
+    bool ret = false;
+    struct buffer out = alloc_buf_gc(64, &gc);
+
+    if (peer_id != MAX_PEER_ID && (!session->opt->dco_enabled))
+    {
+        buf_printf(&out, "ID=%x\n", peer_id);
+    }
+    if (!write_string(buf, BSTR(&out), -1))
+    {
+        goto error;
+    }
+    ret = true;
+
+error:
+    gc_free(&gc);
+    return ret;
+}
+
 /**
  * Prepares the IV_ and UV_ variables that are part of the
  * exchange to signal the peer's capabilities. The amount
@@ -2187,6 +2209,11 @@ key_method_2_write(struct buffer *buf, struct tls_multi *multi, struct tls_sessi
         goto error;
     }
 
+    if (session->opt->mode == MODE_SERVER && multi->use_asymmetric_peer_id && !session->opt->push_peer_info_detail)
+    {
+        push_peer_info_server(buf, session, multi->rx_peer_id);
+    }
+
     if (session->opt->server && session->opt->mode != MODE_SERVER && ks->key_id == 0)
     {
         /* tls-server option set and not P2MP server, so we
@@ -2295,6 +2322,25 @@ key_method_2_read(struct buffer *buf, struct tls_multi *multi, struct tls_sessio
     if (multi->peer_info)
     {
         output_peer_info_env(session->opt->es, multi->peer_info);
+        if (session->opt->mode == MODE_SERVER && !session->opt->dco_enabled)
+        {
+            uint32_t peer_id = extract_asymmetric_peer_id(multi->peer_info);
+            if (peer_id != UINT32_MAX)
+            {
+                multi->tx_peer_id = peer_id;
+                multi->use_asymmetric_peer_id = true;
+                multi->use_peer_id = true;
+            }
+            else
+            {
+                multi->tx_peer_id = multi->rx_peer_id;
+            }
+        }
+    }
+    else
+    {
+        free(multi->peer_info);
+        multi->peer_info = read_string_alloc(buf);
     }
     if (session->opt->mode == MODE_POINT_TO_POINT && !session->opt->dco_enabled)
     {

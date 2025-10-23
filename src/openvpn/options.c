@@ -3885,10 +3885,6 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
                      "incompatible with each other.");
     }
 
-    if (!dco_enabled(o) && o->mode == MODE_SERVER)
-    {
-        o->push_peer_info = true;
-    }
 
     if (dco_enabled(o))
     {

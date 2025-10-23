@@ -1755,27 +1755,8 @@ multi_client_set_protocol_options(struct context *c)
     {
         tls_multi->use_peer_id = true;
         o->use_peer_id = true;
-        if (!dco_enabled(o))
-        {
-            uint32_t peer_id = extract_asymmetric_peer_id(peer_info);
-            if (peer_id != UINT32_MAX)
-            {
-                tls_multi->tx_peer_id = peer_id;
-                tls_multi->use_asymmetric_peer_id = true;
-            }
-            else
-            {
-                /*We don't need the tx_peer_id with DCO atm */
-                tls_multi->tx_peer_id = tls_multi->rx_peer_id;
-            }
-        }
-
-        if (!tls_multi->use_asymmetric_peer_id)
-        {
-            /*Client has no asymmetric peer-id capability */
-            tls_multi->tx_peer_id = tls_multi->rx_peer_id;
-        }
     }
+
     else if (dco_enabled(o))
     {
         msg(M_INFO, "Client does not support DATA_V2. Data channel offloading "
