@@ -451,7 +451,8 @@ struct tls_options
     size_t ekm_label_size;
     size_t ekm_size;
 
-    bool dco_enabled; /**< Whether keys have to be installed in DCO or not */
+    bool dco_enabled;              /**< Whether keys have to be installed in DCO or not */
+    unsigned int dco_capabilities; /**< local kernel DCO capability bitmap (DCO_CAP_*) */
 };
 
 /** @addtogroup control_processor
@@ -722,7 +723,7 @@ struct tls_multi
      * We keep this separate as the normal peer_id can change during
      * p2p NCP and we need to track the id that is really used.
      */
-    int dco_peer_id;
+    int dco_rx_peer_id;
 
     dco_context_t *dco;
 };

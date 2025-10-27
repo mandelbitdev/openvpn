@@ -2677,7 +2677,7 @@ do_deferred_options(struct context *c, const uint64_t found, const bool is_updat
         }
 
         /* Check if pushed options are compatible with DCO, if enabled */
-        if (dco_enabled(&c->options) && !dco_check_pull_options(D_PUSH_ERRORS, &c->options))
+        if (dco_enabled(&c->options) && !dco_check_pull_options(D_PUSH_ERRORS, c->c2.tls_multi))
         {
             msg(D_PUSH_ERRORS, "OPTIONS ERROR: pushed options are incompatible "
                                "with data channel offload. Use --disable-dco to connect to "
@@ -3434,6 +3434,20 @@ do_init_crypto_tls(struct context *c, const unsigned int flags)
 
     /* let the TLS engine know if keys have to be installed in DCO or not */
     to.dco_enabled = dco_enabled(options);
+    if (to.dco_enabled)
+    {
+        /* For --pull clients the tuntap is opened later (in do_up), so probe
+         * capabilities via a standalone netlink query rather than reading from
+         * the dco context which is not yet initialised. */
+        if (c->c1.tuntap)
+        {
+            to.dco_capabilities = dco_get_capabilities(&c->c1.tuntap->dco);
+        }
+        else
+        {
+            to.dco_capabilities = dco_probe_capabilities();
+        }
+    }
 
     /*
      * Initialize OpenVPN's master TLS-mode object.
@@ -4597,6 +4611,14 @@ init_instance(struct context *c, const struct env_set *env, const unsigned int f
     {
         int error_flags = 0;
         c->c2.did_open_tun = do_open_tun(c, &error_flags);
+    }
+
+    /* Replace the standalone probe with the value from the dco context, for the
+     * cases where the tun was just opened above. --pull clients open it in
+     * do_up(), later than this, and keep the probed value */
+    if (c->c2.tls_multi && c->c1.tuntap && dco_enabled(options))
+    {
+        c->c2.tls_multi->opt.dco_capabilities = dco_get_capabilities(&c->c1.tuntap->dco);
     }
 
     /* print MTU info */

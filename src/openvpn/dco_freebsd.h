@@ -58,7 +58,7 @@ typedef struct dco_context
     char ifname[IFNAMSIZ];
 
     int dco_message_type;
-    int dco_message_peer_id;
+    int dco_message_rx_peer_id;
     int dco_del_peer_reason;
     struct sockaddr_storage dco_float_peer_ss;
 
