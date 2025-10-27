@@ -1174,7 +1174,7 @@ tls_multi_init(struct tls_options *tls_options)
 
     /* get command line derived options */
     ret->opt = *tls_options;
-    ret->dco_peer_id = -1;
+    ret->dco_rx_peer_id = -1;
     ret->use_asymmetric_peer_id = false;
     /* The rx_peer_id is also used to identify DCO clients */
     ret->rx_peer_id = MAX_PEER_ID;
@@ -1192,20 +1192,17 @@ tls_multi_init_finalize(struct tls_multi *multi, int tls_mtu)
     tls_session_init(multi, &multi->session[TM_ACTIVE]);
     tls_session_init(multi, &multi->session[TM_INITIAL]);
 
-    if (!multi->opt.dco_enabled)
+    /* Calculate the asymmetric peer-id */
+    if (multi->rx_peer_id == MAX_PEER_ID && multi->session[TM_INITIAL].opt->mode != MODE_SERVER)
     {
-        /* Calculate the asymmetric peer-id */
-        if (multi->rx_peer_id == MAX_PEER_ID && multi->session[TM_INITIAL].opt->mode != MODE_SERVER)
+        uint8_t peerid[3];
+        srand((unsigned)time(NULL));
+        for (int i = 0; i < 3; i++)
         {
-            uint8_t peerid[3];
-            srand((unsigned)time(NULL));
-            for (int i = 0; i < 3; i++)
-            {
-                peerid[i] = rand();
-            }
-
-            multi->rx_peer_id = (peerid[0] << 16) + (peerid[1] << 8) + peerid[2];
+            peerid[i] = rand();
         }
+
+        multi->rx_peer_id = (peerid[0] << 16) + (peerid[1] << 8) + peerid[2];
     }
 }
 
@@ -1653,12 +1650,12 @@ tls_session_update_crypto_params_do_work(struct tls_multi *multi, struct tls_ses
          * mssfix are set to update in-kernel config */
         if (options->ping_send_timeout || frame->mss_fix)
         {
-            int ret = dco_set_peer(dco, multi->dco_peer_id, options->ping_send_timeout,
+            int ret = dco_set_peer(dco, multi->dco_rx_peer_id, options->ping_send_timeout,
                                    options->ping_rec_timeout, frame->mss_fix);
             if (ret < 0)
             {
                 msg(D_DCO, "Cannot set DCO peer parameters for peer (id=%u): %s",
-                    multi->dco_peer_id, strerror(-ret));
+                    multi->dco_rx_peer_id, strerror(-ret));
                 return false;
             }
         }
@@ -1890,7 +1887,7 @@ push_peer_info_server(struct buffer *buf, struct tls_session *session, uint32_t 
     bool ret = false;
     struct buffer out = alloc_buf_gc(64, &gc);
 
-    if (peer_id != MAX_PEER_ID && (!session->opt->dco_enabled))
+    if (peer_id != MAX_PEER_ID)
     {
         buf_printf(&out, "ID=%x\n", peer_id);
     }
@@ -2019,7 +2016,7 @@ push_peer_info(struct buffer *buf, struct tls_session *session, uint32_t peer_id
 
         buf_printf(&out, "IV_PROTO=%d\n", iv_proto);
 
-        if (peer_id != MAX_PEER_ID && (!session->opt->dco_enabled))
+        if (peer_id != MAX_PEER_ID)
         {
             buf_printf(&out, "ID=%x\n", peer_id);
         }
@@ -2322,7 +2319,7 @@ key_method_2_read(struct buffer *buf, struct tls_multi *multi, struct tls_sessio
     if (multi->peer_info)
     {
         output_peer_info_env(session->opt->es, multi->peer_info);
-        if (session->opt->mode == MODE_SERVER && !session->opt->dco_enabled)
+        if (session->opt->mode == MODE_SERVER)
         {
             uint32_t peer_id = extract_asymmetric_peer_id(multi->peer_info);
             if (peer_id != UINT32_MAX)
@@ -2342,7 +2339,7 @@ key_method_2_read(struct buffer *buf, struct tls_multi *multi, struct tls_sessio
         free(multi->peer_info);
         multi->peer_info = read_string_alloc(buf);
     }
-    if (session->opt->mode == MODE_POINT_TO_POINT && !session->opt->dco_enabled)
+    if (session->opt->mode == MODE_POINT_TO_POINT)
     {
         uint32_t peer_id = extract_asymmetric_peer_id(multi->peer_info);
         if (peer_id != UINT32_MAX)

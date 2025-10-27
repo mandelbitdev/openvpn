@@ -179,14 +179,14 @@ int dco_p2p_add_new_peer(struct context *c);
  * and -1 (do not touch).
  *
  * @param dco                DCO device context
- * @param peer_id            the ID of the peer to be modified
+ * @param rx_peer_id         the RX ID of the peer to be modified
  * @param keepalive_interval keepalive interval in seconds
  * @param keepalive_timeout  keepalive timeout in seconds
  * @param mss                TCP MSS value
  *
  * @return                   0 on success or a negative error code otherwise
  */
-int dco_set_peer(dco_context_t *dco, unsigned int peerid, int keepalive_interval,
+int dco_set_peer(dco_context_t *dco, unsigned int rx_peer_id, int keepalive_interval,
                  int keepalive_timeout, int mss);
 
 /**
@@ -337,7 +337,7 @@ dco_p2p_add_new_peer(struct context *c)
 }
 
 static inline int
-dco_set_peer(dco_context_t *dco, unsigned int peerid, int keepalive_interval, int keepalive_timeout,
+dco_set_peer(dco_context_t *dco, unsigned int rx_peer_id, int keepalive_interval, int keepalive_timeout,
              int mss)
 {
     return 0;

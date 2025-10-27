@@ -57,8 +57,8 @@ dco_install_key(struct tls_multi *multi, struct key_state *ks, const uint8_t *en
 
 {
     bool epoch = ks->crypto_options.flags & CO_EPOCH_DATA_KEY_FORMAT;
-    msg(D_DCO_DEBUG, "%s: peer_id=%d keyid=%d epoch=%d, currently %d keys installed", __func__,
-        multi->dco_peer_id, ks->key_id, multi->dco_keys_installed, epoch);
+    msg(D_DCO_DEBUG, "%s: rx_peer_id=%d keyid=%d epoch=%d, currently %d keys installed", __func__,
+        multi->dco_rx_peer_id, ks->key_id, multi->dco_keys_installed, epoch);
 
     /* Install a key in the PRIMARY slot only when no other key exist.
      * From that moment on, any new key will be installed in the SECONDARY
@@ -71,7 +71,7 @@ dco_install_key(struct tls_multi *multi, struct key_state *ks, const uint8_t *en
         slot = OVPN_KEY_SLOT_SECONDARY;
     }
 
-    int ret = dco_new_key(multi->dco, multi->dco_peer_id, ks->key_id, slot, encrypt_key, encrypt_iv,
+    int ret = dco_new_key(multi->dco, multi->dco_rx_peer_id, ks->key_id, slot, encrypt_key, encrypt_iv,
                           decrypt_key, decrypt_iv, ciphername, epoch);
     if ((ret == 0) && (multi->dco_keys_installed < 2))
     {
@@ -145,14 +145,14 @@ dco_update_keys(dco_context_t *dco, struct tls_multi *multi)
     {
         msg(D_DCO, "No encryption key found. Purging data channel keys");
 
-        int ret = dco_del_key(dco, multi->dco_peer_id, OVPN_KEY_SLOT_PRIMARY);
+        int ret = dco_del_key(dco, multi->dco_rx_peer_id, OVPN_KEY_SLOT_PRIMARY);
         if (ret < 0)
         {
             msg(D_DCO, "Cannot delete primary key during wipe: %s (%d)", strerror(-ret), ret);
             return false;
         }
 
-        ret = dco_del_key(dco, multi->dco_peer_id, OVPN_KEY_SLOT_SECONDARY);
+        ret = dco_del_key(dco, multi->dco_rx_peer_id, OVPN_KEY_SLOT_SECONDARY);
         if (ret < 0)
         {
             msg(D_DCO, "Cannot delete secondary key during wipe: %s (%d)", strerror(-ret), ret);
@@ -190,7 +190,7 @@ dco_update_keys(dco_context_t *dco, struct tls_multi *multi)
                 primary->key_id);
         }
 
-        int ret = dco_swap_keys(dco, multi->dco_peer_id);
+        int ret = dco_swap_keys(dco, multi->dco_rx_peer_id);
         if (ret < 0)
         {
             msg(D_DCO, "Cannot swap keys: %s (%d)", strerror(-ret), ret);
@@ -208,7 +208,7 @@ dco_update_keys(dco_context_t *dco, struct tls_multi *multi)
     /* if we have no secondary key anymore, inform DCO about it */
     if (!secondary && multi->dco_keys_installed == 2)
     {
-        int ret = dco_del_key(dco, multi->dco_peer_id, OVPN_KEY_SLOT_SECONDARY);
+        int ret = dco_del_key(dco, multi->dco_rx_peer_id, OVPN_KEY_SLOT_SECONDARY);
         if (ret < 0)
         {
             msg(D_DCO, "Cannot delete secondary key: %s (%d)", strerror(-ret), ret);
@@ -509,21 +509,21 @@ dco_p2p_add_new_peer(struct context *c)
 #ifdef TARGET_FREEBSD
     /* In Linux in P2P mode the kernel automatically removes an existing peer
      * when adding a new peer. FreeBSD needs to explicitly be told to do that */
-    if (c->c2.tls_multi->dco_peer_id != -1)
+    if (c->c2.tls_multi->dco_rx_peer_id != -1)
     {
         dco_del_peer(&c->c1.tuntap->dco, c->c2.tls_multi->dco_peer_id);
-        c->c2.tls_multi->dco_peer_id = -1;
+        c->c2.tls_multi->dco_rx_peer_id = -1;
     }
 #endif
-    int ret = dco_new_peer(&c->c1.tuntap->dco, multi->rx_peer_id, sock->sd, NULL,
-                           proto_is_dgram(sock->info.proto) ? remoteaddr : NULL,
+    int ret = dco_new_peer(&c->c1.tuntap->dco, multi->rx_peer_id, multi->tx_peer_id,
+                           sock->sd, NULL, proto_is_dgram(sock->info.proto) ? remoteaddr : NULL,
                            NULL, NULL);
     if (ret < 0)
     {
         return ret;
     }
 
-    c->c2.tls_multi->dco_peer_id = multi->rx_peer_id;
+    c->c2.tls_multi->dco_rx_peer_id = (int)multi->rx_peer_id;
 
     return 0;
 }
@@ -536,10 +536,10 @@ dco_remove_peer(struct context *c)
         return;
     }
 
-    if (c->c1.tuntap && c->c2.tls_multi && c->c2.tls_multi->dco_peer_id != -1)
+    if (c->c1.tuntap && c->c2.tls_multi && c->c2.tls_multi->dco_rx_peer_id != -1)
     {
-        dco_del_peer(&c->c1.tuntap->dco, c->c2.tls_multi->dco_peer_id);
-        c->c2.tls_multi->dco_peer_id = -1;
+        dco_del_peer(&c->c1.tuntap->dco, c->c2.tls_multi->dco_rx_peer_id);
+        c->c2.tls_multi->dco_rx_peer_id = -1;
     }
 }
 
@@ -598,7 +598,8 @@ dco_multi_add_new_peer(struct multi_context *m, struct multi_instance *mi)
 {
     struct context *c = &mi->context;
 
-    int peer_id = c->c2.tls_multi->rx_peer_id;
+    uint32_t rx_peer_id = c->c2.tls_multi->rx_peer_id;
+    uint32_t tx_peer_id = c->c2.tls_multi->tx_peer_id;
     struct sockaddr *remoteaddr, *localaddr = NULL;
     struct sockaddr_storage local = { 0 };
     const socket_descriptor_t sd = c->c2.link_sockets[0]->sd;
@@ -636,13 +637,13 @@ dco_multi_add_new_peer(struct multi_context *m, struct multi_instance *mi)
     }
 
     int ret =
-        dco_new_peer(&c->c1.tuntap->dco, peer_id, sd, localaddr, remoteaddr, vpn_addr4, vpn_addr6);
+        dco_new_peer(&c->c1.tuntap->dco, rx_peer_id, tx_peer_id, sd, localaddr, remoteaddr, vpn_addr4, vpn_addr6);
     if (ret < 0)
     {
         return ret;
     }
 
-    c->c2.tls_multi->dco_peer_id = peer_id;
+    c->c2.tls_multi->dco_rx_peer_id = (int)rx_peer_id;
 
     return 0;
 }

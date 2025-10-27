@@ -152,7 +152,7 @@ check_dco_key_status(struct context *c)
     }
 
     /* no active peer (p2p tls-server mode) */
-    if (c->c2.tls_multi->dco_peer_id == -1)
+    if (c->c2.tls_multi->dco_rx_peer_id == -1)
     {
         return;
     }
@@ -1274,12 +1274,12 @@ process_incoming_dco(struct context *c)
     /* FreeBSD currently sends us removal notifcation with the old peer-id in
      * p2p mode with the ping timeout reason, so ignore that one to not shoot
      * ourselves in the foot and removing the just established session */
-    if (dco->dco_message_peer_id != c->c2.tls_multi->dco_peer_id)
+    if (dco->dco_message_rx_peer_id != c->c2.tls_multi->dco_rx_peer_id)
     {
         msg(D_DCO_DEBUG,
-            "%s: received message for mismatching peer-id %d, "
+            "%s: received message for mismatching rx-peer-id %d, "
             "expected %d",
-            __func__, dco->dco_message_peer_id, c->c2.tls_multi->dco_peer_id);
+            __func__, dco->dco_message_rx_peer_id, c->c2.tls_multi->dco_rx_peer_id);
         return;
     }
 
@@ -1287,21 +1287,21 @@ process_incoming_dco(struct context *c)
     {
         case OVPN_CMD_DEL_PEER:
             /* peer is gone, unset ID to prevent more kernel calls */
-            c->c2.tls_multi->dco_peer_id = -1;
+            c->c2.tls_multi->dco_rx_peer_id = -1;
             if (dco->dco_del_peer_reason == OVPN_DEL_PEER_REASON_EXPIRED)
             {
                 msg(D_DCO_DEBUG,
-                    "%s: received peer expired notification of for peer-id "
+                    "%s: received peer expired notification of for rx-peer-id "
                     "%d",
-                    __func__, dco->dco_message_peer_id);
+                    __func__, dco->dco_message_rx_peer_id);
                 trigger_ping_timeout_signal(c);
                 return;
             }
             break;
 
         case OVPN_CMD_SWAP_KEYS:
-            msg(D_DCO_DEBUG, "%s: received key rotation notification for peer-id %d", __func__,
-                dco->dco_message_peer_id);
+            msg(D_DCO_DEBUG, "%s: received key rotation notification for rx-peer-id %d", __func__,
+                dco->dco_message_rx_peer_id);
             tls_session_soft_reset(c->c2.tls_multi);
             break;
 

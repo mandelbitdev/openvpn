@@ -3265,7 +3265,7 @@ process_incoming_del_peer(struct multi_context *m, struct multi_instance *mi, dc
 
     /* When kernel already deleted the peer, the socket is no longer
      * installed, and we do not need to clean up the state in the kernel */
-    mi->context.c2.tls_multi->dco_peer_id = -1;
+    mi->context.c2.tls_multi->dco_rx_peer_id = -1;
     mi->context.sig->signal_text = reason;
     multi_signal_instance(m, mi, SIGTERM);
 }
@@ -3279,7 +3279,7 @@ multi_process_incoming_dco(struct multi_context *m)
 
     int ret = dco_do_read(&m->top.c1.tuntap->dco);
 
-    int peer_id = dco->dco_message_peer_id;
+    int peer_id = dco->dco_message_rx_peer_id;
 
     /* no peer-specific message delivered -> nothing to process.
      * bail out right away
@@ -3334,7 +3334,7 @@ multi_process_incoming_dco(struct multi_context *m)
     }
 
     dco->dco_message_type = 0;
-    dco->dco_message_peer_id = -1;
+    dco->dco_message_rx_peer_id = -1;
     dco->dco_del_peer_reason = -1;
     return ret > 0;
 }

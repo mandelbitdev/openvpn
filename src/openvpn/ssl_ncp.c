@@ -444,7 +444,7 @@ p2p_ncp_set_options(struct tls_multi *multi, struct tls_session *session, const 
         session->opt->crypto_flags |= CO_USE_TLS_KEY_MATERIAL_EXPORT;
 
         /* The asymmetric peer-id trumps on the EKM generated ones */
-        if ((tx_peer_id != UINT32_MAX) && (!multi->opt.dco_enabled))
+        if (tx_peer_id != UINT32_MAX)
         {
             multi->tx_peer_id = tx_peer_id;
         }
