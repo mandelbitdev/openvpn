@@ -104,7 +104,8 @@ err_sock:
 }
 
 /* What the local kernel supports. It cannot change while we run, so the first
- * caller resolves it and the rest just read it. */
+ * caller resolves it and the rest just read it. That caller is
+ * do_init_crypto_tls(), which runs before any peer is added. */
 static unsigned int dco_caps = 0;
 static bool dco_caps_resolved = false;
 
@@ -126,6 +127,10 @@ struct ovpn_cap_req
     uint16_t nested_attr; /* 0 if target_attr is not nested */
     uint16_t target_attr;
     int expected_type;
+};
+
+static const struct ovpn_cap_req dco_capability_reqs[] = {
+    { DCO_CAP_ASYM_PEER_ID, OVPN_CMD_PEER_NEW, OVPN_A_PEER, OVPN_A_PEER_TX_ID, NL_ATTR_TYPE_U32 },
 };
 
 /** the outcome of resolving one capability requirement */
@@ -406,14 +411,39 @@ dco_probe_capabilities(void)
         return dco_caps;
     }
 
-    /* no capability is defined yet: resolve one whose answer we already know */
-    static const struct ovpn_cap_req self_test = { 0, OVPN_CMD_PEER_NEW, OVPN_A_PEER,
-                                                   OVPN_A_PEER_ID, NL_ATTR_TYPE_U32 };
-    int err = 0;
-    enum ovpn_cap_status status = ovpn_cap_probe_one(&self_test, &err);
+    for (size_t i = 0; i < SIZE(dco_capability_reqs); i++)
+    {
+        const struct ovpn_cap_req *req = &dco_capability_reqs[i];
+        int err = 0;
 
-    msg(D_DCO_DEBUG, "%s: policy introspection self-test: %s (status %d, err %d)", __func__,
-        status == OVPN_CAP_SUPPORTED ? "ok" : "unexpected", (int)status, err);
+        switch (ovpn_cap_probe_one(req, &err))
+        {
+            case OVPN_CAP_SUPPORTED:
+                dco_caps |= req->cap;
+                break;
+
+            case OVPN_CAP_UNSUPPORTED:
+                msg(D_DCO_DEBUG, "%s: kernel does not support DCO capability 0x%x", __func__,
+                    req->cap);
+                break;
+
+            case OVPN_CAP_UNKNOWN:
+                /* no CTRL_CMD_GETPOLICY before 5.7: nothing to warn about */
+                if (err == -NLE_OPNOTSUPP)
+                {
+                    msg(D_DCO_DEBUG,
+                        "%s: kernel has no netlink policy introspection, "
+                        "assuming DCO capability 0x%x is unsupported",
+                        __func__, req->cap);
+                    break;
+                }
+                msg(M_WARN,
+                    "Note: cannot determine DCO capability 0x%x from the kernel (%s), "
+                    "assuming it is unsupported",
+                    req->cap, err ? nl_geterror(err) : "incomplete policy dump");
+                break;
+        }
+    }
 
     dco_caps_resolved = true;
     msg(D_DCO_DEBUG, "%s: DCO local capabilities: 0x%x", __func__, dco_caps);
@@ -562,9 +592,9 @@ mapped_v4_to_v6(struct sockaddr *sock, struct gc_arena *gc)
 #endif
 
 int
-dco_new_peer(dco_context_t *dco, unsigned int rx_peer_id, int sd, struct sockaddr *localaddr,
-             struct sockaddr *remoteaddr, const struct in_addr *vpn_ipv4,
-             const struct in6_addr *vpn_ipv6)
+dco_new_peer(dco_context_t *dco, unsigned int rx_peer_id, unsigned int tx_peer_id, int sd,
+             struct sockaddr *localaddr, struct sockaddr *remoteaddr,
+             const struct in_addr *vpn_ipv4, const struct in6_addr *vpn_ipv6)
 {
     struct gc_arena gc = gc_new();
     const char *remotestr = "[undefined]";
@@ -572,7 +602,8 @@ dco_new_peer(dco_context_t *dco, unsigned int rx_peer_id, int sd, struct sockadd
     {
         remotestr = print_sockaddr(remoteaddr, &gc);
     }
-    msg(D_DCO_DEBUG, "%s: rx-peer-id %u, fd %d, remote addr: %s", __func__, rx_peer_id, sd, remotestr);
+    msg(D_DCO_DEBUG, "%s: rx-peer-id %u, tx-peer-id %u, fd %d, remote addr: %s",
+        __func__, rx_peer_id, tx_peer_id, sd, remotestr);
 
     struct nl_msg *nl_msg = ovpn_dco_nlmsg_create(dco, OVPN_CMD_PEER_NEW);
     if (!nl_msg)
@@ -585,6 +616,13 @@ dco_new_peer(dco_context_t *dco, unsigned int rx_peer_id, int sd, struct sockadd
     int ret = -EMSGSIZE;
 
     NLA_PUT_U32(nl_msg, OVPN_A_PEER_ID, rx_peer_id);
+    /* old kernels reject the whole command if they see an attribute they do not
+     * know. This is the same answer the TLS layer used to decide whether to
+     * negotiate an asymmetric ID, so the two cannot disagree */
+    if (dco_caps & DCO_CAP_ASYM_PEER_ID)
+    {
+        NLA_PUT_U32(nl_msg, OVPN_A_PEER_TX_ID, tx_peer_id);
+    }
     NLA_PUT_U32(nl_msg, OVPN_A_PEER_SOCKET, sd);
 
     /* Set the remote endpoint if defined (for UDP) */
@@ -763,12 +801,6 @@ static void
 ovpn_dco_init_netlink(dco_context_t *dco)
 {
     dco->ovpn_dco_id = resolve_ovpn_netlink_id(M_FATAL);
-
-    /* nothing consumes the bitmap yet; resolve it here to exercise the path */
-    if (check_debug_level(D_DCO_DEBUG))
-    {
-        dco_probe_capabilities();
-    }
 
     dco->nl_sock = nl_socket_alloc();
 
