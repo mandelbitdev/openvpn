@@ -415,11 +415,12 @@ dco_p2p_new_peer(HANDLE handle, OVERLAPPED *ov, struct link_socket *sock,
 }
 
 int
-dco_new_peer(dco_context_t *dco, unsigned int rx_peer_id, socket_descriptor_t sd,
-             struct sockaddr *localaddr, struct sockaddr *remoteaddr,
+dco_new_peer(dco_context_t *dco, unsigned int rx_peer_id, unsigned int tx_peer_id,
+             socket_descriptor_t sd, struct sockaddr *localaddr, struct sockaddr *remoteaddr,
              const struct in_addr *vpn_ipv4, const struct in6_addr *vpn_ipv6)
 {
-    msg(D_DCO_DEBUG, "%s: rx-peer-id %d, fd " SOCKET_PRINTF, __func__, rx_peer_id, sd);
+    msg(D_DCO_DEBUG, "%s: rx-peer-id %u, tx-peer-id %u, fd " SOCKET_PRINTF,
+        __func__, rx_peer_id, tx_peer_id, sd);
 
     if (dco->ifmode == DCO_MODE_P2P)
     {

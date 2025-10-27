@@ -57,8 +57,10 @@ dco_install_key(struct tls_multi *multi, struct key_state *ks, const uint8_t *en
 
 {
     bool epoch = ks->crypto_options.flags & CO_EPOCH_DATA_KEY_FORMAT;
-    msg(D_DCO_DEBUG, "%s: rx_peer_id=%d keyid=%d epoch=%d, currently %d keys installed",
-        __func__, multi->dco_rx_peer_id, ks->key_id, epoch, multi->dco_keys_installed);
+    msg(D_DCO_DEBUG,
+        "%s: rx_peer_id=%d tx_peer_id=%u keyid=%d epoch=%d, currently %d keys installed",
+        __func__, multi->dco_rx_peer_id, multi->tx_peer_id, ks->key_id, epoch,
+        multi->dco_keys_installed);
 
     /* Install a key in the PRIMARY slot only when no other key exist.
      * From that moment on, any new key will be installed in the SECONDARY
@@ -510,9 +512,11 @@ dco_check_option(msglvl_t msglevel, const struct options *o)
 }
 
 bool
-dco_check_pull_options(msglvl_t msglevel, const struct options *o)
+dco_check_pull_options(msglvl_t msglevel, const struct tls_multi *multi)
 {
-    if (!o->use_peer_id)
+    /* asymmetric peer-ids are negotiated, not pushed, so options.use_peer_id
+     * is not yet in sync when this runs */
+    if (!multi->use_peer_id)
     {
         msg(msglevel, "OPTIONS IMPORT: Server did not request DATA_V2 packet "
                       "format required for data channel offload");
@@ -544,8 +548,8 @@ dco_p2p_add_new_peer(struct context *c)
         c->c2.tls_multi->dco_rx_peer_id = -1;
     }
 #endif
-    int ret = dco_new_peer(&c->c1.tuntap->dco, multi->rx_peer_id, sock->sd, NULL,
-                           proto_is_dgram(sock->info.proto) ? remoteaddr : NULL,
+    int ret = dco_new_peer(&c->c1.tuntap->dco, multi->rx_peer_id, multi->tx_peer_id,
+                           sock->sd, NULL, proto_is_dgram(sock->info.proto) ? remoteaddr : NULL,
                            NULL, NULL);
     if (ret < 0)
     {
@@ -628,6 +632,7 @@ dco_multi_add_new_peer(struct multi_context *m, struct multi_instance *mi)
     const struct context *c = &mi->context;
 
     uint32_t rx_peer_id = c->c2.tls_multi->rx_peer_id;
+    uint32_t tx_peer_id = c->c2.tls_multi->tx_peer_id;
     struct sockaddr *remoteaddr, *localaddr = NULL;
     struct sockaddr_storage local = { 0 };
     const socket_descriptor_t sd = c->c2.link_sockets[0]->sd;
@@ -665,7 +670,7 @@ dco_multi_add_new_peer(struct multi_context *m, struct multi_instance *mi)
     }
 
     int ret =
-        dco_new_peer(&c->c1.tuntap->dco, rx_peer_id, sd, localaddr, remoteaddr, vpn_addr4, vpn_addr6);
+        dco_new_peer(&c->c1.tuntap->dco, rx_peer_id, tx_peer_id, sd, localaddr, remoteaddr, vpn_addr4, vpn_addr6);
     if (ret < 0)
     {
         return ret;
