@@ -1167,7 +1167,7 @@ tls_multi_init(struct tls_options *tls_options)
 
     /* get command line derived options */
     ret->opt = *tls_options;
-    ret->dco_peer_id = -1;
+    ret->dco_rx_peer_id = -1;
     ret->use_asymmetric_peer_id = false;
     /* The rx_peer_id is also used to identify DCO clients */
     ret->rx_peer_id = MAX_PEER_ID;
@@ -1645,12 +1645,12 @@ tls_session_update_crypto_params_do_work(struct tls_multi *multi, struct tls_ses
          * ping-exit or mssfix are set to update in-kernel config */
         if (options->ping_send_timeout || options->ping_rec_timeout || frame->mss_fix)
         {
-            int ret = dco_set_peer(dco, multi->dco_peer_id, options->ping_send_timeout,
+            int ret = dco_set_peer(dco, multi->dco_rx_peer_id, options->ping_send_timeout,
                                    options->ping_rec_timeout, frame->mss_fix);
             if (ret < 0)
             {
                 msg(D_DCO, "Cannot set DCO peer parameters for peer (id=%u): %s",
-                    multi->dco_peer_id, strerror(-ret));
+                    multi->dco_rx_peer_id, strerror(-ret));
                 return false;
             }
         }
