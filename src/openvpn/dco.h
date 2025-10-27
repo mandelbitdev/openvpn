@@ -41,10 +41,14 @@ struct multi_instance;
 struct mroute_addr;
 struct options;
 struct tls_multi;
+struct tls_session;
 struct tuntap;
 
 #define DCO_IROUTE_METRIC  100
 #define DCO_DEFAULT_METRIC 200
+
+/** Local DCO capability bits, derived from kernel introspection */
+#define DCO_CAP_ASYM_PEER_ID (1u << 0) /**< kernel supports OVPN_A_PEER_TX_ID */
 
 #if defined(ENABLE_DCO)
 
@@ -95,10 +99,10 @@ bool dco_check_startup_option(msglvl_t msglevel, const struct options *o);
  * for the first conflicting option found and return false.
  *
  * @param msglevel  the msg level to use to print the warnings
- * @param o         the options struct that hold the options
+ * @param multi     the TLS state holding the negotiated parameters
  * @return          true if no conflict was detected, false otherwise
  */
-bool dco_check_pull_options(msglvl_t msglevel, const struct options *o);
+bool dco_check_pull_options(msglvl_t msglevel, const struct tls_multi *multi);
 
 /**
  * Initialize the DCO context
@@ -180,14 +184,14 @@ int dco_p2p_add_new_peer(struct context *c);
  * and -1 (do not touch).
  *
  * @param dco                DCO device context
- * @param peer_id            the ID of the peer to be modified
+ * @param rx_peer_id         the RX ID of the peer to be modified
  * @param keepalive_interval keepalive interval in seconds
  * @param keepalive_timeout  keepalive timeout in seconds
  * @param mss                TCP MSS value
  *
  * @return                   0 on success or a negative error code otherwise
  */
-int dco_set_peer(dco_context_t *dco, unsigned int peerid, int keepalive_interval,
+int dco_set_peer(dco_context_t *dco, unsigned int rx_peer_id, int keepalive_interval,
                  int keepalive_timeout, int mss);
 
 /**
@@ -263,6 +267,7 @@ dco_supports_epoch_data(struct context *c);
  *          and when it could not be asked
  */
 unsigned int dco_probe_capabilities(void);
+
 #else  /* if defined(ENABLE_DCO) */
 
 typedef void *dco_context_t;
@@ -292,7 +297,7 @@ dco_check_startup_option(msglvl_t msglevel, const struct options *o)
 }
 
 static inline bool
-dco_check_pull_options(msglvl_t msglevel, const struct options *o)
+dco_check_pull_options(msglvl_t msglevel, const struct tls_multi *multi)
 {
     return false;
 }
@@ -347,7 +352,7 @@ dco_p2p_add_new_peer(struct context *c)
 }
 
 static inline int
-dco_set_peer(dco_context_t *dco, unsigned int peerid, int keepalive_interval, int keepalive_timeout,
+dco_set_peer(dco_context_t *dco, unsigned int rx_peer_id, int keepalive_interval, int keepalive_timeout,
              int mss)
 {
     return 0;
@@ -403,5 +408,6 @@ dco_probe_capabilities(void)
 {
     return 0;
 }
+
 #endif /* defined(ENABLE_DCO) */
 #endif /* ifndef DCO_H */

@@ -50,7 +50,7 @@ struct dco_context
     struct rw_handle rwhandle;   /**< Used to hook async I/O to the OpenVPN event loop. */
     int ov_ret;                  /**< Win32 error code for overlapped operation, 0 for success */
 
-    int dco_message_peer_id;
+    int dco_message_rx_peer_id;
     int dco_message_type;
     int dco_del_peer_reason;
     struct sockaddr_storage dco_float_peer_ss;

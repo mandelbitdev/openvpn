@@ -34,6 +34,7 @@
 #include "packet_id.h"
 #include "crypto.h"
 #include "options.h"
+#include "dco.h"
 
 #include "ssl_backend.h"
 
@@ -451,8 +452,20 @@ struct tls_options
     size_t ekm_label_size;
     size_t ekm_size;
 
-    bool dco_enabled; /**< Whether keys have to be installed in DCO or not */
+    bool dco_enabled;              /**< Whether keys have to be installed in DCO or not */
+    unsigned int dco_capabilities; /**< local kernel DCO capability bitmap (DCO_CAP_*) */
 };
+
+/**
+ * Whether asymmetric peer-ids can be used: either DCO is not in the way, or the
+ * local kernel supports them. When false we neither generate nor announce an
+ * ID, so the remote peer falls back as well.
+ */
+static inline bool
+dco_can_asym_peer_id(const struct tls_options *o)
+{
+    return !o->dco_enabled || (o->dco_capabilities & DCO_CAP_ASYM_PEER_ID);
+}
 
 /** @addtogroup control_processor
  *  @{ */
@@ -722,7 +735,7 @@ struct tls_multi
      * We keep this separate as the normal peer_id can change during
      * p2p NCP and we need to track the id that is really used.
      */
-    int dco_peer_id;
+    int dco_rx_peer_id;
 
     dco_context_t *dco;
 };

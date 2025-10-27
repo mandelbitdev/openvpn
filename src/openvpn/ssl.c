@@ -1179,7 +1179,7 @@ tls_multi_init(struct tls_options *tls_options)
 
     /* get command line derived options */
     ret->opt = *tls_options;
-    ret->dco_peer_id = -1;
+    ret->dco_rx_peer_id = -1;
     ret->use_asymmetric_peer_id = false;
     /* The rx_peer_id is also used to identify DCO clients */
     ret->rx_peer_id = MAX_PEER_ID;
@@ -1197,9 +1197,10 @@ tls_multi_init_finalize(struct tls_multi *multi, int tls_mtu)
     tls_session_init(multi, &multi->session[TM_ACTIVE]);
     tls_session_init(multi, &multi->session[TM_INITIAL]);
 
-    if (!multi->opt.dco_enabled)
+    /* Calculate the asymmetric peer-id. Leaving it unset is what keeps us from
+     * announcing one to the peer, so DCO needs the kernel to support it */
+    if (dco_can_asym_peer_id(&multi->opt))
     {
-        /* Calculate the asymmetric peer-id */
         if (multi->rx_peer_id == MAX_PEER_ID && multi->session[TM_INITIAL].opt->mode != MODE_SERVER)
         {
             multi->rx_peer_id = (uint32_t)(get_random() % (MAX_PEER_ID - 1));
@@ -1685,12 +1686,12 @@ tls_session_update_crypto_params_do_work(struct tls_multi *multi, struct tls_ses
          * ping-exit or mssfix are set to update in-kernel config */
         if (options->ping_send_timeout || options->ping_rec_timeout || frame->mss_fix)
         {
-            int ret = dco_set_peer(dco, multi->dco_peer_id, options->ping_send_timeout,
+            int ret = dco_set_peer(dco, multi->dco_rx_peer_id, options->ping_send_timeout,
                                    options->ping_rec_timeout, frame->mss_fix);
             if (ret < 0)
             {
                 msg(D_DCO, "Cannot set DCO peer parameters for peer (id=%u): %s",
-                    multi->dco_peer_id, strerror(-ret));
+                    multi->dco_rx_peer_id, strerror(-ret));
                 return false;
             }
         }
@@ -1922,9 +1923,16 @@ read_string_alloc(struct buffer *buf)
 static bool
 push_peer_info_peerid(struct buffer *out, struct tls_multi *multi, struct tls_session *session)
 {
-    if (multi->rx_peer_id == MAX_PEER_ID || session->opt->dco_enabled)
+    if (multi->rx_peer_id == MAX_PEER_ID)
     {
-        /* No valid peer id or DCO is enabled. Cannot use this feature */
+        /* No valid peer id */
+        return true;
+    }
+
+    if (!dco_can_asym_peer_id(session->opt))
+    {
+        /* DCO is in use but the local kernel cannot do asymmetric peer-ids:
+         * do not announce our ID so that the peer falls back as well */
         return true;
     }
 
@@ -2361,16 +2369,18 @@ key_method_2_read(struct buffer *buf, struct tls_multi *multi, struct tls_sessio
     {
         output_peer_info_env(session->opt->es, multi->peer_info);
         uint32_t peer_id = extract_asymmetric_peer_id(multi->peer_info);
-        if (peer_id != MAX_PEER_ID && !session->opt->dco_enabled)
+        if (peer_id != MAX_PEER_ID && dco_can_asym_peer_id(session->opt))
         {
+            /* set before key_method_2_write() runs, so that a server knows
+             * whether to announce its own ID back */
             multi->tx_peer_id = peer_id;
             multi->use_asymmetric_peer_id = true;
             multi->use_peer_id = true;
         }
         else
         {
-            /* Peer has no support for asymmetric peer-id, and DCO currently
-             * can only handle symmetric peer IDs */
+            /* the peer announced nothing, or we cannot use asymmetric peer-ids
+             * locally: stay symmetric */
             multi->tx_peer_id = multi->rx_peer_id;
         }
     }

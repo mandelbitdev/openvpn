@@ -2677,7 +2677,7 @@ do_deferred_options(struct context *c, const uint64_t found, const bool is_updat
         }
 
         /* Check if pushed options are compatible with DCO, if enabled */
-        if (dco_enabled(&c->options) && !dco_check_pull_options(D_PUSH_ERRORS, &c->options))
+        if (dco_enabled(&c->options) && !dco_check_pull_options(D_PUSH_ERRORS, c->c2.tls_multi))
         {
             msg(D_PUSH_ERRORS, "OPTIONS ERROR: pushed options are incompatible "
                                "with data channel offload. Use --disable-dco to connect to "
@@ -3446,6 +3446,10 @@ do_init_crypto_tls(struct context *c, const unsigned int flags)
 
     /* let the TLS engine know if keys have to be installed in DCO or not */
     to.dco_enabled = dco_enabled(options);
+    if (to.dco_enabled)
+    {
+        to.dco_capabilities = dco_probe_capabilities();
+    }
 
     /*
      * Initialize OpenVPN's master TLS-mode object.
