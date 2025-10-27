@@ -1167,7 +1167,7 @@ tls_multi_init(struct tls_options *tls_options)
 
     /* get command line derived options */
     ret->opt = *tls_options;
-    ret->dco_peer_id = -1;
+    ret->dco_rx_peer_id = -1;
     ret->use_asymmetric_peer_id = false;
     /* The rx_peer_id is also used to identify DCO clients */
     ret->rx_peer_id = MAX_PEER_ID;
@@ -1185,22 +1185,19 @@ tls_multi_init_finalize(struct tls_multi *multi, int tls_mtu)
     tls_session_init(multi, &multi->session[TM_ACTIVE]);
     tls_session_init(multi, &multi->session[TM_INITIAL]);
 
-    if (!multi->opt.dco_enabled)
+    /* Calculate the asymmetric peer-id */
+    if (multi->rx_peer_id == MAX_PEER_ID && multi->session[TM_INITIAL].opt->mode != MODE_SERVER)
     {
-        /* Calculate the asymmetric peer-id */
-        if (multi->rx_peer_id == MAX_PEER_ID && multi->session[TM_INITIAL].opt->mode != MODE_SERVER)
+        uint8_t peerid[3];
+
+        if (rand_bytes(peerid, sizeof(peerid)) != 1)
         {
-            uint8_t peerid[3];
-
-            if (rand_bytes(peerid, sizeof(peerid)) != 1)
-            {
-                msg(M_FATAL, "rand_bytes() failed");
-            }
-
-            multi->rx_peer_id = ((uint32_t)peerid[0] << 16)
-                                | ((uint32_t)peerid[1] << 8)
-                                | (uint32_t)peerid[2];
+            msg(M_FATAL, "rand_bytes() failed");
         }
+
+        multi->rx_peer_id = ((uint32_t)peerid[0] << 16)
+                            | ((uint32_t)peerid[1] << 8)
+                            | (uint32_t)peerid[2];
     }
 }
 
@@ -1648,12 +1645,12 @@ tls_session_update_crypto_params_do_work(struct tls_multi *multi, struct tls_ses
          * ping-exit or mssfix are set to update in-kernel config */
         if (options->ping_send_timeout || options->ping_rec_timeout || frame->mss_fix)
         {
-            int ret = dco_set_peer(dco, multi->dco_peer_id, options->ping_send_timeout,
+            int ret = dco_set_peer(dco, multi->dco_rx_peer_id, options->ping_send_timeout,
                                    options->ping_rec_timeout, frame->mss_fix);
             if (ret < 0)
             {
                 msg(D_DCO, "Cannot set DCO peer parameters for peer (id=%u): %s",
-                    multi->dco_peer_id, strerror(-ret));
+                    multi->dco_rx_peer_id, strerror(-ret));
                 return false;
             }
         }
