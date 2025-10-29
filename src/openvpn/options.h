@@ -319,6 +319,7 @@ struct options
     bool remote_random;
     const char *ipchange;
     const char *dev;
+    const char *netns;
     const char *dev_type;
     const char *dev_node;
     const char *lladdr;

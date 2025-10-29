@@ -5879,10 +5879,14 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
             goto err;
         }
     }
-    else if (streq(p[0], "dev") && p[1] && !p[2])
+    else if (streq(p[0], "dev") && p[1] && !p[3])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->dev = p[1];
+        if (p[2])
+        {
+            options->netns = p[2];
+        }
     }
     else if (streq(p[0], "dev-type") && p[1] && !p[2])
     {

@@ -265,7 +265,7 @@ tuntap_defined(const struct tuntap *tt)
  */
 
 void open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tuntap *tt,
-              openvpn_net_ctx_t *ctx);
+              const char *netns, openvpn_net_ctx_t *ctx);
 
 void close_tun(struct tuntap *tt, openvpn_net_ctx_t *ctx);
 
@@ -280,7 +280,7 @@ int read_tun(struct tuntap *tt, uint8_t *buf, int len);
 
 void tuncfg(const char *dev, const char *dev_type, const char *dev_node, int persist_mode,
             const char *username, const char *groupname, const struct tuntap_options *options,
-            openvpn_net_ctx_t *ctx);
+            const char *netns, openvpn_net_ctx_t *ctx);
 
 const char *guess_tuntap_dev(const char *dev, const char *dev_type, const char *dev_node,
                              struct gc_arena *gc);

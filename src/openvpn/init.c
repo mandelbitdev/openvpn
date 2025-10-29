@@ -1136,7 +1136,7 @@ do_persist_tuntap(struct options *options, openvpn_net_ctx_t *ctx)
 
 #ifdef ENABLE_FEATURE_TUN_PERSIST
     tuncfg(options->dev, options->dev_type, options->dev_node, options->persist_mode,
-           options->username, options->groupname, &options->tuntap_options, ctx);
+           options->username, options->groupname, &options->tuntap_options, options->netns, ctx);
     if (options->persist_mode && options->lladdr)
     {
         set_lladdr(ctx, options->dev, options->lladdr, NULL);
@@ -1858,7 +1858,7 @@ open_tun_backend(struct context *c)
     }
     else
     {
-        open_tun(c->options.dev, c->options.dev_type, c->options.dev_node, tt, &c->net_ctx);
+        open_tun(c->options.dev, c->options.dev_type, c->options.dev_node, tt, c->options.netns ,&c->net_ctx);
     }
     msg(M_INFO, "%s device [%s] opened", print_tun_backend_driver(tt->backend_driver),
         tt->actual_name);

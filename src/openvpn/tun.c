@@ -2063,7 +2063,7 @@ read_tun(struct tuntap *tt, uint8_t *buf, int len)
 
 void
 open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tuntap *tt,
-         openvpn_net_ctx_t *ctx)
+         const char *netns, openvpn_net_ctx_t *ctx)
 {
     struct ifreq ifr;
 
@@ -2080,6 +2080,21 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
         if (!node)
         {
             node = "/dev/net/tun";
+        }
+
+        if (netns)
+        {
+            int netns_fd = open(netns, O_RDONLY);
+            if (netns_fd < 0)
+            {
+                msg(M_ERR, "ERROR: Cannot open netns %s", netns);
+            }
+
+            if (setns(netns_fd, CLONE_NEWNET) < 0)
+            {
+                msg(M_ERR, "ERROR: setns()");
+                close(netns_fd);
+            }
         }
 
         /*
@@ -2194,7 +2209,7 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
 void
 tuncfg(const char *dev, const char *dev_type, const char *dev_node, int persist_mode,
        const char *username, const char *groupname, const struct tuntap_options *options,
-       openvpn_net_ctx_t *ctx)
+       const char *netns, openvpn_net_ctx_t *ctx)
 {
     struct tuntap *tt;
 
@@ -2203,7 +2218,7 @@ tuncfg(const char *dev, const char *dev_type, const char *dev_node, int persist_
     tt->type = dev_type_enum(dev, dev_type);
     tt->options = *options;
 
-    open_tun(dev, dev_type, dev_node, tt, ctx);
+    open_tun(dev, dev_type, dev_node, tt, netns, ctx);
     if (ioctl(tt->fd, TUNSETPERSIST, persist_mode) < 0)
     {
         msg(M_ERR, "Cannot ioctl TUNSETPERSIST(%d) %s", persist_mode, dev);
