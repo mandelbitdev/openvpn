@@ -342,6 +342,7 @@ multi_process_io_udp(struct multi_context *m, struct link_socket *sock)
     const unsigned int mpp_flags = m->top.c2.fast_io
                                        ? (MPP_CONDITIONAL_PRE_SELECT | MPP_CLOSE_ON_SIGNAL)
                                        : (MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
+    unsigned int processed_flags = 0;
 
 #ifdef MULTI_DEBUG_EVENT_LOOP
     char buf[16];
@@ -374,6 +375,7 @@ multi_process_io_udp(struct multi_context *m, struct link_socket *sock)
     {
         ASSERT(management);
         management_io(management);
+        processed_flags |= (MANAGEMENT_READ | MANAGEMENT_WRITE);
     }
 #endif
 
@@ -381,11 +383,13 @@ multi_process_io_udp(struct multi_context *m, struct link_socket *sock)
     if (status & SOCKET_WRITE)
     {
         multi_process_outgoing_link(m, mpp_flags);
+        processed_flags |= SOCKET_WRITE;
     }
     /* TUN device ready to accept write */
     else if (status & TUN_WRITE)
     {
         multi_process_outgoing_tun(m, mpp_flags);
+        processed_flags |= TUN_WRITE;
     }
     /* Incoming data on UDP port */
     else if (status & SOCKET_READ)
@@ -395,6 +399,7 @@ multi_process_io_udp(struct multi_context *m, struct link_socket *sock)
         {
             multi_process_incoming_link(m, NULL, mpp_flags, sock);
         }
+        processed_flags |= SOCKET_READ;
     }
     /* Incoming data on TUN device */
     else if (status & TUN_READ)
@@ -404,12 +409,14 @@ multi_process_io_udp(struct multi_context *m, struct link_socket *sock)
         {
             multi_process_incoming_tun(m, mpp_flags);
         }
+        processed_flags |= TUN_READ;
     }
 #ifdef ENABLE_ASYNC_PUSH
     /* INOTIFY callback */
     else if (status & FILE_CLOSED)
     {
         multi_process_file_closed(m, mpp_flags);
+        processed_flags |= FILE_CLOSED;
     }
 #endif
 #if defined(ENABLE_DCO)
@@ -423,10 +430,11 @@ multi_process_io_udp(struct multi_context *m, struct link_socket *sock)
                 ret = multi_process_incoming_dco(m);
             }
         }
+        processed_flags |= DCO_READ;
     }
 #endif
 
-    m->multi_io->udp_flags = ES_ERROR;
+    m->multi_io->udp_flags &= ~processed_flags;
 }
 
 /*
