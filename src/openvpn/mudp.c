@@ -342,11 +342,13 @@ multi_process_io_udp(struct multi_context *m, struct link_socket *sock)
     const unsigned int mpp_flags = m->top.c2.fast_io
                                        ? (MPP_CONDITIONAL_PRE_SELECT | MPP_CLOSE_ON_SIGNAL)
                                        : (MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
+    unsigned int processed_flags = 0;
 
     /* UDP port ready to accept write */
     if (status & SOCKET_WRITE)
     {
         multi_process_outgoing_link(m, mpp_flags);
+        processed_flags |= SOCKET_WRITE;
     }
     /* Incoming data on UDP port */
     else if (status & SOCKET_READ)
@@ -356,9 +358,10 @@ multi_process_io_udp(struct multi_context *m, struct link_socket *sock)
         {
             multi_process_incoming_link(m, NULL, mpp_flags, sock);
         }
+        processed_flags |= SOCKET_READ;
     }
 
-    m->multi_io->udp_flags = ES_ERROR;
+    m->multi_io->udp_flags &= ~processed_flags;
 }
 
 /*
