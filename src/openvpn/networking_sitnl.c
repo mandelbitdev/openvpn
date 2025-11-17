@@ -1342,8 +1342,10 @@ net_iface_new(openvpn_net_ctx_t *ctx, const char *iface, const char *type, void 
     if (arg && (strcmp(type, OVPN_FAMILY_NAME) == 0))
     {
         dco_context_t *dco = arg;
+        const uint32_t pid = (uint32_t)platform_getpid();
         struct rtattr *data = SITNL_NEST(&req.n, sizeof(req), IFLA_INFO_DATA);
         SITNL_ADDATTR(&req.n, sizeof(req), IFLA_OVPN_MODE, &dco->ifmode, sizeof(uint8_t));
+        SITNL_ADDATTR(&req.n, sizeof(req), IFLA_OVPN_OWNER_PID, &pid, sizeof(pid));
         SITNL_NEST_END(&req.n, data);
     }
 #endif
