@@ -24,4 +24,6 @@
 typedef char openvpn_net_iface_t;
 typedef void *openvpn_net_ctx_t;
 
+void sitnl_close_socket(void);
+
 #endif /* NETWORKING_SITNL_H_ */

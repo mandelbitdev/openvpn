@@ -926,6 +926,10 @@ uninit_static(void)
 #if defined(MEASURE_TLS_HANDSHAKE_STATS)
     show_tls_performance_stats();
 #endif
+
+#ifdef ENABLE_SITNL
+    sitnl_close_socket();
+#endif
 }
 
 void
