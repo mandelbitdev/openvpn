@@ -234,6 +234,11 @@ int net_addr_ptp_v4_add(openvpn_net_ctx_t *ctx, const openvpn_net_iface_t *iface
 int net_addr_ptp_v4_del(openvpn_net_ctx_t *ctx, const openvpn_net_iface_t *iface,
                         const in_addr_t *local, const in_addr_t *remote);
 
+/**
+ * Close the rtnl socket
+ */
+void sitnl_close_socket(void);
+
 #endif /* ENABLE_SITNL || ENABLE_IPROUTE */
 
 #if defined(ENABLE_SITNL) || defined(ENABLE_IPROUTE) || defined(TARGET_FREEBSD)

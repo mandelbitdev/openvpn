@@ -43,7 +43,7 @@
 #include <linux/rtnetlink.h>
 
 #define SNDBUF_SIZE (1024 * 2)
-#define RCVBUF_SIZE (1024 * 4)
+#define RCVBUF_SIZE (1024 * 32)
 
 #define SITNL_ADDATTR(_msg, _max_size, _attr, _data, _size)          \
     {                                                                \
@@ -64,6 +64,9 @@
     {                                                                                      \
         _nest->rta_len = (unsigned short)((void *)sitnl_nlmsg_tail(_msg) - (void *)_nest); \
     }
+
+/* the socket is created once and persists for the lifetime of the program */
+static int rtnl_socket = -1;
 
 /* This function was originally implemented as a macro, but compiling with
  * gcc and -O3 was getting confused about the math and thus raising
@@ -169,7 +172,7 @@ sitnl_addattr(struct nlmsghdr *n, size_t maxlen, unsigned short type, const void
  * Open RTNL socket
  */
 static int
-sitnl_socket(void)
+sitnl_open_socket(void)
 {
     int sndbuf = SNDBUF_SIZE;
     int rcvbuf = RCVBUF_SIZE;
@@ -200,6 +203,16 @@ sitnl_socket(void)
     }
 
     return fd;
+}
+
+void
+sitnl_close_socket(void)
+{
+    if (rtnl_socket >= 0)
+    {
+        close(rtnl_socket);
+        rtnl_socket = -1;
+    }
 }
 
 /**
@@ -251,7 +264,6 @@ static int
 sitnl_send(struct nlmsghdr *payload, pid_t peer, unsigned int groups, sitnl_parse_reply_cb cb,
            void *arg_cb)
 {
-    int fd, ret;
     struct sockaddr_nl nladdr;
     struct nlmsgerr *err;
     struct nlmsghdr *h;
@@ -285,25 +297,28 @@ sitnl_send(struct nlmsghdr *payload, pid_t peer, unsigned int groups, sitnl_pars
         payload->nlmsg_flags |= NLM_F_ACK;
     }
 
-    fd = sitnl_socket();
-    if (fd < 0)
+    /* open socket if not already open */
+    if (rtnl_socket < 0)
     {
-        msg(M_WARN | M_ERRNO, "%s: can't open rtnl socket", __func__);
-        return -errno;
+        rtnl_socket = sitnl_open_socket();
+        if (rtnl_socket < 0)
+        {
+            msg(M_WARN | M_ERRNO, "%s: can't open rtnl socket", __func__);
+            return -errno;
+        }
+
+        if (sitnl_bind(rtnl_socket, 0) < 0)
+        {
+            msg(M_WARN | M_ERRNO, "%s: can't bind rtnl socket", __func__);
+            sitnl_close_socket();
+            return -errno;
+        }
     }
 
-    if (sitnl_bind(fd, 0) < 0)
-    {
-        msg(M_WARN | M_ERRNO, "%s: can't bind rtnl socket", __func__);
-        ret = -errno;
-        goto out;
-    }
-
-    if (sendmsg(fd, &nlmsg, 0) < 0)
+    if (sendmsg(rtnl_socket, &nlmsg, 0) < 0)
     {
         msg(M_WARN | M_ERRNO, "%s: rtnl: error on sendmsg()", __func__);
-        ret = -errno;
-        goto out;
+        return -errno;
     }
 
     /* prepare buffer to store RTNL replies */
@@ -318,7 +333,7 @@ sitnl_send(struct nlmsghdr *payload, pid_t peer, unsigned int groups, sitnl_pars
          */
         msg(D_RTNL, "%s: checking for received messages", __func__);
         iov.iov_len = sizeof(buf);
-        ssize_t rcv_len = recvmsg(fd, &nlmsg, 0);
+        ssize_t rcv_len = recvmsg(rtnl_socket, &nlmsg, 0);
         msg(D_RTNL, "%s: rtnl: received %zd bytes", __func__, rcv_len);
         if (rcv_len < 0)
         {
@@ -328,23 +343,20 @@ sitnl_send(struct nlmsghdr *payload, pid_t peer, unsigned int groups, sitnl_pars
                 continue;
             }
             msg(M_WARN | M_ERRNO, "%s: rtnl: error on recvmsg()", __func__);
-            ret = -errno;
-            goto out;
+            return -errno;
         }
 
         if (rcv_len == 0)
         {
             msg(M_WARN, "%s: rtnl: socket reached unexpected EOF", __func__);
-            ret = -EIO;
-            goto out;
+            return -EIO;
         }
 
         if (nlmsg.msg_namelen != sizeof(nladdr))
         {
             msg(M_WARN, "%s: sender address length: %u (expected %zu)", __func__, nlmsg.msg_namelen,
                 sizeof(nladdr));
-            ret = -EIO;
-            goto out;
+            return -EIO;
         }
 
         h = (struct nlmsghdr *)buf;
@@ -358,12 +370,10 @@ sitnl_send(struct nlmsghdr *payload, pid_t peer, unsigned int groups, sitnl_pars
                 if (nlmsg.msg_flags & MSG_TRUNC)
                 {
                     msg(M_WARN, "%s: truncated message", __func__);
-                    ret = -EIO;
-                    goto out;
+                    return -EIO;
                 }
                 msg(M_WARN, "%s: malformed message: len=%u", __func__, len);
-                ret = -EIO;
-                goto out;
+                return -EIO;
             }
 
             /*            if (((int)nladdr.nl_pid != peer) || (h->nlmsg_pid != nladdr.nl_pid)
@@ -381,12 +391,12 @@ sitnl_send(struct nlmsghdr *payload, pid_t peer, unsigned int groups, sitnl_pars
 
             if (h->nlmsg_type == NLMSG_DONE)
             {
-                ret = 0;
-                goto out;
+                return 0;
             }
 
             if (h->nlmsg_type == NLMSG_ERROR)
             {
+                int ret;
                 err = (struct nlmsgerr *)NLMSG_DATA(h);
                 if (rem_len < sizeof(struct nlmsgerr))
                 {
@@ -414,7 +424,7 @@ sitnl_send(struct nlmsghdr *payload, pid_t peer, unsigned int groups, sitnl_pars
                         ret = err->error;
                     }
                 }
-                goto out;
+                return ret;
             }
 
             if (cb)
@@ -422,8 +432,7 @@ sitnl_send(struct nlmsghdr *payload, pid_t peer, unsigned int groups, sitnl_pars
                 int r = cb(h, arg_cb);
                 if (r <= 0)
                 {
-                    ret = r;
-                    goto out;
+                    return r;
                 }
             }
             else
@@ -444,14 +453,10 @@ sitnl_send(struct nlmsghdr *payload, pid_t peer, unsigned int groups, sitnl_pars
         if (rcv_len)
         {
             msg(M_WARN, "%s: rtnl: %zd not parsed bytes", __func__, rcv_len);
-            ret = -1;
-            goto out;
+            return -1;
         }
     }
-out:
-    close(fd);
-
-    return ret;
+    ASSERT(0);
 }
 
 typedef struct
@@ -1314,7 +1319,6 @@ net_route_v6_del(openvpn_net_ctx_t *ctx, const struct in6_addr *dst, int prefixl
 
     return sitnl_route_del(iface, AF_INET6, &dst_v6, prefixlen, &gw_v6, table, metric);
 }
-
 
 int
 net_iface_new(openvpn_net_ctx_t *ctx, const char *iface, const char *type, void *arg)
