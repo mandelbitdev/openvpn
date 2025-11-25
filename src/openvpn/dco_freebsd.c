@@ -578,7 +578,7 @@ dco_update_peer_stat(struct multi_context *m, uint32_t peerid, const nvlist_t *n
 }
 
 int
-dco_do_read(dco_context_t *dco)
+dco_read_and_process(dco_context_t *dco)
 {
     struct ifdrv drv;
     uint8_t buf[4096];
@@ -688,6 +688,16 @@ dco_do_read(dco_context_t *dco)
     }
 
     nvlist_destroy(nvl);
+
+    if (dco->c->mode == CM_TOP)
+    {
+        ASSERT(dco->c->multi);
+        multi_process_incoming_dco(dco->c->multi);
+    }
+    else
+    {
+        process_incoming_dco(dco->c);
+    }
 
     return 0;
 }

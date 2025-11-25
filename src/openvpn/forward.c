@@ -1243,13 +1243,11 @@ extract_dco_float_peer_addr(const sa_family_t socket_family, struct openvpn_sock
     }
 }
 
-static void
-process_incoming_dco(struct context *c)
+void
+process_incoming_dco(dco_context_t *dco)
 {
 #if defined(ENABLE_DCO) && (defined(TARGET_LINUX) || defined(TARGET_FREEBSD))
-    dco_context_t *dco = &c->c1.tuntap->dco;
-
-    dco_do_read(dco);
+    struct context *c = dco->c;
 
     /* no message for us to handle - platform specific code has logged details */
     if (dco->dco_message_type == 0)
@@ -2379,7 +2377,7 @@ process_io(struct context *c, struct link_socket *sock)
     {
         if (!IS_SIG(c))
         {
-            process_incoming_dco(c);
+            dco_read_and_process(&c->c1.tuntap->dco);
         }
     }
 }

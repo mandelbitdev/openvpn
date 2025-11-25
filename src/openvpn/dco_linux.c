@@ -1094,29 +1094,34 @@ ovpn_handle_msg(struct nl_msg *msg, void *arg)
      * message, that stores the type-specific attributes.
      *
      * the "dco" object is then filled accordingly with the information
-     * retrieved from the message, so that the rest of the OpenVPN code can
-     * react as need be.
+     * retrieved from the message, so that *process_incoming_dco can react
+     * as need be.
      */
+    int ret;
     switch (gnlh->cmd)
     {
         case OVPN_CMD_PEER_GET:
         {
-            return ovpn_handle_peer(dco, attrs);
+            ret = ovpn_handle_peer(dco, attrs);
+            break;
         }
 
         case OVPN_CMD_PEER_DEL_NTF:
         {
-            return ovpn_handle_peer_del_ntf(dco, attrs);
+            ret = ovpn_handle_peer_del_ntf(dco, attrs);
+            break;
         }
 
         case OVPN_CMD_PEER_FLOAT_NTF:
         {
-            return ovpn_handle_peer_float_ntf(dco, attrs);
+            ret = ovpn_handle_peer_float_ntf(dco, attrs);
+            break;
         }
 
         case OVPN_CMD_KEY_SWAP_NTF:
         {
-            return ovpn_handle_key_swap_ntf(dco, attrs);
+            ret = ovpn_handle_key_swap_ntf(dco, attrs);
+            break;
         }
 
         default:
@@ -1125,11 +1130,26 @@ ovpn_handle_msg(struct nl_msg *msg, void *arg)
             return NL_STOP;
     }
 
+    if (ret != NL_OK)
+    {
+        return ret;
+    }
+
+    if (dco->c->mode == CM_TOP)
+    {
+        ASSERT(dco->c->multi);
+        multi_process_incoming_dco(dco);
+    }
+    else
+    {
+        process_incoming_dco(dco);
+    }
+
     return NL_OK;
 }
 
 int
-dco_do_read(dco_context_t *dco)
+dco_read_and_process(dco_context_t *dco)
 {
     msg(D_DCO_DEBUG, __func__);
 

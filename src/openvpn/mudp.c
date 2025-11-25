@@ -417,11 +417,7 @@ multi_process_io_udp(struct multi_context *m, struct link_socket *sock)
     {
         if (!IS_SIG(&m->top))
         {
-            bool ret = true;
-            while (ret)
-            {
-                ret = multi_process_incoming_dco(m);
-            }
+            dco_read_and_process(&m->top.c1.tuntap->dco);
         }
     }
 #endif
