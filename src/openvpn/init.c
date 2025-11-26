@@ -2541,6 +2541,7 @@ do_deferred_p2p_ncp(struct context *c)
     }
 
     c->options.use_peer_id = c->c2.tls_multi->use_peer_id;
+    c->options.peer_id = c->c2.tls_multi->peer_id;
 
     struct tls_session *session = &c->c2.tls_multi->session[TM_ACTIVE];
 
