@@ -68,12 +68,7 @@ extern counter_type link_read_bytes_global;
 
 extern counter_type link_write_bytes_global;
 
-void get_io_flags_dowork_udp(struct context *c, struct multi_io *multi_io,
-                             const unsigned int flags);
-
 void get_io_flags_udp(struct context *c, struct multi_io *multi_io, const unsigned int flags);
-
-void io_wait_dowork(struct context *c, const unsigned int flags);
 
 void pre_select(struct context *c);
 
@@ -363,6 +358,27 @@ register_activity(struct context *c, const int64_t size)
     }
 }
 
+/* show event wait debugging info */
+
+#ifdef ENABLE_DEBUG
+
+static const char *
+wait_status_string(struct context *c, struct gc_arena *gc)
+{
+    struct buffer out = alloc_buf_gc(64, gc);
+
+    buf_printf(&out, "I/O WAIT %s|%s| %s", tun_stat(c->c1.tuntap, EVENT_READ, gc),
+               tun_stat(c->c1.tuntap, EVENT_WRITE, gc), tv_string(&c->c2.timeval, gc));
+    for (int i = 0; i < c->c1.link_sockets_num; i++)
+    {
+        buf_printf(&out, "\n %s|%s", socket_stat(c->c2.link_sockets[i], EVENT_READ, gc),
+                   socket_stat(c->c2.link_sockets[i], EVENT_WRITE, gc));
+    }
+    return BSTR(&out);
+}
+
+#endif /* ifdef ENABLE_DEBUG */
+
 /*
  * Return the io_wait() flags appropriate for
  * a point-to-point tunnel.
@@ -382,6 +398,128 @@ p2p_iow_flags(const struct context *c)
     return flags;
 }
 
+static void
+show_wait_status(struct context *c)
+{
+    struct gc_arena gc = gc_new();
+    dmsg(D_EVENT_WAIT, "%s", wait_status_string(c, &gc));
+    gc_free(&gc);
+}
+
+static void
+multi_io_process_flags(struct context *c, struct event_set *es, const unsigned int flags,
+                       unsigned int *out_socket, unsigned int *out_tuntap)
+{
+    unsigned int socket = 0;
+    unsigned int tuntap = 0;
+    static uintptr_t tun_shift = TUN_SHIFT;
+    static uintptr_t err_shift = ERR_SHIFT;
+
+    /*
+     * Calculate the flags based on the provided 'flags' argument.
+     */
+    if ((c->options.mode != MODE_SERVER) && (flags & IOW_WAIT_SIGNAL))
+    {
+        wait_signal(es, (void *)err_shift);
+    }
+
+    if (flags & IOW_TO_LINK)
+    {
+        if (flags & IOW_SHAPER)
+        {
+            /*
+             * If sending this packet would put us over our traffic shaping
+             * quota, don't send -- instead compute the delay we must wait
+             * until it will be OK to send the packet.
+             */
+            int delay = 0;
+
+            /* set traffic shaping delay in microseconds */
+            if (c->options.shaper)
+            {
+                delay = max_int(delay, shaper_delay(&c->c2.shaper));
+            }
+
+            if (delay < 1000)
+            {
+                socket |= EVENT_WRITE;
+            }
+            else
+            {
+                shaper_soonest_event(&c->c2.timeval, delay);
+            }
+        }
+        else
+        {
+            socket |= EVENT_WRITE;
+        }
+    }
+    else if (!((flags & IOW_FRAG) && TO_LINK_FRAG(c)))
+    {
+        if (flags & IOW_READ_TUN)
+        {
+            tuntap |= EVENT_READ;
+        }
+    }
+
+    /*
+     * If outgoing data (for TUN/TAP device) pending, wait for ready-to-send status
+     * from device.  Otherwise, wait for incoming data on TCP/UDP port.
+     */
+    if (flags & IOW_TO_TUN)
+    {
+        tuntap |= EVENT_WRITE;
+    }
+    else
+    {
+        if (flags & IOW_READ_LINK)
+        {
+            socket |= EVENT_READ;
+        }
+    }
+
+    /*
+     * outgoing bcast buffer waiting to be sent?
+     */
+    if (flags & IOW_MBUF)
+    {
+        socket |= EVENT_WRITE;
+    }
+
+    /*
+     * Force wait on TUN input, even if also waiting on TCP/UDP output
+     */
+    if (flags & IOW_READ_TUN_FORCE)
+    {
+        tuntap |= EVENT_READ;
+    }
+
+    /*
+     * Configure event wait based on socket, tuntap flags.
+     * (for TCP server sockets this happens in
+     *  socket_set_listen_persistent()).
+     */
+    for (int i = 0; i < c->c1.link_sockets_num; i++)
+    {
+        if ((c->options.mode != MODE_SERVER) || (proto_is_dgram(c->c2.link_sockets[i]->info.proto)))
+        {
+            socket_set(c->c2.link_sockets[i], es, socket, &c->c2.link_sockets[i]->ev_arg, NULL);
+        }
+    }
+
+    tun_set(c->c1.tuntap, es, tuntap, (void *)tun_shift, NULL);
+
+    if (out_socket)
+    {
+        *out_socket = socket;
+    }
+
+    if (out_tuntap)
+    {
+        *out_tuntap = tuntap;
+    }
+}
+
 /*
  * This is the core I/O wait function, used for all I/O waits except
  * for the top-level server sockets.
@@ -389,26 +527,124 @@ p2p_iow_flags(const struct context *c)
 static inline void
 io_wait(struct context *c, const unsigned int flags)
 {
-    if (proto_is_dgram(c->c2.link_sockets[0]->info.proto) && c->c2.fast_io
-        && (flags & (IOW_TO_TUN | IOW_TO_LINK | IOW_MBUF)))
+    unsigned int out_socket;
+    unsigned int out_tuntap;
+    struct event_set_return esr[4];
+
+    /* These shifts all depend on EVENT_READ and EVENT_WRITE */
+    static uintptr_t socket_shift = SOCKET_SHIFT; /* depends on SOCKET_READ and SOCKET_WRITE */
+#ifdef ENABLE_MANAGEMENT
+    static uintptr_t management_shift =
+        MANAGEMENT_SHIFT; /* depends on MANAGEMENT_READ and MANAGEMENT_WRITE */
+#endif
+
+#if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
+    static uintptr_t dco_shift = DCO_SHIFT; /* Event from DCO linux kernel module */
+#endif
+
+    /*
+     * Decide what kind of events we want to wait for.
+     */
+    event_reset(c->c2.event_set);
+
+    multi_io_process_flags(c, c->c2.event_set, flags, &out_socket, &out_tuntap);
+
+#if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
+    if (out_socket & EVENT_READ && c->c2.did_open_tun)
     {
-        /* fast path -- only for TUN/TAP/UDP writes */
-        unsigned int ret = 0;
-        if (flags & IOW_TO_TUN)
-        {
-            ret |= TUN_WRITE;
-        }
-        if (flags & (IOW_TO_LINK | IOW_MBUF))
-        {
-            ret |= SOCKET_WRITE;
-        }
-        c->c2.event_set_status = ret;
+        dco_event_set(&c->c1.tuntap->dco, c->c2.event_set, (void *)dco_shift);
     }
-    else
+#endif
+
+#ifdef ENABLE_MANAGEMENT
+    if (management)
     {
-        /* slow path */
-        io_wait_dowork(c, flags);
+        management_socket_set(management, c->c2.event_set, (void *)management_shift, NULL);
     }
+#endif
+
+    /*
+     * Possible scenarios:
+     *  (1) tcp/udp port has data available to read
+     *  (2) tcp/udp port is ready to accept more data to write
+     *  (3) tun dev has data available to read
+     *  (4) tun dev is ready to accept more data to write
+     *  (5) we received a signal (handler sets signal_received)
+     *  (6) timeout (tv) expired
+     */
+
+    c->c2.event_set_status = ES_ERROR;
+
+    if (!c->sig->signal_received)
+    {
+        if (!(flags & IOW_CHECK_RESIDUAL) || !sockets_read_residual(c))
+        {
+            int status;
+
+#ifdef ENABLE_DEBUG
+            if (check_debug_level(D_EVENT_WAIT))
+            {
+                show_wait_status(c);
+            }
+#endif
+
+            /*
+             * Wait for something to happen.
+             */
+            status = event_wait(c->c2.event_set, &c->c2.timeval, esr, SIZE(esr));
+
+            check_status(status, "event_wait", NULL, NULL);
+
+            if (status > 0)
+            {
+                int i;
+                c->c2.event_set_status = 0;
+                for (i = 0; i < status; ++i)
+                {
+                    const struct event_set_return *e = &esr[i];
+                    uintptr_t shift;
+
+                    if (e->arg >= MULTI_N)
+                    {
+                        struct event_arg *ev_arg = (struct event_arg *)e->arg;
+                        if (ev_arg->type != EVENT_ARG_LINK_SOCKET)
+                        {
+                            c->c2.event_set_status = ES_ERROR;
+                            msg(D_LINK_ERRORS, "io_work: non socket event delivered");
+                            return;
+                        }
+
+                        shift = socket_shift;
+                    }
+                    else
+                    {
+                        shift = (uintptr_t)e->arg;
+                    }
+
+                    c->c2.event_set_status |= ((e->rwflags & 3) << shift);
+                }
+            }
+            else if (status == 0)
+            {
+                c->c2.event_set_status = ES_TIMEOUT;
+            }
+        }
+        else
+        {
+            c->c2.event_set_status = SOCKET_READ;
+        }
+    }
+
+    /* 'now' should always be a reasonably up-to-date timestamp */
+    update_time();
+
+    /* set signal_received if a signal was received */
+    if (c->c2.event_set_status & ES_ERROR)
+    {
+        get_signal(&c->sig->signal_received);
+    }
+
+    dmsg(D_EVENT_WAIT, "I/O WAIT status=0x%04x", c->c2.event_set_status);
 }
 
 static inline bool
