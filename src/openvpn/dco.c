@@ -778,4 +778,10 @@ dco_delete_iroutes(struct multi_context *m, struct multi_instance *mi)
 #endif /* if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32) */
 }
 
+bool
+dco_del_peer_stats_updated(dco_context_t *dco)
+{
+    return dco->dco_del_peer_stats_updated;
+}
+
 #endif /* defined(ENABLE_DCO) */

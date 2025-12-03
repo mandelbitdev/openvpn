@@ -49,10 +49,10 @@
 #include <netlink/genl/family.h>
 #include <netlink/genl/ctrl.h>
 
-/* When parsing multiple DEL_PEER notifications, openvpn tries to request stats
- * for each DEL_PEER message (see setenv_stats). This triggers a GET_PEER
- * request-reply while we are still parsing the rest of the initial
- * notifications, which can lead to NLE_BUSY or even NLE_NOMEM.
+/* When parsing multiple DEL_PEER notifications that do not include stats,
+ * openvpn tries to request them for each DEL_PEER message (see setenv_stats).
+ * This triggers a GET_PEER request-reply while we are still parsing the rest
+ * of the initial notifications, which can lead to NLE_BUSY or even NLE_NOMEM.
  *
  * This basic lock ensures we don't bite our own tail by issuing a dco_get_peer
  * while still busy receiving and parsing other messages.
@@ -814,9 +814,38 @@ ovpn_nla_get_uint(struct nlattr *attr)
     }
 }
 
-static void
-dco_update_peer_stat(struct context_2 *c2, struct nlattr *tb[], uint32_t id)
+static bool
+dco_update_peer_stat(dco_context_t *dco, struct nlattr *tb[], uint32_t id)
 {
+    struct context_2 *c2;
+
+    if (dco->ifmode == OVPN_MODE_P2P)
+    {
+        c2 = &dco->c->c2;
+        if (c2->tls_multi->dco_peer_id != id)
+        {
+            return false;
+        }
+    }
+    else
+    {
+        if (id >= dco->c->multi->max_clients)
+        {
+            msg(M_WARN, "%s: received out of bound id %u (max=%u)", __func__, id,
+                dco->c->multi->max_clients);
+            return false;
+        }
+
+        struct multi_instance *mi = dco->c->multi->instances[id];
+        if (!mi)
+        {
+            msg(M_WARN | M_NOIPREFIX, "%s: received data for a non-existing peer %u", __func__, id);
+            return false;
+        }
+
+        c2 = &mi->context.c2;
+    }
+
     if (tb[OVPN_A_PEER_LINK_RX_BYTES])
     {
         c2->dco_read_bytes = ovpn_nla_get_uint(tb[OVPN_A_PEER_LINK_RX_BYTES]);
@@ -824,7 +853,8 @@ dco_update_peer_stat(struct context_2 *c2, struct nlattr *tb[], uint32_t id)
     }
     else
     {
-        msg(M_WARN, "%s: no link RX bytes provided in reply for peer %u", __func__, id);
+        msg(M_WARN, "%s: no link RX bytes provided for peer %u", __func__, id);
+        return false;
     }
 
     if (tb[OVPN_A_PEER_LINK_TX_BYTES])
@@ -834,7 +864,8 @@ dco_update_peer_stat(struct context_2 *c2, struct nlattr *tb[], uint32_t id)
     }
     else
     {
-        msg(M_WARN, "%s: no link TX bytes provided in reply for peer %u", __func__, id);
+        msg(M_WARN, "%s: no link TX bytes provided for peer %u", __func__, id);
+        return false;
     }
 
     if (tb[OVPN_A_PEER_VPN_RX_BYTES])
@@ -844,7 +875,8 @@ dco_update_peer_stat(struct context_2 *c2, struct nlattr *tb[], uint32_t id)
     }
     else
     {
-        msg(M_WARN, "%s: no VPN RX bytes provided in reply for peer %u", __func__, id);
+        msg(M_WARN, "%s: no VPN RX bytes provided for peer %u", __func__, id);
+        return false;
     }
 
     if (tb[OVPN_A_PEER_VPN_TX_BYTES])
@@ -854,8 +886,11 @@ dco_update_peer_stat(struct context_2 *c2, struct nlattr *tb[], uint32_t id)
     }
     else
     {
-        msg(M_WARN, "%s: no VPN TX bytes provided in reply for peer %u", __func__, id);
+        msg(M_WARN, "%s: no VPN TX bytes provided for peer %u", __func__, id);
+        return false;
     }
+
+    return true;
 }
 
 static int
@@ -877,40 +912,10 @@ ovpn_handle_peer(dco_context_t *dco, struct nlattr *attrs[])
     }
 
     uint32_t peer_id = nla_get_u32(tb_peer[OVPN_A_PEER_ID]);
-    struct context_2 *c2;
 
     msg(D_DCO_DEBUG | M_NOIPREFIX, "%s: parsing message for peer %u...", __func__, peer_id);
 
-    if (dco->ifmode == OVPN_MODE_P2P)
-    {
-        c2 = &dco->c->c2;
-        if (c2->tls_multi->dco_peer_id != peer_id)
-        {
-            return NL_SKIP;
-        }
-    }
-    else
-    {
-        if (peer_id >= dco->c->multi->max_clients)
-        {
-            msg(M_WARN, "%s: received out of bound peer_id %u (max=%u)", __func__, peer_id,
-                dco->c->multi->max_clients);
-            return NL_SKIP;
-        }
-
-        struct multi_instance *mi = dco->c->multi->instances[peer_id];
-        if (!mi)
-        {
-            msg(M_WARN | M_NOIPREFIX, "%s: received data for a non-existing peer %u", __func__, peer_id);
-            return NL_SKIP;
-        }
-
-        c2 = &mi->context.c2;
-    }
-
-    dco_update_peer_stat(c2, tb_peer, peer_id);
-
-    return NL_OK;
+    return dco_update_peer_stat(dco, tb_peer, peer_id) ? NL_OK : NL_SKIP;
 }
 
 static bool
@@ -975,6 +980,9 @@ ovpn_handle_peer_del_ntf(dco_context_t *dco, struct nlattr *attrs[])
     dco->dco_message_peer_id = peerid;
     dco->dco_del_peer_reason = reason;
     dco->dco_message_type = OVPN_CMD_PEER_DEL_NTF;
+
+    /* parse stats if available */
+    dco->dco_del_peer_stats_updated = dco_update_peer_stat(dco, dp_attrs, peerid);
 
     return NL_OK;
 }

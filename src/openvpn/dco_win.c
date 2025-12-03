@@ -681,6 +681,7 @@ dco_handle_overlapped_success(dco_context_t *dco, bool queued)
         dco->dco_message_peer_id = dco->notif_buf.PeerId;
         dco->dco_message_type = dco->notif_buf.Cmd;
         dco->dco_del_peer_reason = dco->notif_buf.DelPeerReason;
+        dco->dco_del_peer_stats_updated = false;
         dco->dco_float_peer_ss = dco->notif_buf.FloatAddress;
     }
     else

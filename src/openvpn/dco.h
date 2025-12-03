@@ -242,6 +242,16 @@ int dco_get_peer_stats_multi(dco_context_t *dco, const bool raise_sigusr1_on_err
 int dco_get_peer_stats(struct context *c, const bool raise_sigusr1_on_err);
 
 /**
+ * Check if the peer stats were already updated while parsing a PEER_DEL
+ * notification. This is simply a getter for the internal
+ * dco->dco_del_peer_stats_updated field.
+ *
+ * @param dco       DCO device context
+ * @return          value of dco->dco_del_peer_stats_updated
+ */
+bool dco_del_peer_stats_updated(dco_context_t *dco);
+
+/**
  * Retrieve the list of ciphers supported by the current platform
  *
  * @return                   list of colon-separated ciphers
@@ -375,6 +385,12 @@ static inline int
 dco_get_peer_stats(struct context *c, const bool raise_sigusr1_on_err)
 {
     return 0;
+}
+
+static inline bool
+dco_del_peer_stats_updated(dco_context_t *dco)
+{
+    return false;
 }
 
 static inline const char *

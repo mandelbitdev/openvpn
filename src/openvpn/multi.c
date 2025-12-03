@@ -510,7 +510,7 @@ multi_del_iroutes(struct multi_context *m, struct multi_instance *mi)
 static void
 setenv_stats(struct multi_context *m, struct context *c)
 {
-    if (dco_enabled(&m->top.options))
+    if (dco_enabled(&m->top.options) && !dco_del_peer_stats_updated(&m->top.c1.tuntap->dco))
     {
         if (dco_get_peer_stats_multi(&m->top.c1.tuntap->dco, false) < 0)
         {

@@ -80,6 +80,7 @@ typedef struct
     int dco_message_peer_id;
     int dco_message_key_id;
     int dco_del_peer_reason;
+    bool dco_del_peer_stats_updated;
     struct sockaddr_storage dco_float_peer_ss;
 } dco_context_t;
 

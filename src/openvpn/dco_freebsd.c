@@ -559,13 +559,13 @@ dco_set_peer(dco_context_t *dco, unsigned int peerid, int keepalive_interval, in
     return ret;
 }
 
-static void
+static bool
 dco_update_peer_stat(struct multi_context *m, uint32_t peerid, const nvlist_t *nvl)
 {
     if (peerid >= m->max_clients || !m->instances[peerid])
     {
         msg(M_WARN, "dco_update_peer_stat: invalid peer ID %u returned by kernel", peerid);
-        return;
+        return false;
     }
 
     struct multi_instance *mi = m->instances[peerid];
@@ -575,6 +575,7 @@ dco_update_peer_stat(struct multi_context *m, uint32_t peerid, const nvlist_t *n
 
     msg(D_DCO_DEBUG, "%s: peer-id %u, dco_read_bytes: " counter_format " dco_write_bytes: " counter_format,
         __func__, peerid, mi->context.c2.dco_read_bytes, mi->context.c2.dco_write_bytes);
+    return true;
 }
 
 int
@@ -620,6 +621,7 @@ dco_read_and_process(dco_context_t *dco)
     {
         case OVPN_NOTIF_DEL_PEER:
             dco->dco_del_peer_reason = OVPN_DEL_PEER_REASON_EXPIRED;
+            dco->dco_del_peer_stats_updated = false;
 
             if (nvlist_exists_number(nvl, "del_reason"))
             {
@@ -642,12 +644,13 @@ dco_read_and_process(dco_context_t *dco)
 
                 if (dco->c->mode == CM_TOP)
                 {
-                    dco_update_peer_stat(dco->c->multi, dco->dco_message_peer_id, bytes);
+                    dco->dco_del_peer_stats_updated = dco_update_peer_stat(dco->c->multi, dco->dco_message_peer_id, bytes);
                 }
                 else
                 {
                     dco->c->c2.dco_read_bytes = nvlist_get_number(bytes, "in");
                     dco->c->c2.dco_write_bytes = nvlist_get_number(bytes, "out");
+                    dco->dco_del_peer_stats_updated = true;
                 }
             }
 
