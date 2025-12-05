@@ -212,7 +212,7 @@ which mode OpenVPN is configured as.
   are supported by OpenSSL.
 
 --fast-io
-  Optimize TUN/TAP/UDP I/O writes by avoiding a call to
+  **DEPRECATED** Optimize TUN/TAP/UDP I/O writes by avoiding a call to
   poll/epoll/select prior to the write operation. The purpose of such a
   call would normally be to block until the device or socket is ready to
   accept the write. Such blocking is unnecessary on some platforms which
