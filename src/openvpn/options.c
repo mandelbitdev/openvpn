@@ -3844,6 +3844,7 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
         ASSERT(e);
         e->port = o->ce.local_port;
         e->proto = o->ce.proto;
+        e->bind_dev = o->bind_dev;
     }
 
     /* use the same listen list for every outgoing connection */
@@ -5973,7 +5974,7 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         VERIFY_PERMISSION(OPT_P_UP);
         options->ifconfig_nowarn = true;
     }
-    else if (streq(p[0], "local") && p[1] && !p[4])
+    else if (streq(p[0], "local") && p[1] && !p[5])
     {
         struct local_entry *e;
 
@@ -5998,6 +5999,10 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         if (p[3])
         {
             e->proto = ascii2proto(p[3]);
+        }
+        if (p[4])
+        {
+            e->bind_dev = p[4];
         }
     }
     else if (streq(p[0], "remote-random") && !p[1])
@@ -6527,7 +6532,7 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
             }
         }
     }
-#ifdef TARGET_LINUX
+#if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
     else if (streq(p[0], "bind-dev") && p[1])
     {
         VERIFY_PERMISSION(OPT_P_SOCKFLAGS);

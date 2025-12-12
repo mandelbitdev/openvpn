@@ -101,6 +101,7 @@ struct local_entry
     const char *local;
     const char *port;
     int proto;
+    const char *bind_dev;
 };
 
 struct connection_entry

@@ -735,6 +735,26 @@ create_socket(struct link_socket *sock, struct addrinfo *addr)
     }
 #endif
 
+#if defined(TARGET_FREEBSD)
+    if (sock->bind_dev)
+    {
+        unsigned int ifindex = if_nametoindex(sock->bind_dev);
+        if (ifindex == 0)
+        {
+            msg(M_WARN, "WARN: interface %s not found", sock->bind_dev);
+        }
+        else
+        {
+            int fib = (int)ifindex;
+            msg(M_INFO, "Using bind-dev %s (ifindex=%u, fib=%d)", sock->bind_dev, ifindex, fib);
+            if (setsockopt(sock->sd, SOL_SOCKET, SO_SETFIB, &fib, sizeof(fib)) != 0)
+            {
+                msg(M_WARN | M_ERRNO, "WARN: setsockopt SO_SETFIB=%d for %s failed", fib, sock->bind_dev);
+            }
+        }
+    }
+#endif
+
     bind_local(sock, addr->ai_family);
 }
 
@@ -1394,6 +1414,7 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
     const char *host = o->ce.local_list->array[sock_index]->local;
     const char *port = o->ce.local_list->array[sock_index]->port;
     int proto = o->ce.local_list->array[sock_index]->proto;
+    const char *bind_dev = o->ce.local_list->array[sock_index]->bind_dev;
     const char *remote_host = o->ce.remote;
     const char *remote_port = o->ce.remote_port;
 
@@ -1447,7 +1468,8 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
 #endif
 
     sock->mark = o->mark;
-    sock->bind_dev = o->bind_dev;
+    /* bind_dev from local_list will trump on the global option. */
+    sock->bind_dev = bind_dev ? bind_dev : o->bind_dev;
     sock->info.proto = proto;
     sock->info.af = o->ce.af;
     sock->info.remote_float = o->ce.remote_float;
