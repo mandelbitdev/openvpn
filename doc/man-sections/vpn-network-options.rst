@@ -6,8 +6,10 @@ network interface, including setting the VPN IP address and network
 routing.
 
 --bind-dev device
-  (Linux only) Set ``device`` to bind the server socket to a
+  (Linux only) Set ``device`` to bind all the server sockets to a
   `Virtual Routing and Forwarding`_ device
+  The default set by this option can be overridden on a per-socket basis
+  by specifying a bind device argument via ``--local``.
 
 --block-ipv6
   On the client, instead of sending IPv6 packets over the VPN tunnel, all

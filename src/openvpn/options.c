@@ -128,10 +128,12 @@ static const char usage_message[] =
     "--version       : Show copyright and version information.\n"
     "\n"
     "Tunnel Options:\n"
-    "--local host|* [port]: Local host name or IP address and port for bind.\n"
+    "--local host|* [port] [protocol] [bind-dev]: Local host name or IP address and port for bind.\n"
     "                        If specified, OpenVPN will bindto this address. If unspecified,\n"
     "                        OpenVPN will bind to all interfaces. '*' can be used as hostname\n"
     "                        and means 'any host' (OpenVPN will listen on what is returned by the OS).\n"
+    "                        The optional arguments correspond to existing options: ``port`` to ``--lport``,\n"
+    "                        ``protocol`` to ``--proto``, and ``bind device`` to --bind-dev``.\n"
     "                        On a client, or in point-to-point mode, this can only be specified once (1 socket).\n"
     "                        On an OpenVPN setup running as ``--server``, this can be specified multiple times\n"
     "                        to open multiple listening sockets on different addresses and/or different ports.\n"
@@ -3830,6 +3832,7 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
         ASSERT(e);
         e->port = o->ce.local_port;
         e->proto = o->ce.proto;
+        e->bind_dev = o->bind_dev;
     }
 
     /* use the same listen list for every outgoing connection */
@@ -5972,7 +5975,7 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         VERIFY_PERMISSION(OPT_P_UP);
         options->ifconfig_nowarn = true;
     }
-    else if (streq(p[0], "local") && p[1] && !p[4])
+    else if (streq(p[0], "local") && p[1] && !p[5])
     {
         struct local_entry *e;
 
@@ -5998,6 +6001,17 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         {
             e->proto = ascii2proto(p[3]);
         }
+#if defined(TARGET_LINUX)
+        if (p[4])
+        {
+            e->bind_dev = p[4];
+        }
+#else
+        if (p[4])
+        {
+            msg(M_WARN, "Note: bind_dev is ignored on non-Linux systems");
+        }
+#endif
     }
     else if (streq(p[0], "remote-random") && !p[1])
     {

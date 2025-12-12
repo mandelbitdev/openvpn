@@ -111,12 +111,19 @@ the local and the remote host.
   Valid syntax:
   ::
 
-     local host|* [port] [protocol]
+     local host|* [port] [protocol] [bind device]
 
   Local host name or IP address and port for bind. If specified, OpenVPN will bind
   to this address. If unspecified, OpenVPN will bind to all interfaces.
   '*' can be used as hostname and means 'any host' (OpenVPN will listen on what
   is returned by the OS).
+
+  Optional arguments override the corresponding default options:
+
+  - ``port`` overrides ``--lport``.
+  - ``protocol`` overrides ``--proto``.
+  - ``bind device`` overrides ``--bind-dev``.
+
   On a client, or in point-to-point mode, this can only be specified once (1 socket).
 
   On an OpenVPN setup running as ``--server``, this can be specified multiple times

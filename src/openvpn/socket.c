@@ -1349,6 +1349,7 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
     const char *host = o->ce.local_list->array[sock_index]->local;
     const char *port = o->ce.local_list->array[sock_index]->port;
     int proto = o->ce.local_list->array[sock_index]->proto;
+    const char *bind_dev = o->ce.local_list->array[sock_index]->bind_dev;
     const char *remote_host = o->ce.remote;
     const char *remote_port = o->ce.remote_port;
 
@@ -1409,7 +1410,8 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
 #endif
 
     sock->mark = o->mark;
-    sock->bind_dev = o->bind_dev;
+    /* bind_dev from local_list will trump the global option */
+    sock->bind_dev = bind_dev ? bind_dev : o->bind_dev;
     sock->info.proto = proto;
     sock->info.af = o->ce.af;
     sock->info.remote_float = o->ce.remote_float;
