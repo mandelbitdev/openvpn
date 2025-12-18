@@ -1215,8 +1215,12 @@ multi_learn_in_addr_t(struct multi_context *m, struct multi_instance *mi, in_add
     }
 
     struct multi_instance *owner = multi_learn_addr(m, mi, &addr, MULTI_ROUTE_PERMANENT);
+    if (owner != mi)
+    {
+        return owner;
+    }
 #ifdef ENABLE_MANAGEMENT
-    if (management && owner)
+    if (management)
     {
         management_learn_addr(&mi->context.c2.mda_context, &addr, primary);
     }
@@ -1260,8 +1264,12 @@ multi_learn_in6_addr(struct multi_context *m, struct multi_instance *mi, struct 
     }
 
     struct multi_instance *owner = multi_learn_addr(m, mi, &addr, MULTI_ROUTE_PERMANENT);
+    if (owner != mi)
+    {
+        return owner;
+    }
 #ifdef ENABLE_MANAGEMENT
-    if (management && owner)
+    if (management)
     {
         management_learn_addr(&mi->context.c2.mda_context, &addr, primary);
     }
