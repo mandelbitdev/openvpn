@@ -714,8 +714,6 @@ lookup_by_cid(struct multi_context *m, const unsigned long cid);
 #endif
 
 void
-update_vhash(struct multi_context *m, struct multi_instance *mi, const char *new_ip, const char *new_ipv6);
-void unlearn_ifconfig(struct multi_context *m, struct multi_instance *mi);
-void unlearn_ifconfig_ipv6(struct multi_context *m, struct multi_instance *mi);
+update_vaddr(struct multi_context *m, struct multi_instance *mi, const char *new_ip, const char *new_ipv6);
 
 #endif /* MULTI_H */

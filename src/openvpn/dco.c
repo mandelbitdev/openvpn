@@ -658,6 +658,41 @@ dco_multi_add_new_peer(struct multi_context *m, struct multi_instance *mi)
     return 0;
 }
 
+int
+dco_multi_update_peer_addr(struct multi_context *m, struct multi_instance *mi, int flags)
+{
+    if (!flags)
+    {
+        return 0;
+    }
+
+    struct context *c = &mi->context;
+    int peer_id = c->c2.tls_multi->dco_peer_id;
+
+    /* In server mode we need to fetch the remote addresses from the push config */
+    struct in_addr vpn_ip4 = { 0 };
+    struct in_addr *vpn_addr4 = NULL;
+    if (c->c2.push_ifconfig_defined)
+    {
+        vpn_ip4.s_addr = htonl(c->c2.push_ifconfig_local);
+        vpn_addr4 = &vpn_ip4;
+    }
+
+    struct in6_addr *vpn_addr6 = NULL;
+    if (c->c2.push_ifconfig_ipv6_defined)
+    {
+        vpn_addr6 = &c->c2.push_ifconfig_ipv6_local;
+    }
+
+    int ret = dco_update_peer_addr(&c->c1.tuntap->dco, peer_id, vpn_addr4, vpn_addr6, flags);
+    if (ret < 0)
+    {
+        return ret;
+    }
+
+    return 0;
+}
+
 void
 dco_install_iroute(struct multi_context *m, struct multi_instance *mi, struct mroute_addr *addr)
 {
@@ -723,7 +758,7 @@ dco_install_iroute(struct multi_context *m, struct multi_instance *mi, struct mr
 }
 
 void
-dco_delete_iroutes(struct multi_context *m, struct multi_instance *mi)
+dco_delete_iroutes_v4(struct multi_context *m, struct multi_instance *mi)
 {
 #if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32)
     if (!dco_enabled(&m->top.options))
@@ -734,7 +769,7 @@ dco_delete_iroutes(struct multi_context *m, struct multi_instance *mi)
 
     struct context *c = &mi->context;
 
-    if (mi->context.c2.push_ifconfig_defined)
+    if (c->c2.push_ifconfig_defined)
     {
         for (const struct iroute *ir = c->options.iroutes; ir; ir = ir->next)
         {
@@ -742,7 +777,7 @@ dco_delete_iroutes(struct multi_context *m, struct multi_instance *mi)
             dco_win_del_iroute_ipv4(&c->c1.tuntap->dco, htonl(ir->network), ir->netbits);
 #else
             net_route_v4_del(&m->top.net_ctx, &ir->network, ir->netbits,
-                             &mi->context.c2.push_ifconfig_local, c->c1.tuntap->actual_name, 0,
+                             &c->c2.push_ifconfig_local, c->c1.tuntap->actual_name, 0,
                              DCO_IROUTE_METRIC);
 #endif
         }
@@ -750,7 +785,7 @@ dco_delete_iroutes(struct multi_context *m, struct multi_instance *mi)
 #if !defined(_WIN32)
         /* Check if we added a host route as the assigned client IP address was
          * not in the on link scope defined by --ifconfig */
-        in_addr_t ifconfig_local = mi->context.c2.push_ifconfig_local;
+        in_addr_t ifconfig_local = c->c2.push_ifconfig_local;
 
         if (multi_check_push_ifconfig_extra_route(mi, htonl(ifconfig_local)))
         {
@@ -761,8 +796,22 @@ dco_delete_iroutes(struct multi_context *m, struct multi_instance *mi)
         }
 #endif
     }
+#endif /* if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32) */
+}
 
-    if (mi->context.c2.push_ifconfig_ipv6_defined)
+void
+dco_delete_iroutes_v6(struct multi_context *m, struct multi_instance *mi)
+{
+#if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32)
+    if (!dco_enabled(&m->top.options))
+    {
+        return;
+    }
+    ASSERT(TUNNEL_TYPE(mi->context.c1.tuntap) == DEV_TYPE_TUN);
+
+    struct context *c = &mi->context;
+
+    if (c->c2.push_ifconfig_ipv6_defined)
     {
         for (const struct iroute_ipv6 *ir6 = c->options.iroutes_ipv6; ir6; ir6 = ir6->next)
         {
@@ -770,7 +819,7 @@ dco_delete_iroutes(struct multi_context *m, struct multi_instance *mi)
             dco_win_del_iroute_ipv6(&c->c1.tuntap->dco, ir6->network, ir6->netbits);
 #else
             net_route_v6_del(&m->top.net_ctx, &ir6->network, ir6->netbits,
-                             &mi->context.c2.push_ifconfig_ipv6_local, c->c1.tuntap->actual_name, 0,
+                             &c->c2.push_ifconfig_ipv6_local, c->c1.tuntap->actual_name, 0,
                              DCO_IROUTE_METRIC);
 #endif
         }
@@ -778,7 +827,7 @@ dco_delete_iroutes(struct multi_context *m, struct multi_instance *mi)
         /* Checked if we added a host route as the assigned client IP address was
          * outside the --ifconfig-ipv6 tun interface config */
 #if !defined(_WIN32)
-        struct in6_addr *dest = &mi->context.c2.push_ifconfig_ipv6_local;
+        struct in6_addr *dest = &c->c2.push_ifconfig_ipv6_local;
         if (multi_check_push_ifconfig_ipv6_extra_route(mi, dest))
         {
             /* On windows we do not install these routes, so we also do not need to delete them */

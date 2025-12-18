@@ -476,6 +476,40 @@ ungenerate_prefix(struct multi_instance *mi)
     set_prefix(mi);
 }
 
+static void
+multi_del_iroutes_v4(struct multi_context *m, struct multi_instance *mi)
+{
+    if (TUNNEL_TYPE(mi->context.c1.tuntap) != DEV_TYPE_TUN)
+    {
+        return;
+    }
+
+    const struct iroute *ir;
+
+    dco_delete_iroutes_v4(m, mi);
+    for (ir = mi->context.options.iroutes; ir != NULL; ir = ir->next)
+    {
+        mroute_helper_del_iroute46(m->route_helper, ir->netbits);
+    }
+}
+
+static void
+multi_del_iroutes_v6(struct multi_context *m, struct multi_instance *mi)
+{
+    if (TUNNEL_TYPE(mi->context.c1.tuntap) != DEV_TYPE_TUN)
+    {
+        return;
+    }
+
+    const struct iroute_ipv6 *ir6;
+
+    dco_delete_iroutes_v6(m, mi);
+    for (ir6 = mi->context.options.iroutes_ipv6; ir6 != NULL; ir6 = ir6->next)
+    {
+        mroute_helper_del_iroute46(m->route_helper, ir6->netbits);
+    }
+}
+
 /*
  * Tell the route helper about deleted iroutes so
  * that it can update its mask of currently used
@@ -484,23 +518,8 @@ ungenerate_prefix(struct multi_instance *mi)
 static void
 multi_del_iroutes(struct multi_context *m, struct multi_instance *mi)
 {
-    const struct iroute *ir;
-    const struct iroute_ipv6 *ir6;
-
-    dco_delete_iroutes(m, mi);
-
-    if (TUNNEL_TYPE(mi->context.c1.tuntap) == DEV_TYPE_TUN)
-    {
-        for (ir = mi->context.options.iroutes; ir != NULL; ir = ir->next)
-        {
-            mroute_helper_del_iroute46(m->route_helper, ir->netbits);
-        }
-
-        for (ir6 = mi->context.options.iroutes_ipv6; ir6 != NULL; ir6 = ir6->next)
-        {
-            mroute_helper_del_iroute46(m->route_helper, ir6->netbits);
-        }
-    }
+    multi_del_iroutes_v4(m, mi);
+    multi_del_iroutes_v6(m, mi);
 }
 
 static void
@@ -1282,6 +1301,64 @@ multi_learn_in6_addr(struct multi_context *m, struct multi_instance *mi, struct 
     return owner;
 }
 
+static void
+multi_add_iroutes_v4(struct multi_context *m, struct multi_instance *mi)
+{
+    if (TUNNEL_TYPE(mi->context.c1.tuntap) != DEV_TYPE_TUN)
+    {
+        return;
+    }
+
+    struct gc_arena gc = gc_new();
+    const struct iroute *ir;
+
+    mi->did_iroutes = true;
+    for (ir = mi->context.options.iroutes; ir != NULL; ir = ir->next)
+    {
+        if (ir->netbits >= 0)
+        {
+            msg(D_MULTI_LOW, "MULTI: internal route %s/%d -> %s",
+                print_in_addr_t(ir->network, 0, &gc), ir->netbits,
+                multi_instance_string(mi, false, &gc));
+        }
+        else
+        {
+            msg(D_MULTI_LOW, "MULTI: internal route %s -> %s",
+                print_in_addr_t(ir->network, 0, &gc), multi_instance_string(mi, false, &gc));
+        }
+
+        mroute_helper_add_iroute46(m->route_helper, ir->netbits);
+
+        multi_learn_in_addr_t(m, mi, ir->network, ir->netbits, false);
+    }
+    gc_free(&gc);
+}
+
+static void
+multi_add_iroutes_v6(struct multi_context *m, struct multi_instance *mi)
+{
+    if (TUNNEL_TYPE(mi->context.c1.tuntap) != DEV_TYPE_TUN)
+    {
+        return;
+    }
+
+    struct gc_arena gc = gc_new();
+    const struct iroute_ipv6 *ir6;
+
+    mi->did_iroutes = true;
+    for (ir6 = mi->context.options.iroutes_ipv6; ir6 != NULL; ir6 = ir6->next)
+    {
+        msg(D_MULTI_LOW, "MULTI: internal route %s/%d -> %s",
+            print_in6_addr(ir6->network, 0, &gc), ir6->netbits,
+            multi_instance_string(mi, false, &gc));
+
+        mroute_helper_add_iroute46(m->route_helper, ir6->netbits);
+
+        multi_learn_in6_addr(m, mi, ir6->network, ir6->netbits, false);
+    }
+    gc_free(&gc);
+}
+
 /*
  * A new client has connected, add routes (server -> client)
  * to internal routing table.
@@ -1289,42 +1366,8 @@ multi_learn_in6_addr(struct multi_context *m, struct multi_instance *mi, struct 
 static void
 multi_add_iroutes(struct multi_context *m, struct multi_instance *mi)
 {
-    struct gc_arena gc = gc_new();
-    const struct iroute *ir;
-    const struct iroute_ipv6 *ir6;
-    if (TUNNEL_TYPE(mi->context.c1.tuntap) == DEV_TYPE_TUN)
-    {
-        mi->did_iroutes = true;
-        for (ir = mi->context.options.iroutes; ir != NULL; ir = ir->next)
-        {
-            if (ir->netbits >= 0)
-            {
-                msg(D_MULTI_LOW, "MULTI: internal route %s/%d -> %s",
-                    print_in_addr_t(ir->network, 0, &gc), ir->netbits,
-                    multi_instance_string(mi, false, &gc));
-            }
-            else
-            {
-                msg(D_MULTI_LOW, "MULTI: internal route %s -> %s",
-                    print_in_addr_t(ir->network, 0, &gc), multi_instance_string(mi, false, &gc));
-            }
-
-            mroute_helper_add_iroute46(m->route_helper, ir->netbits);
-
-            multi_learn_in_addr_t(m, mi, ir->network, ir->netbits, false);
-        }
-        for (ir6 = mi->context.options.iroutes_ipv6; ir6 != NULL; ir6 = ir6->next)
-        {
-            msg(D_MULTI_LOW, "MULTI: internal route %s/%d -> %s",
-                print_in6_addr(ir6->network, 0, &gc), ir6->netbits,
-                multi_instance_string(mi, false, &gc));
-
-            mroute_helper_add_iroute46(m->route_helper, ir6->netbits);
-
-            multi_learn_in6_addr(m, mi, ir6->network, ir6->netbits, false);
-        }
-    }
-    gc_free(&gc);
+    multi_add_iroutes_v4(m, mi);
+    multi_add_iroutes_v6(m, mi);
 }
 
 /*
@@ -4327,9 +4370,10 @@ multi_unlearn_in6_addr(struct multi_context *m, struct multi_instance *mi, struc
 }
 
 /* Function to unlearn previous ifconfig of a client in the server multi_context after a PUSH_UPDATE */
-void
+static void
 unlearn_ifconfig(struct multi_context *m, struct multi_instance *mi)
 {
+    multi_del_iroutes_v4(m, mi);
     in_addr_t old_addr = 0;
     old_addr = htonl(mi->context.c2.push_ifconfig_local);
     multi_unlearn_in_addr_t(m, mi, old_addr);
@@ -4339,9 +4383,10 @@ unlearn_ifconfig(struct multi_context *m, struct multi_instance *mi)
 }
 
 /* Function to unlearn previous ifconfig-ipv6 of a client in the server multi_context after a PUSH_UPDATE */
-void
+static void
 unlearn_ifconfig_ipv6(struct multi_context *m, struct multi_instance *mi)
 {
+    multi_del_iroutes_v6(m, mi);
     struct in6_addr old_addr6;
     CLEAR(old_addr6);
     old_addr6 = mi->context.c2.push_ifconfig_ipv6_local;
@@ -4352,58 +4397,119 @@ unlearn_ifconfig_ipv6(struct multi_context *m, struct multi_instance *mi)
 }
 
 /**
- * Update the vhash with new IP/IPv6 addresses in the multi_context when a
- * push-update message containing ifconfig/ifconfig-ipv6 options is sent
- * from the server.
+ * When a push-update message containing ifconfig/ifconfig-ipv6 options is sent
+ * from the server, update the vhash with new IP/IPv6 addresses in the
+ * multi_context and update the virtual peer addresses in the DCO.
+ * Also remove the iroutes and readd it with the new IP if needed.
  *
  * @param m         The multi_context
  * @param mi        The multi_instance of the client we are updating
- * @param new_ip    The new IPv4 address or NULL if no change
- * @param new_ipv6  The new IPv6 address or NULL if no change
+ * @param new_ip    The new IPv4 address, NULL for -ifconfig or the current IPv4 if no change
+ * @param new_ipv6  The new IPv6 address, NULL for -ifconfig-ipv6 or the current IPv6 if no change
  */
 void
-update_vhash(struct multi_context *m, struct multi_instance *mi, const char *new_ip, const char *new_ipv6)
+update_vaddr(struct multi_context *m, struct multi_instance *mi, const char *new_ip, const char *new_ipv6)
 {
+    /* to avoid resetting an IP to its current value, the dco_update_peer_addr() function used to update the DCO,
+     * needs to know if actually an IPv4 or an IPv6 has been modified
+     */
+    int update_flags = 0;
+
+    /* -ifconfig */
+    if (!new_ip && mi->context.c2.push_ifconfig_defined)
+    {
+        unlearn_ifconfig(m, mi);
+        update_flags |= (1 << AF_INET);
+    }
+    /* -ifconfig-ipv6 */
+    if (!new_ipv6 && mi->context.c2.push_ifconfig_ipv6_defined)
+    {
+        unlearn_ifconfig_ipv6(m, mi);
+        update_flags |= (1 << AF_INET6);
+    }
+
     if (new_ip)
     {
-        /* Remove old IP */
-        if (mi->context.c2.push_ifconfig_defined)
-        {
-            unlearn_ifconfig(m, mi);
-        }
-
-        /* Add new IP */
         struct in_addr new_addr;
         CLEAR(new_addr);
-        if (inet_pton(AF_INET, new_ip, &new_addr) == 1
-            && multi_learn_in_addr_t(m, mi, ntohl(new_addr.s_addr), -1, true))
+        if (inet_pton(AF_INET, new_ip, &new_addr) == 1)
         {
-            mi->context.c2.push_ifconfig_defined = true;
-            mi->context.c2.push_ifconfig_local = ntohl(new_addr.s_addr);
-            /* set our client's VPN endpoint for status reporting purposes */
-            mi->reporting_addr = mi->context.c2.push_ifconfig_local;
+            new_addr.s_addr = ntohl(new_addr.s_addr);
+            /* if no previous IP or the new IP is different */
+            if (!mi->context.c2.push_ifconfig_defined
+                || (mi->context.c2.push_ifconfig_defined
+                    && new_addr.s_addr != mi->context.c2.push_ifconfig_local))
+            {
+                /* Remove old IP */
+                if (mi->context.c2.push_ifconfig_defined)
+                {
+                    unlearn_ifconfig(m, mi);
+                }
+
+                /* Add new IP */
+                if (multi_learn_in_addr_t(m, mi, new_addr.s_addr, -1, true))
+                {
+                    mi->context.c2.push_ifconfig_defined = true;
+                    mi->context.c2.push_ifconfig_local = new_addr.s_addr;
+                    /* set our client's VPN endpoint for status reporting purposes */
+                    mi->reporting_addr = mi->context.c2.push_ifconfig_local;
+                    update_flags |= (1 << AF_INET);
+                }
+            }
         }
     }
 
     if (new_ipv6)
     {
-        /* Remove old IPv6 */
-        if (mi->context.c2.push_ifconfig_ipv6_defined)
-        {
-            unlearn_ifconfig_ipv6(m, mi);
-        }
-
-        /* Add new IPv6 */
         struct in6_addr new_addr6;
         CLEAR(new_addr6);
-        if (inet_pton(AF_INET6, new_ipv6, &new_addr6) == 1
-            && multi_learn_in6_addr(m, mi, new_addr6, -1, true))
+        if (inet_pton(AF_INET6, new_ipv6, &new_addr6) == 1)
         {
-            mi->context.c2.push_ifconfig_ipv6_defined = true;
-            mi->context.c2.push_ifconfig_ipv6_local = new_addr6;
-            /* set our client's VPN endpoint for status reporting purposes */
-            mi->reporting_addr_ipv6 = mi->context.c2.push_ifconfig_ipv6_local;
+            /* if no previous IPv6 or the new IPv6 is different */
+            if (!mi->context.c2.push_ifconfig_ipv6_defined
+                || (mi->context.c2.push_ifconfig_ipv6_defined
+                    && memcmp(&new_addr6, &mi->context.c2.push_ifconfig_ipv6_local, sizeof(struct in6_addr))))
+            {
+                /* Remove old IPv6 */
+                if (mi->context.c2.push_ifconfig_ipv6_defined)
+                {
+                    unlearn_ifconfig_ipv6(m, mi);
+                }
+
+                /* Add new IPv6 */
+                if (multi_learn_in6_addr(m, mi, new_addr6, -1, true))
+                {
+                    mi->context.c2.push_ifconfig_ipv6_defined = true;
+                    mi->context.c2.push_ifconfig_ipv6_local = new_addr6;
+                    /* set our client's VPN endpoint for status reporting purposes */
+                    mi->reporting_addr_ipv6 = mi->context.c2.push_ifconfig_ipv6_local;
+                    update_flags |= (1 << AF_INET);
+                }
+            }
         }
+    }
+
+    if (!update_flags)
+    {
+        return;
+    }
+
+#if defined(TARGET_LINUX)
+    /* we update the virtual addresses of the peer in the DCO */
+    if (dco_enabled(&m->top.options))
+    {
+        dco_multi_update_peer_addr(m, mi, update_flags);
+    }
+#endif
+
+    /* we add the iroutes with the new VPN IP */
+    if (update_flags & (1 << AF_INET) && new_ip)
+    {
+        multi_add_iroutes_v4(m, mi);
+    }
+    if (update_flags & (1 << AF_INET6) && new_ipv6)
+    {
+        multi_add_iroutes_v6(m, mi);
     }
 }
 

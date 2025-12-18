@@ -684,6 +684,50 @@ nla_put_failure:
     return ret;
 }
 
+int
+dco_update_peer_addr(dco_context_t *dco, unsigned int peerid, struct in_addr *vpn_ipv4, struct in6_addr *vpn_ipv6, int flags)
+{
+    msg(D_DCO_DEBUG, "%s: peer-id %d", __func__, peerid);
+
+    if (!flags)
+    {
+        return 0;
+    }
+
+    struct nl_msg *nl_msg = ovpn_dco_nlmsg_create(dco, OVPN_CMD_PEER_SET);
+    if (!nl_msg)
+    {
+        return -ENOMEM;
+    }
+
+    struct nlattr *attr = nla_nest_start(nl_msg, OVPN_A_PEER);
+    int ret = -EMSGSIZE;
+    NLA_PUT_U32(nl_msg, OVPN_A_PEER_ID, peerid);
+
+    if (flags & (1 << AF_INET))
+    {
+        NLA_PUT_U32(nl_msg, OVPN_A_PEER_VPN_IPV4, vpn_ipv4 ? vpn_ipv4->s_addr : 0);
+    }
+
+    if (flags & (1 << AF_INET6))
+    {
+        struct in6_addr addr6;
+        if (!vpn_ipv6)
+        {
+            CLEAR(addr6);
+            vpn_ipv6 = &addr6;
+        }
+        NLA_PUT(nl_msg, OVPN_A_PEER_VPN_IPV6, sizeof(struct in6_addr), vpn_ipv6);
+    }
+
+    nla_nest_end(nl_msg, attr);
+    ret = ovpn_nl_msg_send(dco, nl_msg, __func__);
+
+nla_put_failure:
+    nlmsg_free(nl_msg);
+    return ret;
+}
+
 /* This function parses the reply provided by the kernel to the CTRL_CMD_GETFAMILY
  * message. We parse the reply and we retrieve the multicast group ID associated
  * with the "ovpn-dco" netlink family.

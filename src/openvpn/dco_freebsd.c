@@ -559,6 +559,12 @@ dco_set_peer(dco_context_t *dco, unsigned int peerid, int keepalive_interval, in
     return ret;
 }
 
+int
+dco_update_peer_addr(dco_context_t *dco, unsigned int peerid, struct in_addr *vpn_ipv4, struct in6_addr *vpn_ipv6, int flags)
+{
+    return 0;
+}
+
 static void
 dco_update_peer_stat(struct multi_context *m, uint32_t peerid, const nvlist_t *nvl)
 {
