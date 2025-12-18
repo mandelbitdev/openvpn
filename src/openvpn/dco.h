@@ -191,6 +191,30 @@ int dco_set_peer(dco_context_t *dco, unsigned int peerid, int keepalive_interval
                  int keepalive_timeout, int mss);
 
 /**
+ * Update the peer's virtual address(es) in the DCO to the current value(s)
+ *
+ * @param dco       DCO device contect
+ * @param peerid    the ID of the peer to be modified
+ * @param vpn_ipv4  new IPv4 or NULL to remove the outdated one, only used when `(1 << AF_INET)` flag is present
+ * @param vpn_ipv6  new IPv6 or NULL to remove the outdated one, only used when `(1 << AF_INET6)` flag is present
+ * @param flags     `(1 << AF_INET)`, `(1 << AF_INET6)` or `(1 << AF_INET) | (1 << AF_INET6)` depending on wich address has changed
+ * @return int      the DCO message status on success or a negative error code otherwise
+ */
+int
+dco_update_peer_addr(dco_context_t *dco, unsigned int peerid, struct in_addr *vpn_ipv4, struct in6_addr *vpn_ipv6, int flags);
+
+/**
+ * Update the peer's virtual address(es) in the DCO to the current value(s)
+ *
+ * @param m         server multi context
+ * @param mi        peer multi instnace
+ * @param flags     `(1 << AF_INET)`, `(1 << AF_INET6)` or `(1 << AF_INET) | (1 << AF_INET6)` depending on wich address has changed
+ * @return int      0 on success or a negative error code otherwise
+ */
+int
+dco_multi_update_peer_addr(struct multi_context *m, struct multi_instance *mi, int flags);
+
+/**
  * Remove a peer from DCO
  *
  * @param c         the main instance context of the peer to remove
@@ -218,12 +242,20 @@ void dco_install_iroute(struct multi_context *m, struct multi_instance *mi,
                         struct mroute_addr *addr);
 
 /**
- * Remove all routes added through the specified client
+ * Remove all IPv4 routes added through the specified client
  *
  * @param m         the server context
  * @param mi        the client instance for which routes have to be removed
  */
-void dco_delete_iroutes(struct multi_context *m, struct multi_instance *mi);
+void dco_delete_iroutes_v4(struct multi_context *m, struct multi_instance *mi);
+
+/**
+ * Remove all IPv6 routes added through the specified client
+ *
+ * @param m         the server context
+ * @param mi        the client instance for which routes have to be removed
+ */
+void dco_delete_iroutes_v6(struct multi_context *m, struct multi_instance *mi);
 
 /**
  * Update traffic statistics for all peers
@@ -361,7 +393,12 @@ dco_install_iroute(struct multi_context *m, struct multi_instance *mi, struct mr
 }
 
 static inline void
-dco_delete_iroutes(struct multi_context *m, struct multi_instance *mi)
+dco_delete_iroutes_v4(struct multi_context *m, struct multi_instance *mi)
+{
+}
+
+static inline void
+dco_delete_iroutes_v6(struct multi_context *m, struct multi_instance *mi)
 {
 }
 

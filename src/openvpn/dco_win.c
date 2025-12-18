@@ -526,6 +526,12 @@ dco_set_peer(dco_context_t *dco, unsigned int peerid, int keepalive_interval, in
 }
 
 int
+dco_update_peer_addr(dco_context_t *dco, unsigned int peerid, struct in_addr *vpn_ipv4, struct in6_addr *vpn_ipv6, int flags)
+{
+    return 0;
+}
+
+int
 dco_new_key(dco_context_t *dco, unsigned int peerid, int keyid, dco_key_slot_t slot,
             const uint8_t *encrypt_key, const uint8_t *encrypt_iv, const uint8_t *decrypt_key,
             const uint8_t *decrypt_iv, const char *ciphername, bool epoch)
