@@ -4417,7 +4417,7 @@ multi_unlearn_in6_addr(struct multi_context *m, const struct multi_instance *mi,
 }
 
 /* Function to unlearn previous ifconfig of a client in the server multi_context after a PUSH_UPDATE */
-void
+static void
 unlearn_ifconfig(struct multi_context *m, struct multi_instance *mi)
 {
     in_addr_t old_addr = 0;
@@ -4429,7 +4429,7 @@ unlearn_ifconfig(struct multi_context *m, struct multi_instance *mi)
 }
 
 /* Function to unlearn previous ifconfig-ipv6 of a client in the server multi_context after a PUSH_UPDATE */
-void
+static void
 unlearn_ifconfig_ipv6(struct multi_context *m, struct multi_instance *mi)
 {
     struct in6_addr old_addr6;
@@ -4442,57 +4442,97 @@ unlearn_ifconfig_ipv6(struct multi_context *m, struct multi_instance *mi)
 }
 
 /**
- * Update the vhash with new IP/IPv6 addresses in the multi_context when a
- * push-update message containing ifconfig/ifconfig-ipv6 options is sent
- * from the server.
+ * Update the vhash when a push-update message containing
+ * ifconfig/ifconfig-ipv6 options is sent from the server.
  *
  * @param m         The multi_context
  * @param mi        The multi_instance of the client we are updating
- * @param new_ip    The new IPv4 address or NULL if no change
- * @param new_ipv6  The new IPv6 address or NULL if no change
+ * @param new_ip    The new IPv4 address, NULL for -ifconfig or the current IPv4 if no change
+ * @param new_ipv6  The new IPv6 address, NULL for -ifconfig-ipv6 or the current IPv6 if no change
  */
 void
-update_vhash(struct multi_context *m, struct multi_instance *mi, const char *new_ip, const char *new_ipv6)
+update_vaddr(struct multi_context *m, struct multi_instance *mi, const char *new_ip, const char *new_ipv6)
 {
+    /* -ifconfig */
+    if (!new_ip && mi->context.c2.push_ifconfig_defined)
+    {
+        unlearn_ifconfig(m, mi);
+    }
+    /* -ifconfig-ipv6 */
+    if (!new_ipv6 && mi->context.c2.push_ifconfig_ipv6_defined)
+    {
+        unlearn_ifconfig_ipv6(m, mi);
+    }
+
     if (new_ip)
     {
-        /* Remove old IP */
-        if (mi->context.c2.push_ifconfig_defined)
-        {
-            unlearn_ifconfig(m, mi);
-        }
-
-        /* Add new IP */
         struct in_addr new_addr;
-        CLEAR(new_addr);
         if (inet_pton(AF_INET, new_ip, &new_addr) == 1
-            && multi_learn_in_addr_t(m, mi, ntohl(new_addr.s_addr), -1, true))
+            && (!mi->context.c2.push_ifconfig_defined
+                || ntohl(new_addr.s_addr) != mi->context.c2.push_ifconfig_local))
         {
+            /* Remove old IP */
+            if (mi->context.c2.push_ifconfig_defined)
+            {
+                unlearn_ifconfig(m, mi);
+            }
+
+            /* DCO needs the new address while installing its on-link route. */
             mi->context.c2.push_ifconfig_defined = true;
             mi->context.c2.push_ifconfig_local = ntohl(new_addr.s_addr);
-            /* set our client's VPN endpoint for status reporting purposes */
-            mi->reporting_addr = mi->context.c2.push_ifconfig_local;
+            if (multi_learn_in_addr_t(m, mi, mi->context.c2.push_ifconfig_local, -1, true) == mi)
+            {
+                /* set our client's VPN endpoint for status reporting purposes */
+                mi->reporting_addr = mi->context.c2.push_ifconfig_local;
+            }
+            else
+            {
+                mi->context.c2.push_ifconfig_defined = false;
+                mi->context.c2.push_ifconfig_local = 0;
+
+                msg(M_WARN, "MULTI: failed to learn PUSH_UPDATE IPv4 address %s, restarting client",
+                    new_ip);
+                /* PUSH_UPDATE is already queued, so reconnect to restore consistent state. */
+                send_restart(&mi->context, NULL);
+                multi_schedule_context_wakeup(m, mi);
+                return;
+            }
         }
     }
 
     if (new_ipv6)
     {
-        /* Remove old IPv6 */
-        if (mi->context.c2.push_ifconfig_ipv6_defined)
-        {
-            unlearn_ifconfig_ipv6(m, mi);
-        }
-
-        /* Add new IPv6 */
         struct in6_addr new_addr6;
-        CLEAR(new_addr6);
         if (inet_pton(AF_INET6, new_ipv6, &new_addr6) == 1
-            && multi_learn_in6_addr(m, mi, new_addr6, -1, true))
+            && (!mi->context.c2.push_ifconfig_ipv6_defined
+                || memcmp(&new_addr6, &mi->context.c2.push_ifconfig_ipv6_local, sizeof(new_addr6))))
         {
+            /* Remove old IPv6 */
+            if (mi->context.c2.push_ifconfig_ipv6_defined)
+            {
+                unlearn_ifconfig_ipv6(m, mi);
+            }
+
+            /* DCO needs the new address while installing its on-link route. */
             mi->context.c2.push_ifconfig_ipv6_defined = true;
             mi->context.c2.push_ifconfig_ipv6_local = new_addr6;
-            /* set our client's VPN endpoint for status reporting purposes */
-            mi->reporting_addr_ipv6 = mi->context.c2.push_ifconfig_ipv6_local;
+            if (multi_learn_in6_addr(m, mi, new_addr6, -1, true) == mi)
+            {
+                /* set our client's VPN endpoint for status reporting purposes */
+                mi->reporting_addr_ipv6 = mi->context.c2.push_ifconfig_ipv6_local;
+            }
+            else
+            {
+                mi->context.c2.push_ifconfig_ipv6_defined = false;
+                CLEAR(mi->context.c2.push_ifconfig_ipv6_local);
+
+                msg(M_WARN, "MULTI: failed to learn PUSH_UPDATE IPv6 address %s, restarting client",
+                    new_ipv6);
+                /* PUSH_UPDATE is already queued, so reconnect to restore consistent state. */
+                send_restart(&mi->context, NULL);
+                multi_schedule_context_wakeup(m, mi);
+                return;
+            }
         }
     }
 }

@@ -149,14 +149,35 @@ send_single_push_update(struct multi_context *m, struct multi_instance *mi, stru
     struct options o;
     CLEAR(o);
 
-    /* Set canary values to detect ifconfig options in push-update messages.
-     * These placeholder strings will be overwritten to NULL by the option
-     * parser if -ifconfig or -ifconfig-ipv6 options are present in the
-     * push-update.
+    /* Set canary values to detect -ifconfig and -ifconfig-ipv6 options in
+     * push-update messages. These placeholder strings will be overwritten
+     * to NULL by the option parser if -ifconfig or -ifconfig-ipv6 options
+     * are present in the push-update, to the new value if present, or
+     * they will remain equal to the current values otherwise.
+     * If the current values are not defined they will remain NULL.
      */
-    const char *canary = "canary";
-    o.ifconfig_local = canary;
-    o.ifconfig_ipv6_local = canary;
+
+    char ifconfig_local[INET_ADDRSTRLEN];
+    struct in_addr addr4 = { .s_addr = htonl(mi->context.c2.push_ifconfig_local) };
+    if (mi->context.c2.push_ifconfig_defined)
+    {
+        if (!inet_ntop(AF_INET, &addr4, ifconfig_local, sizeof(ifconfig_local)))
+        {
+            return false;
+        }
+        o.ifconfig_local = ifconfig_local;
+    }
+
+    char ifconfig_ipv6_local[INET6_ADDRSTRLEN];
+    if (mi->context.c2.push_ifconfig_ipv6_defined)
+    {
+        if (!inet_ntop(AF_INET6, &mi->context.c2.push_ifconfig_ipv6_local,
+                       ifconfig_ipv6_local, sizeof(ifconfig_ipv6_local)))
+        {
+            return false;
+        }
+        o.ifconfig_ipv6_local = ifconfig_ipv6_local;
+    }
 
     struct buffer_entry *e = msgs->head;
     while (e)
@@ -194,28 +215,10 @@ send_single_push_update(struct multi_context *m, struct multi_instance *mi, stru
 
     if (option_types_found & OPT_P_UP)
     {
-        /* -ifconfig */
-        if (!o.ifconfig_local && mi->context.c2.push_ifconfig_defined)
-        {
-            unlearn_ifconfig(m, mi);
-        }
-        /* -ifconfig-ipv6 */
-        if (!o.ifconfig_ipv6_local && mi->context.c2.push_ifconfig_ipv6_defined)
-        {
-            unlearn_ifconfig_ipv6(m, mi);
-        }
-
-        if (o.ifconfig_local && !strcmp(o.ifconfig_local, canary))
-        {
-            o.ifconfig_local = NULL;
-        }
-        if (o.ifconfig_ipv6_local && !strcmp(o.ifconfig_ipv6_local, canary))
-        {
-            o.ifconfig_ipv6_local = NULL;
-        }
-
-        /* new ifconfig or new ifconfig-ipv6 */
-        update_vhash(m, mi, o.ifconfig_local, o.ifconfig_ipv6_local);
+        /* ifconfig or ifconfig-ipv6 */
+        update_vaddr(m, mi, o.ifconfig_local, o.ifconfig_ipv6_local);
+        uninit_options(&o);
+        return !event_timeout_defined(&c->c2.scheduled_exit);
     }
 
     uninit_options(&o);
