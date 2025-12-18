@@ -478,6 +478,28 @@ ungenerate_prefix(struct multi_instance *mi)
     set_prefix(mi);
 }
 
+static void
+multi_del_dco_iroutes_v4(struct multi_context *m, struct multi_instance *mi)
+{
+    /* Skip DCO IPv4 iroutes that have already been removed. */
+    if (mi->context.did_dco_iroutes_v4)
+    {
+        mi->context.did_dco_iroutes_v4 = false;
+        dco_delete_iroutes_v4(&m->top.net_ctx, &mi->context);
+    }
+}
+
+static void
+multi_del_dco_iroutes_v6(struct multi_context *m, struct multi_instance *mi)
+{
+    /* Skip DCO IPv6 iroutes that have already been removed. */
+    if (mi->context.did_dco_iroutes_v6)
+    {
+        mi->context.did_dco_iroutes_v6 = false;
+        dco_delete_iroutes_v6(&m->top.net_ctx, &mi->context);
+    }
+}
+
 /*
  * Tell the route helper about deleted iroutes so
  * that it can update its mask of currently used
@@ -489,12 +511,8 @@ multi_del_iroutes(struct multi_context *m, struct multi_instance *mi)
     const struct iroute *ir;
     const struct iroute_ipv6 *ir6;
 
-    /* check if DCO iroutes were already removed when scheduling a delayed exit */
-    if (mi->context.did_dco_iroutes)
-    {
-        mi->context.did_dco_iroutes = false;
-        dco_delete_iroutes(&m->top.net_ctx, &mi->context);
-    }
+    multi_del_dco_iroutes_v4(m, mi);
+    multi_del_dco_iroutes_v6(m, mi);
 
     if (TUNNEL_TYPE(mi->context.c1.tuntap) == DEV_TYPE_TUN)
     {
@@ -1305,8 +1323,6 @@ multi_add_iroutes(struct multi_context *m, struct multi_instance *mi)
     if (TUNNEL_TYPE(mi->context.c1.tuntap) == DEV_TYPE_TUN)
     {
         mi->did_iroutes = true;
-        /* multi_learn_in{6}_addr_t takes care of installing the DCO iroute */
-        mi->context.did_dco_iroutes = true;
         for (ir = mi->context.options.iroutes; ir != NULL; ir = ir->next)
         {
             if (ir->netbits >= 0)

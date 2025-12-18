@@ -706,8 +706,8 @@ dco_install_iroute(struct multi_context *m, struct multi_instance *mi, const str
     if (addrtype == MR_ADDR_IPV6)
     {
 #if defined(_WIN32)
-        dco_win_add_iroute_ipv6(&c->c1.tuntap->dco, addr->v6.addr, addr->netbits,
-                                c->c2.tls_multi->rx_peer_id);
+        bool installed = dco_win_add_iroute_ipv6(&c->c1.tuntap->dco, addr->v6.addr, addr->netbits,
+                                                 c->c2.tls_multi->rx_peer_id);
 #else
         const struct in6_addr *gateway = &mi->context.c2.push_ifconfig_ipv6_local;
         if (addr->type & MR_ONLINK_DCO_ADDR)
@@ -715,16 +715,18 @@ dco_install_iroute(struct multi_context *m, struct multi_instance *mi, const str
             gateway = NULL;
         }
 
-        net_route_v6_add(&m->top.net_ctx, &addr->v6.addr, addr->netbits,
-                         gateway, c->c1.tuntap->actual_name, 0,
-                         DCO_IROUTE_METRIC);
+        bool installed = net_route_v6_add(&m->top.net_ctx, &addr->v6.addr, addr->netbits,
+                                          gateway, c->c1.tuntap->actual_name, 0,
+                                          DCO_IROUTE_METRIC)
+                         == 0;
 #endif
+        mi->context.did_dco_iroutes_v6 |= installed;
     }
     else if (addrtype == MR_ADDR_IPV4)
     {
 #if defined(_WIN32)
-        dco_win_add_iroute_ipv4(&c->c1.tuntap->dco, addr->v4.addr, addr->netbits,
-                                c->c2.tls_multi->rx_peer_id);
+        bool installed = dco_win_add_iroute_ipv4(&c->c1.tuntap->dco, addr->v4.addr, addr->netbits,
+                                                 c->c2.tls_multi->rx_peer_id);
 #else
         in_addr_t dest = htonl(addr->v4.addr);
         const in_addr_t *gateway = &mi->context.c2.push_ifconfig_local;
@@ -733,15 +735,17 @@ dco_install_iroute(struct multi_context *m, struct multi_instance *mi, const str
             gateway = NULL;
         }
 
-        net_route_v4_add(&m->top.net_ctx, &dest, addr->netbits, gateway,
-                         c->c1.tuntap->actual_name, 0, DCO_IROUTE_METRIC);
+        bool installed = net_route_v4_add(&m->top.net_ctx, &dest, addr->netbits, gateway,
+                                          c->c1.tuntap->actual_name, 0, DCO_IROUTE_METRIC)
+                         == 0;
 #endif
+        mi->context.did_dco_iroutes_v4 |= installed;
     }
 #endif /* if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32) */
 }
 
 void
-dco_delete_iroutes(openvpn_net_ctx_t *net_ctx, const struct context *c)
+dco_delete_iroutes_v4(openvpn_net_ctx_t *net_ctx, const struct context *c)
 {
 #if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32)
     if (!dco_enabled(&c->options))
@@ -750,7 +754,7 @@ dco_delete_iroutes(openvpn_net_ctx_t *net_ctx, const struct context *c)
     }
     ASSERT(TUNNEL_TYPE(c->c1.tuntap) == DEV_TYPE_TUN);
 
-    msg(D_DCO, "DCO: attempt removing iroutes from system table");
+    msg(D_DCO, "DCO: attempt removing IPv4 iroutes from system table");
 
     if (c->c2.push_ifconfig_defined)
     {
@@ -778,6 +782,20 @@ dco_delete_iroutes(openvpn_net_ctx_t *net_ctx, const struct context *c)
         }
 #endif
     }
+#endif /* if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32) */
+}
+
+void
+dco_delete_iroutes_v6(openvpn_net_ctx_t *net_ctx, const struct context *c)
+{
+#if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32)
+    if (!dco_enabled(&c->options))
+    {
+        return;
+    }
+    ASSERT(TUNNEL_TYPE(c->c1.tuntap) == DEV_TYPE_TUN);
+
+    msg(D_DCO, "DCO: attempt removing IPv6 iroutes from system table");
 
     if (c->c2.push_ifconfig_ipv6_defined)
     {
@@ -805,6 +823,13 @@ dco_delete_iroutes(openvpn_net_ctx_t *net_ctx, const struct context *c)
 #endif
     }
 #endif /* if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32) */
+}
+
+void
+dco_delete_iroutes(openvpn_net_ctx_t *net_ctx, const struct context *c)
+{
+    dco_delete_iroutes_v4(net_ctx, c);
+    dco_delete_iroutes_v6(net_ctx, c);
 }
 
 #endif /* defined(ENABLE_DCO) */

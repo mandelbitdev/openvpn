@@ -1007,7 +1007,7 @@ dco_win_supports_multipeer(void)
     return dco_get_version(&ver) && ver.Major >= 2;
 }
 
-void
+bool
 dco_win_add_iroute_ipv4(dco_context_t *dco, in_addr_t dst, unsigned int netbits,
                         unsigned int peer_id)
 {
@@ -1021,16 +1021,18 @@ dco_win_add_iroute_ipv4(dco_context_t *dco, in_addr_t dst, unsigned int netbits,
         netbits, peer_id);
 
     DWORD bytes_returned = 0;
-    if (!DeviceIoControl(dco->tt->hand, OVPN_IOCTL_MP_ADD_IROUTE, &route, sizeof(route), NULL, 0,
-                         &bytes_returned, NULL))
+    bool installed = DeviceIoControl(dco->tt->hand, OVPN_IOCTL_MP_ADD_IROUTE, &route, sizeof(route), NULL, 0,
+                                     &bytes_returned, NULL);
+    if (!installed)
     {
         msg(M_WARN | M_ERRNO, "DeviceIoControl(OVPN_IOCTL_MP_ADD_IROUTE) failed");
     }
 
     gc_free(&gc);
+    return installed;
 }
 
-void
+bool
 dco_win_add_iroute_ipv6(dco_context_t *dco, struct in6_addr dst, unsigned int netbits,
                         unsigned int peer_id)
 {
@@ -1042,13 +1044,15 @@ dco_win_add_iroute_ipv6(dco_context_t *dco, struct in6_addr dst, unsigned int ne
         netbits, peer_id);
 
     DWORD bytes_returned = 0;
-    if (!DeviceIoControl(dco->tt->hand, OVPN_IOCTL_MP_ADD_IROUTE, &route, sizeof(route), NULL, 0,
-                         &bytes_returned, NULL))
+    bool installed = DeviceIoControl(dco->tt->hand, OVPN_IOCTL_MP_ADD_IROUTE, &route, sizeof(route), NULL, 0,
+                                     &bytes_returned, NULL);
+    if (!installed)
     {
         msg(M_WARN | M_ERRNO, "DeviceIoControl(OVPN_IOCTL_MP_ADD_IROUTE) failed");
     }
 
     gc_free(&gc);
+    return installed;
 }
 
 void

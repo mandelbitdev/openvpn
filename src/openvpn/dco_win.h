@@ -67,10 +67,10 @@ void dco_p2p_new_peer(HANDLE handle, OVERLAPPED *ov, struct link_socket *sock,
 
 bool dco_win_supports_multipeer(void);
 
-void dco_win_add_iroute_ipv4(dco_context_t *dco, in_addr_t dst, unsigned int netbits,
+bool dco_win_add_iroute_ipv4(dco_context_t *dco, in_addr_t dst, unsigned int netbits,
                              unsigned int peer_id);
 
-void dco_win_add_iroute_ipv6(dco_context_t *dco, struct in6_addr dst, unsigned int netbits,
+bool dco_win_add_iroute_ipv6(dco_context_t *dco, struct in6_addr dst, unsigned int netbits,
                              unsigned int peer_id);
 
 void dco_win_del_iroute_ipv4(dco_context_t *dco, in_addr_t dst, unsigned int netbits);
