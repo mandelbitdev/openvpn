@@ -676,6 +676,40 @@ dco_multi_add_new_peer(const struct multi_context *m, struct multi_instance *mi)
     return 0;
 }
 
+int
+dco_multi_update_peer_addr(struct context *c, int flags)
+{
+    if (!flags || c->c2.tls_multi->dco_peer_id == -1)
+    {
+        return 0;
+    }
+
+    int peer_id = c->c2.tls_multi->dco_peer_id;
+
+    /* In server mode we need to fetch the remote addresses from the push config */
+    struct in_addr vpn_ip4 = { 0 };
+    const struct in_addr *vpn_addr4 = NULL;
+    if (c->c2.push_ifconfig_defined)
+    {
+        vpn_ip4.s_addr = htonl(c->c2.push_ifconfig_local);
+        vpn_addr4 = &vpn_ip4;
+    }
+
+    const struct in6_addr *vpn_addr6 = NULL;
+    if (c->c2.push_ifconfig_ipv6_defined)
+    {
+        vpn_addr6 = &c->c2.push_ifconfig_ipv6_local;
+    }
+
+    int ret = dco_update_peer_addr(&c->c1.tuntap->dco, peer_id, vpn_addr4, vpn_addr6, flags);
+    if (ret < 0)
+    {
+        return ret;
+    }
+
+    return 0;
+}
+
 void
 dco_install_iroute(struct multi_context *m, struct multi_instance *mi, const struct mroute_addr *addr)
 {
