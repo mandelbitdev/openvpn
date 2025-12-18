@@ -519,6 +519,12 @@ dco_set_peer(dco_context_t *dco, unsigned int peerid, int keepalive_interval, in
 }
 
 int
+dco_update_peer_addr(dco_context_t *dco, unsigned int peerid, const struct in_addr *vpn_ipv4, const struct in6_addr *vpn_ipv6, int flags)
+{
+    return 0;
+}
+
+int
 dco_new_key(dco_context_t *dco, unsigned int peerid, int keyid, dco_key_slot_t slot,
             const uint8_t *encrypt_key, const uint8_t *encrypt_iv, const uint8_t *decrypt_key,
             const uint8_t *decrypt_iv, const char *ciphername, bool epoch)
@@ -1007,7 +1013,7 @@ dco_win_supports_multipeer(void)
     return dco_get_version(&ver) && ver.Major >= 2;
 }
 
-void
+bool
 dco_win_add_iroute_ipv4(dco_context_t *dco, in_addr_t dst, unsigned int netbits,
                         unsigned int peer_id)
 {
@@ -1021,16 +1027,18 @@ dco_win_add_iroute_ipv4(dco_context_t *dco, in_addr_t dst, unsigned int netbits,
         netbits, peer_id);
 
     DWORD bytes_returned = 0;
-    if (!DeviceIoControl(dco->tt->hand, OVPN_IOCTL_MP_ADD_IROUTE, &route, sizeof(route), NULL, 0,
-                         &bytes_returned, NULL))
+    bool installed = DeviceIoControl(dco->tt->hand, OVPN_IOCTL_MP_ADD_IROUTE, &route, sizeof(route), NULL, 0,
+                                     &bytes_returned, NULL);
+    if (!installed)
     {
         msg(M_WARN | M_ERRNO, "DeviceIoControl(OVPN_IOCTL_MP_ADD_IROUTE) failed");
     }
 
     gc_free(&gc);
+    return installed;
 }
 
-void
+bool
 dco_win_add_iroute_ipv6(dco_context_t *dco, struct in6_addr dst, unsigned int netbits,
                         unsigned int peer_id)
 {
@@ -1042,13 +1050,15 @@ dco_win_add_iroute_ipv6(dco_context_t *dco, struct in6_addr dst, unsigned int ne
         netbits, peer_id);
 
     DWORD bytes_returned = 0;
-    if (!DeviceIoControl(dco->tt->hand, OVPN_IOCTL_MP_ADD_IROUTE, &route, sizeof(route), NULL, 0,
-                         &bytes_returned, NULL))
+    bool installed = DeviceIoControl(dco->tt->hand, OVPN_IOCTL_MP_ADD_IROUTE, &route, sizeof(route), NULL, 0,
+                                     &bytes_returned, NULL);
+    if (!installed)
     {
         msg(M_WARN | M_ERRNO, "DeviceIoControl(OVPN_IOCTL_MP_ADD_IROUTE) failed");
     }
 
     gc_free(&gc);
+    return installed;
 }
 
 void

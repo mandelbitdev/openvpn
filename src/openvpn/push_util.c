@@ -149,14 +149,35 @@ send_single_push_update(struct multi_context *m, struct multi_instance *mi, stru
     struct options o;
     CLEAR(o);
 
-    /* Set canary values to detect ifconfig options in push-update messages.
-     * These placeholder strings will be overwritten to NULL by the option
-     * parser if -ifconfig or -ifconfig-ipv6 options are present in the
-     * push-update.
+    /* Set canary values to detect -ifconfig and -ifconfig-ipv6 options in
+     * push-update messages. These placeholder strings will be overwritten
+     * to NULL by the option parser if -ifconfig or -ifconfig-ipv6 options
+     * are present in the push-update, to the new value if present, or
+     * they will remain equal to the current values otherwise.
+     * If the current values are not defined they will remain NULL.
      */
-    const char *canary = "canary";
-    o.ifconfig_local = canary;
-    o.ifconfig_ipv6_local = canary;
+
+    char ifconfig_local[INET_ADDRSTRLEN];
+    struct in_addr addr4 = { .s_addr = htonl(mi->context.c2.push_ifconfig_local) };
+    if (mi->context.c2.push_ifconfig_defined)
+    {
+        if (!inet_ntop(AF_INET, &addr4, ifconfig_local, sizeof(ifconfig_local)))
+        {
+            return false;
+        }
+        o.ifconfig_local = ifconfig_local;
+    }
+
+    char ifconfig_ipv6_local[INET6_ADDRSTRLEN];
+    if (mi->context.c2.push_ifconfig_ipv6_defined)
+    {
+        if (!inet_ntop(AF_INET6, &mi->context.c2.push_ifconfig_ipv6_local,
+                       ifconfig_ipv6_local, sizeof(ifconfig_ipv6_local)))
+        {
+            return false;
+        }
+        o.ifconfig_ipv6_local = ifconfig_ipv6_local;
+    }
 
     struct buffer_entry *e = msgs->head;
     while (e)
@@ -194,28 +215,9 @@ send_single_push_update(struct multi_context *m, struct multi_instance *mi, stru
 
     if (option_types_found & OPT_P_UP)
     {
-        /* -ifconfig */
-        if (!o.ifconfig_local && mi->context.c2.push_ifconfig_defined)
-        {
-            unlearn_ifconfig(m, mi);
-        }
-        /* -ifconfig-ipv6 */
-        if (!o.ifconfig_ipv6_local && mi->context.c2.push_ifconfig_ipv6_defined)
-        {
-            unlearn_ifconfig_ipv6(m, mi);
-        }
-
-        if (o.ifconfig_local && !strcmp(o.ifconfig_local, canary))
-        {
-            o.ifconfig_local = NULL;
-        }
-        if (o.ifconfig_ipv6_local && !strcmp(o.ifconfig_ipv6_local, canary))
-        {
-            o.ifconfig_ipv6_local = NULL;
-        }
-
-        /* new ifconfig or new ifconfig-ipv6 */
-        update_vhash(m, mi, o.ifconfig_local, o.ifconfig_ipv6_local);
+        /* ifconfig or ifconfig-ipv6 */
+        update_vaddr(m, mi, o.ifconfig_local, o.ifconfig_ipv6_local);
+        return !event_timeout_defined(&c->c2.scheduled_exit);
     }
 
     uninit_options(&o);
@@ -253,12 +255,14 @@ support_push_update(const struct multi_instance *mi)
 static int
 send_push_update(struct multi_context *m, const void *target, const char *msg, const push_update_type type, const size_t push_bundle_size)
 {
+#if !defined(TARGET_LINUX)
     if (dco_enabled(&m->top.options))
     {
         msg(M_WARN, "WARN: PUSH_UPDATE messages cannot currently be sent while DCO is enabled."
                     " To send a PUSH_UPDATE message, be sure to use the --disable-dco option.");
         return 0;
     }
+#endif
 
     if (!msg || !*msg || !m || (!target && type != UPT_BROADCAST))
     {
@@ -301,6 +305,7 @@ send_push_update(struct multi_context *m, const void *target, const char *msg, c
         }
 
         if (!mi->halt
+            && !event_timeout_defined(&mi->context.c2.scheduled_exit)
             && send_single_push_update(m, mi, msgs))
         {
             buffer_list_free(msgs);
@@ -321,7 +326,9 @@ send_push_update(struct multi_context *m, const void *target, const char *msg, c
     {
         struct multi_instance *curr_mi = m->instances[i];
 
-        if (!curr_mi || curr_mi->halt || !support_push_update(curr_mi))
+        if (!curr_mi || curr_mi->halt
+            || event_timeout_defined(&curr_mi->context.c2.scheduled_exit)
+            || !support_push_update(curr_mi))
         {
             continue;
         }

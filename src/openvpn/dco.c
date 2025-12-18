@@ -676,6 +676,40 @@ dco_multi_add_new_peer(const struct multi_context *m, struct multi_instance *mi)
     return 0;
 }
 
+int
+dco_multi_update_peer_addr(struct context *c, int flags)
+{
+    if (!flags || c->c2.tls_multi->dco_peer_id == -1)
+    {
+        return 0;
+    }
+
+    int peer_id = c->c2.tls_multi->dco_peer_id;
+
+    /* In server mode we need to fetch the remote addresses from the push config */
+    struct in_addr vpn_ip4 = { 0 };
+    const struct in_addr *vpn_addr4 = NULL;
+    if (c->c2.push_ifconfig_defined)
+    {
+        vpn_ip4.s_addr = htonl(c->c2.push_ifconfig_local);
+        vpn_addr4 = &vpn_ip4;
+    }
+
+    const struct in6_addr *vpn_addr6 = NULL;
+    if (c->c2.push_ifconfig_ipv6_defined)
+    {
+        vpn_addr6 = &c->c2.push_ifconfig_ipv6_local;
+    }
+
+    int ret = dco_update_peer_addr(&c->c1.tuntap->dco, peer_id, vpn_addr4, vpn_addr6, flags);
+    if (ret < 0)
+    {
+        return ret;
+    }
+
+    return 0;
+}
+
 void
 dco_install_iroute(struct multi_context *m, struct multi_instance *mi, const struct mroute_addr *addr)
 {
@@ -706,8 +740,8 @@ dco_install_iroute(struct multi_context *m, struct multi_instance *mi, const str
     if (addrtype == MR_ADDR_IPV6)
     {
 #if defined(_WIN32)
-        dco_win_add_iroute_ipv6(&c->c1.tuntap->dco, addr->v6.addr, addr->netbits,
-                                c->c2.tls_multi->rx_peer_id);
+        bool installed = dco_win_add_iroute_ipv6(&c->c1.tuntap->dco, addr->v6.addr, addr->netbits,
+                                                 c->c2.tls_multi->rx_peer_id);
 #else
         const struct in6_addr *gateway = &mi->context.c2.push_ifconfig_ipv6_local;
         if (addr->type & MR_ONLINK_DCO_ADDR)
@@ -715,16 +749,18 @@ dco_install_iroute(struct multi_context *m, struct multi_instance *mi, const str
             gateway = NULL;
         }
 
-        net_route_v6_add(&m->top.net_ctx, &addr->v6.addr, addr->netbits,
-                         gateway, c->c1.tuntap->actual_name, 0,
-                         DCO_IROUTE_METRIC);
+        bool installed = net_route_v6_add(&m->top.net_ctx, &addr->v6.addr, addr->netbits,
+                                          gateway, c->c1.tuntap->actual_name, 0,
+                                          DCO_IROUTE_METRIC)
+                         == 0;
 #endif
+        mi->context.did_dco_iroutes_v6 |= installed;
     }
     else if (addrtype == MR_ADDR_IPV4)
     {
 #if defined(_WIN32)
-        dco_win_add_iroute_ipv4(&c->c1.tuntap->dco, addr->v4.addr, addr->netbits,
-                                c->c2.tls_multi->rx_peer_id);
+        bool installed = dco_win_add_iroute_ipv4(&c->c1.tuntap->dco, addr->v4.addr, addr->netbits,
+                                                 c->c2.tls_multi->rx_peer_id);
 #else
         in_addr_t dest = htonl(addr->v4.addr);
         const in_addr_t *gateway = &mi->context.c2.push_ifconfig_local;
@@ -733,15 +769,17 @@ dco_install_iroute(struct multi_context *m, struct multi_instance *mi, const str
             gateway = NULL;
         }
 
-        net_route_v4_add(&m->top.net_ctx, &dest, addr->netbits, gateway,
-                         c->c1.tuntap->actual_name, 0, DCO_IROUTE_METRIC);
+        bool installed = net_route_v4_add(&m->top.net_ctx, &dest, addr->netbits, gateway,
+                                          c->c1.tuntap->actual_name, 0, DCO_IROUTE_METRIC)
+                         == 0;
 #endif
+        mi->context.did_dco_iroutes_v4 |= installed;
     }
 #endif /* if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32) */
 }
 
 void
-dco_delete_iroutes(openvpn_net_ctx_t *net_ctx, const struct context *c)
+dco_delete_iroutes_v4(openvpn_net_ctx_t *net_ctx, const struct context *c)
 {
 #if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32)
     if (!dco_enabled(&c->options))
@@ -750,7 +788,7 @@ dco_delete_iroutes(openvpn_net_ctx_t *net_ctx, const struct context *c)
     }
     ASSERT(TUNNEL_TYPE(c->c1.tuntap) == DEV_TYPE_TUN);
 
-    msg(D_DCO, "DCO: attempt removing iroutes from system table");
+    msg(D_DCO, "DCO: attempt removing IPv4 iroutes from system table");
 
     if (c->c2.push_ifconfig_defined)
     {
@@ -778,6 +816,20 @@ dco_delete_iroutes(openvpn_net_ctx_t *net_ctx, const struct context *c)
         }
 #endif
     }
+#endif /* if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32) */
+}
+
+void
+dco_delete_iroutes_v6(openvpn_net_ctx_t *net_ctx, const struct context *c)
+{
+#if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32)
+    if (!dco_enabled(&c->options))
+    {
+        return;
+    }
+    ASSERT(TUNNEL_TYPE(c->c1.tuntap) == DEV_TYPE_TUN);
+
+    msg(D_DCO, "DCO: attempt removing IPv6 iroutes from system table");
 
     if (c->c2.push_ifconfig_ipv6_defined)
     {
@@ -805,6 +857,13 @@ dco_delete_iroutes(openvpn_net_ctx_t *net_ctx, const struct context *c)
 #endif
     }
 #endif /* if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32) */
+}
+
+void
+dco_delete_iroutes(openvpn_net_ctx_t *net_ctx, const struct context *c)
+{
+    dco_delete_iroutes_v4(net_ctx, c);
+    dco_delete_iroutes_v6(net_ctx, c);
 }
 
 #endif /* defined(ENABLE_DCO) */

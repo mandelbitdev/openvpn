@@ -191,6 +191,31 @@ int dco_set_peer(dco_context_t *dco, unsigned int peerid, int keepalive_interval
                  int keepalive_timeout, int mss);
 
 /**
+ * Update the peer's virtual address(es) in the DCO to the current value(s)
+ *
+ * @param dco       DCO device context
+ * @param peerid    the ID of the peer to be modified
+ * @param vpn_ipv4  new IPv4 or NULL to remove the outdated one, only used when `(1 << AF_INET)` flag is present
+ * @param vpn_ipv6  new IPv6 or NULL to remove the outdated one, only used when `(1 << AF_INET6)` flag is present
+ * @param flags     `(1 << AF_INET)`, `(1 << AF_INET6)` or `(1 << AF_INET) | (1 << AF_INET6)` depending on which address has changed
+ * @return int      the DCO message status on success or a negative error code otherwise
+ */
+int
+dco_update_peer_addr(dco_context_t *dco, unsigned int peerid,
+                     const struct in_addr *vpn_ipv4, const struct in6_addr *vpn_ipv6,
+                     int flags);
+
+/**
+ * Update the peer's virtual address(es) in the DCO to the current value(s)
+ *
+ * @param c         peer context
+ * @param flags     `(1 << AF_INET)`, `(1 << AF_INET6)` or `(1 << AF_INET) | (1 << AF_INET6)` depending on which address has changed
+ * @return int      0 on success or a negative error code otherwise
+ */
+int
+dco_multi_update_peer_addr(struct context *c, int flags);
+
+/**
  * Remove a peer from DCO
  *
  * @param c         the main instance context of the peer to remove
@@ -216,6 +241,22 @@ int dco_multi_add_new_peer(const struct multi_context *m, struct multi_instance 
  */
 void dco_install_iroute(struct multi_context *m, struct multi_instance *mi,
                         const struct mroute_addr *addr);
+
+/**
+ * Remove all IPv4 routes added through the specified client
+ *
+ * @param net_ctx   the iface networking context
+ * @param c         the client context for which routes have to be removed
+ */
+void dco_delete_iroutes_v4(openvpn_net_ctx_t *net_ctx, const struct context *c);
+
+/**
+ * Remove all IPv6 routes added through the specified client
+ *
+ * @param net_ctx   the iface networking context
+ * @param c         the client context for which routes have to be removed
+ */
+void dco_delete_iroutes_v6(openvpn_net_ctx_t *net_ctx, const struct context *c);
 
 /**
  * Remove all routes added through the specified client
@@ -344,6 +385,20 @@ dco_set_peer(dco_context_t *dco, unsigned int peerid, int keepalive_interval, in
     return 0;
 }
 
+static inline int
+dco_update_peer_addr(dco_context_t *dco, unsigned int peerid,
+                     const struct in_addr *vpn_ipv4, const struct in6_addr *vpn_ipv6,
+                     int flags)
+{
+    return 0;
+}
+
+static inline int
+dco_multi_update_peer_addr(struct context *c, int flags)
+{
+    return 0;
+}
+
 static inline void
 dco_remove_peer(struct context *c)
 {
@@ -356,7 +411,17 @@ dco_multi_add_new_peer(const struct multi_context *m, struct multi_instance *mi)
 }
 
 static inline void
-dco_install_iroute(struct multi_context *m, struct multi_instance *mi, struct mroute_addr *addr)
+dco_install_iroute(struct multi_context *m, struct multi_instance *mi, const struct mroute_addr *addr)
+{
+}
+
+static inline void
+dco_delete_iroutes_v4(openvpn_net_ctx_t *net_ctx, const struct context *c)
+{
+}
+
+static inline void
+dco_delete_iroutes_v6(openvpn_net_ctx_t *net_ctx, const struct context *c)
 {
 }
 
