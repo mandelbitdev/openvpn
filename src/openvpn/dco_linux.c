@@ -71,6 +71,163 @@ void dco_check_key_ctx(const struct key_ctx_bi *key);
 
 typedef int (*ovpn_nl_cb)(struct nl_msg *msg, void *arg);
 
+/*
+ * Context passed across all getpolicy_cb() invocations for a single DUMP.
+ * The query is a (cmd, attr) pair: we look for the max attribute type of
+ * the nested policy that `attr` points to within the doit policy of `cmd`.
+ * The DUMP produces multiple messages and OP_POLICY / POLICY data may arrive
+ * in any order, so we collect everything first and resolve at the end.
+ */
+struct getpolicy_ctx
+{
+    /* the query */
+    int cmd;           /* generic netlink command, e.g. OVPN_CMD_PEER_NEW */
+    int attr;          /* nested attribute within its policy, e.g. OVPN_A_PEER */
+
+    int cmd_policy_id; /* policy index of the doit of `cmd`, -1 until seen */
+    /* deferred policy table: policy entries seen before cmd_policy_id was known */
+#define GETPOLICY_MAX_DEFERRED 64
+    struct
+    {
+        int policy_id;
+        int max_attr; /* NL_POLICY_TYPE_ATTR_POLICY_MAXTYPE of `attr` */
+    } deferred[GETPOLICY_MAX_DEFERRED];
+    int n_deferred;
+    int out_max; /* final result, -1 until resolved */
+};
+
+static void
+getpolicy_ctx_try_resolve(struct getpolicy_ctx *ctx)
+{
+    if (ctx->cmd_policy_id < 0 || ctx->out_max >= 0)
+    {
+        return;
+    }
+    for (int i = 0; i < ctx->n_deferred; i++)
+    {
+        if (ctx->deferred[i].policy_id == ctx->cmd_policy_id
+            && ctx->deferred[i].max_attr >= 0)
+        {
+            ctx->out_max = ctx->deferred[i].max_attr;
+            return;
+        }
+    }
+}
+
+static int
+getpolicy_cb(struct nl_msg *msg, void *arg)
+{
+    struct getpolicy_ctx *ctx = arg;
+    struct nlattr *tb[CTRL_ATTR_MAX + 1];
+    struct genlmsghdr *ghdr = nlmsg_data(nlmsg_hdr(msg));
+
+    if (nla_parse(tb, CTRL_ATTR_MAX, genlmsg_attrdata(ghdr, 0),
+                  genlmsg_attrlen(ghdr, 0), NULL)
+        < 0)
+    {
+        return NL_SKIP;
+    }
+
+    /* -------------------------------------------------
+     * 1. CTRL_ATTR_OP_POLICY → find policy_id for the doit of ctx->cmd
+     * ------------------------------------------------- */
+    if (tb[CTRL_ATTR_OP_POLICY] && ctx->cmd_policy_id < 0)
+    {
+        struct nlattr *pos;
+        int rem;
+
+        nla_for_each_nested(pos, tb[CTRL_ATTR_OP_POLICY], rem)
+        {
+            if (nla_type(pos) != ctx->cmd)
+            {
+                continue;
+            }
+
+            struct nlattr *ptb[CTRL_ATTR_POLICY_DUMP_MAX + 1];
+            if (nla_parse(ptb, CTRL_ATTR_POLICY_DUMP_MAX,
+                          nla_data(pos), nla_len(pos), NULL)
+                < 0)
+            {
+                break;
+            }
+
+            if (ptb[CTRL_ATTR_POLICY_DO])
+            {
+                ctx->cmd_policy_id = nla_get_u32(ptb[CTRL_ATTR_POLICY_DO]);
+            }
+            break;
+        }
+
+        getpolicy_ctx_try_resolve(ctx);
+    }
+
+    /* -------------------------------------------------
+     * 2. CTRL_ATTR_POLICY → find max_attr of the nested policy of ctx->attr
+     * ------------------------------------------------- */
+    if (tb[CTRL_ATTR_POLICY])
+    {
+        struct nlattr *policy;
+        int rem;
+
+        nla_for_each_nested(policy, tb[CTRL_ATTR_POLICY], rem)
+        {
+            int pid = nla_type(policy);
+
+            struct nlattr *attr;
+            int rem_attr;
+            int found_max = -1;
+
+            nla_for_each_nested(attr, policy, rem_attr)
+            {
+                if (nla_type(attr) != ctx->attr)
+                {
+                    continue;
+                }
+
+                struct nlattr *tp[NL_POLICY_TYPE_ATTR_MAX + 1];
+                if (nla_parse_nested(tp, NL_POLICY_TYPE_ATTR_MAX, attr, NULL) < 0)
+                {
+                    continue;
+                }
+
+                if (tp[NL_POLICY_TYPE_ATTR_POLICY_MAXTYPE])
+                {
+                    found_max = (int)nla_get_u32(tp[NL_POLICY_TYPE_ATTR_POLICY_MAXTYPE]);
+                }
+                break;
+            }
+
+            if (found_max < 0)
+            {
+                continue;
+            }
+
+            if (ctx->cmd_policy_id >= 0 && pid == ctx->cmd_policy_id)
+            {
+                /* Direct match — we're done */
+                ctx->out_max = found_max;
+                return NL_STOP;
+            }
+
+            /* policy_id not known yet — defer */
+            if (ctx->n_deferred < GETPOLICY_MAX_DEFERRED)
+            {
+                ctx->deferred[ctx->n_deferred].policy_id = pid;
+                ctx->deferred[ctx->n_deferred].max_attr = found_max;
+                ctx->n_deferred++;
+                getpolicy_ctx_try_resolve(ctx);
+                if (ctx->out_max >= 0)
+                {
+                    return NL_STOP;
+                }
+            }
+        }
+    }
+
+    return NL_OK;
+}
+
+
 /**
  * @brief resolves the netlink ID for ovpn-dco
  *
@@ -107,6 +264,66 @@ resolve_ovpn_netlink_id(msglvl_t msglevel)
     {
         msg(msglevel, "Cannot find ovpn_dco netlink component: %s", nl_geterror(ret));
     }
+
+err_sock:
+    nl_socket_free(nl_sock);
+    return ret;
+}
+
+int
+ovpn_get_policy_max_attr(msglvl_t msglevel, uint16_t cmd, uint16_t attr)
+{
+    int ret = -1;
+    struct nl_sock *nl_sock = nl_socket_alloc();
+
+    if (!nl_sock)
+    {
+        msg(msglevel, "Allocating net link socket failed");
+        return -1;
+    }
+
+    if (genl_connect(nl_sock))
+    {
+        msg(msglevel, "Cannot connect to generic netlink");
+        goto err_sock;
+    }
+    set_cloexec(nl_socket_get_fd(nl_sock));
+
+    int ctrl_id = genl_ctrl_resolve(nl_sock, "nlctrl");
+    if (ctrl_id < 0)
+    {
+        msg(msglevel, "Cannot resolve nlctrl: %s", nl_geterror(ctrl_id));
+        goto err_sock;
+    }
+
+    struct nl_msg *nl_msg_gp = nlmsg_alloc();
+    if (!nl_msg_gp)
+    {
+        goto err_sock;
+    }
+    genlmsg_put(nl_msg_gp, NL_AUTO_PORT, NL_AUTO_SEQ,
+                ctrl_id, 0, NLM_F_ROOT | NLM_F_MATCH | NLM_F_REQUEST,
+                CTRL_CMD_GETPOLICY, 0);
+    nla_put_string(nl_msg_gp, CTRL_ATTR_FAMILY_NAME, OVPN_FAMILY_NAME);
+
+    struct getpolicy_ctx gpctx = {
+        .cmd = cmd,
+        .attr = attr,
+        .cmd_policy_id = -1,
+        .n_deferred = 0,
+        .out_max = -1,
+    };
+    nl_socket_modify_cb(nl_sock, NL_CB_VALID, NL_CB_CUSTOM,
+                        getpolicy_cb, &gpctx);
+
+    nl_send_auto(nl_sock, nl_msg_gp);
+    nl_recvmsgs_default(nl_sock);
+    nlmsg_free(nl_msg_gp);
+
+    msg(D_DCO, "%s: cmd %u attr %u max_attr=%d",
+        __func__, cmd, attr, gpctx.out_max);
+
+    ret = gpctx.out_max;
 
 err_sock:
     nl_socket_free(nl_sock);

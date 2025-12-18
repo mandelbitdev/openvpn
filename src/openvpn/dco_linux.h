@@ -83,5 +83,20 @@ typedef struct
     struct sockaddr_storage dco_float_peer_ss;
 } dco_context_t;
 
+/**
+ * Query the kernel for the maximum attribute type accepted by the nested
+ * policy that `attr` points to within the doit policy of `cmd`, using a
+ * standalone CTRL_CMD_GETPOLICY netlink dump. This tells which attributes
+ * the running kernel understands, regardless of what userspace was built
+ * against.
+ *
+ * @param msglevel  level to print messages to
+ * @param cmd       the generic netlink command, e.g. OVPN_CMD_PEER_NEW
+ * @param attr      the nested attribute within the policy of `cmd`,
+ *                  e.g. OVPN_A_PEER
+ * @return          the max attribute type, or -1 if it cannot be determined
+ */
+int ovpn_get_policy_max_attr(msglvl_t msglevel, uint16_t cmd, uint16_t attr);
+
 #endif /* defined(ENABLE_DCO) && defined(TARGET_LINUX) */
 #endif /* ifndef DCO_LINUX_H */
