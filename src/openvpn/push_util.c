@@ -256,12 +256,14 @@ support_push_update(const struct multi_instance *mi)
 static int
 send_push_update(struct multi_context *m, const void *target, const char *msg, const push_update_type type, const size_t push_bundle_size)
 {
+#if !defined(TARGET_LINUX)
     if (dco_enabled(&m->top.options))
     {
         msg(M_WARN, "WARN: PUSH_UPDATE messages cannot currently be sent while DCO is enabled."
                     " To send a PUSH_UPDATE message, be sure to use the --disable-dco option.");
         return 0;
     }
+#endif
 
     if (!msg || !*msg || !m || (!target && type != UPT_BROADCAST))
     {
@@ -304,6 +306,7 @@ send_push_update(struct multi_context *m, const void *target, const char *msg, c
         }
 
         if (!mi->halt
+            && !event_timeout_defined(&mi->context.c2.scheduled_exit)
             && send_single_push_update(m, mi, msgs))
         {
             buffer_list_free(msgs);
@@ -324,7 +327,9 @@ send_push_update(struct multi_context *m, const void *target, const char *msg, c
     {
         struct multi_instance *curr_mi = m->instances[i];
 
-        if (!curr_mi || curr_mi->halt || !support_push_update(curr_mi))
+        if (!curr_mi || curr_mi->halt
+            || event_timeout_defined(&curr_mi->context.c2.scheduled_exit)
+            || !support_push_update(curr_mi))
         {
             continue;
         }

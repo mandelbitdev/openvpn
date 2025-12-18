@@ -4436,6 +4436,7 @@ multi_unlearn_in6_addr(struct multi_context *m, const struct multi_instance *mi,
 static void
 unlearn_ifconfig(struct multi_context *m, struct multi_instance *mi)
 {
+    multi_del_dco_iroutes_v4(m, mi);
     in_addr_t old_addr = 0;
     old_addr = htonl(mi->context.c2.push_ifconfig_local);
     multi_unlearn_in_addr_t(m, mi, old_addr);
@@ -4448,6 +4449,7 @@ unlearn_ifconfig(struct multi_context *m, struct multi_instance *mi)
 static void
 unlearn_ifconfig_ipv6(struct multi_context *m, struct multi_instance *mi)
 {
+    multi_del_dco_iroutes_v6(m, mi);
     struct in6_addr old_addr6;
     CLEAR(old_addr6);
     old_addr6 = mi->context.c2.push_ifconfig_ipv6_local;
@@ -4457,9 +4459,54 @@ unlearn_ifconfig_ipv6(struct multi_context *m, struct multi_instance *mi)
     CLEAR(mi->reporting_addr_ipv6);
 }
 
+/* Reinstall only routes that are still owned by this client. */
+static void
+multi_reinstall_owned_dco_iroute(struct multi_context *m, struct multi_instance *mi,
+                                 const struct mroute_addr *addr)
+{
+    const struct multi_route *route = hash_lookup(m->vhash, addr);
+    if (route && route->instance == mi && multi_route_defined(m, route))
+    {
+        dco_install_iroute(m, mi, addr);
+    }
+}
+
+/* Userspace iroutes do not depend on the client's VPN address. Only their
+ * DCO routes need to be reinstalled when the gateway changes. */
+static void
+multi_reinstall_dco_iroutes(struct multi_context *m, struct multi_instance *mi, int flags)
+{
+    if ((flags & (1 << AF_INET)) && mi->context.c2.push_ifconfig_defined)
+    {
+        for (const struct iroute *ir = mi->context.options.iroutes; ir; ir = ir->next)
+        {
+            struct mroute_addr addr = { 0 };
+            mroute_extract_in_addr_t(&addr, ir->network);
+            addr.type |= MR_WITH_NETBITS;
+            addr.netbits = (uint8_t)ir->netbits;
+            multi_reinstall_owned_dco_iroute(m, mi, &addr);
+        }
+    }
+
+    if ((flags & (1 << AF_INET6)) && mi->context.c2.push_ifconfig_ipv6_defined)
+    {
+        for (const struct iroute_ipv6 *ir6 = mi->context.options.iroutes_ipv6; ir6; ir6 = ir6->next)
+        {
+            struct mroute_addr addr = { 0 };
+            addr.type = MR_ADDR_IPV6 | MR_WITH_NETBITS;
+            addr.len = 16;
+            addr.netbits = (uint8_t)ir6->netbits;
+            addr.v6.addr = ir6->network;
+            mroute_addr_mask_host_bits(&addr);
+            multi_reinstall_owned_dco_iroute(m, mi, &addr);
+        }
+    }
+}
+
 /**
- * Update the vhash when a push-update message containing
- * ifconfig/ifconfig-ipv6 options is sent from the server.
+ * Update the vhash and DCO peer addresses when a push-update message containing
+ * ifconfig/ifconfig-ipv6 options is sent from the server. Preserve userspace
+ * iroutes and reinstall their DCO routes with the new IP if needed.
  *
  * @param m         The multi_context
  * @param mi        The multi_instance of the client we are updating
@@ -4469,15 +4516,20 @@ unlearn_ifconfig_ipv6(struct multi_context *m, struct multi_instance *mi)
 void
 update_vaddr(struct multi_context *m, struct multi_instance *mi, const char *new_ip, const char *new_ipv6)
 {
+    /* Track changed address families to avoid resetting unchanged DCO addresses. */
+    int update_flags = 0;
+
     /* -ifconfig */
     if (!new_ip && mi->context.c2.push_ifconfig_defined)
     {
         unlearn_ifconfig(m, mi);
+        update_flags |= (1 << AF_INET);
     }
     /* -ifconfig-ipv6 */
     if (!new_ipv6 && mi->context.c2.push_ifconfig_ipv6_defined)
     {
         unlearn_ifconfig_ipv6(m, mi);
+        update_flags |= (1 << AF_INET6);
     }
 
     if (new_ip)
@@ -4491,6 +4543,7 @@ update_vaddr(struct multi_context *m, struct multi_instance *mi, const char *new
             if (mi->context.c2.push_ifconfig_defined)
             {
                 unlearn_ifconfig(m, mi);
+                update_flags |= (1 << AF_INET);
             }
 
             /* DCO needs the new address while installing its on-link route. */
@@ -4500,6 +4553,7 @@ update_vaddr(struct multi_context *m, struct multi_instance *mi, const char *new
             {
                 /* set our client's VPN endpoint for status reporting purposes */
                 mi->reporting_addr = mi->context.c2.push_ifconfig_local;
+                update_flags |= (1 << AF_INET);
             }
             else
             {
@@ -4527,6 +4581,7 @@ update_vaddr(struct multi_context *m, struct multi_instance *mi, const char *new
             if (mi->context.c2.push_ifconfig_ipv6_defined)
             {
                 unlearn_ifconfig_ipv6(m, mi);
+                update_flags |= (1 << AF_INET6);
             }
 
             /* DCO needs the new address while installing its on-link route. */
@@ -4536,6 +4591,7 @@ update_vaddr(struct multi_context *m, struct multi_instance *mi, const char *new
             {
                 /* set our client's VPN endpoint for status reporting purposes */
                 mi->reporting_addr_ipv6 = mi->context.c2.push_ifconfig_ipv6_local;
+                update_flags |= (1 << AF_INET6);
             }
             else
             {
@@ -4550,6 +4606,28 @@ update_vaddr(struct multi_context *m, struct multi_instance *mi, const char *new
                 return;
             }
         }
+    }
+
+    if (!update_flags || !dco_enabled(&m->top.options))
+    {
+        return;
+    }
+
+#if defined(TARGET_LINUX)
+    int ret = dco_multi_update_peer_addr(&mi->context, update_flags);
+    if (ret < 0)
+    {
+        msg(M_WARN, "MULTI: failed to update DCO peer addresses (error %d)", ret);
+        /* PUSH_UPDATE is already queued, so reconnect to restore consistent state. */
+        send_restart(&mi->context, NULL);
+        multi_schedule_context_wakeup(m, mi);
+        return;
+    }
+#endif
+
+    if (TUNNEL_TYPE(mi->context.c1.tuntap) == DEV_TYPE_TUN)
+    {
+        multi_reinstall_dco_iroutes(m, mi, update_flags);
     }
 }
 
