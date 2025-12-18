@@ -218,12 +218,20 @@ void dco_install_iroute(struct multi_context *m, struct multi_instance *mi,
                         const struct mroute_addr *addr);
 
 /**
- * Remove all routes added through the specified client
+ * Remove all IPv4 routes added through the specified client
  *
  * @param net_ctx   the iface networking context
  * @param c         the client context for which routes have to be removed
  */
-void dco_delete_iroutes(openvpn_net_ctx_t *net_ctx, const struct context *c);
+void dco_delete_iroutes_v4(openvpn_net_ctx_t *net_ctx, const struct context *c);
+
+/**
+ * Remove all IPv6 routes added through the specified client
+ *
+ * @param net_ctx   the iface networking context
+ * @param c         the client context for which routes have to be removed
+ */
+void dco_delete_iroutes_v6(openvpn_net_ctx_t *net_ctx, const struct context *c);
 
 /**
  * Update traffic statistics for all peers
@@ -356,12 +364,17 @@ dco_multi_add_new_peer(const struct multi_context *m, struct multi_instance *mi)
 }
 
 static inline void
-dco_install_iroute(struct multi_context *m, struct multi_instance *mi, struct mroute_addr *addr)
+dco_install_iroute(struct multi_context *m, struct multi_instance *mi, const struct mroute_addr *addr)
 {
 }
 
 static inline void
-dco_delete_iroutes(openvpn_net_ctx_t *net_ctx, const struct context *c)
+dco_delete_iroutes_v4(openvpn_net_ctx_t *net_ctx, const struct context *c)
+{
+}
+
+static inline void
+dco_delete_iroutes_v6(openvpn_net_ctx_t *net_ctx, const struct context *c)
 {
 }
 

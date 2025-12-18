@@ -555,10 +555,17 @@ schedule_exit(struct context *c)
      * last connecting client claiming the iroutes takes ownership. Therefore
      * they are not removed during delayed cleanup.
      */
-    if (c->did_dco_iroutes)
+
+    if (c->did_dco_iroutes_v4)
     {
-        c->did_dco_iroutes = false;
-        dco_delete_iroutes(&c->net_ctx, c);
+        c->did_dco_iroutes_v4 = false;
+        dco_delete_iroutes_v4(&c->net_ctx, c);
+    }
+
+    if (c->did_dco_iroutes_v6)
+    {
+        c->did_dco_iroutes_v6 = false;
+        dco_delete_iroutes_v6(&c->net_ctx, c);
     }
 
     tls_set_single_session(c->c2.tls_multi);
