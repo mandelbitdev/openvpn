@@ -35,6 +35,9 @@
 #define OVPN_CMD_SWAP_KEYS  OVPN_CMD_KEY_SWAP_NTF
 #define OVPN_CMD_FLOAT_PEER OVPN_CMD_PEER_FLOAT_NTF
 
+/* Used for feature negotiation */
+#define OVPN_ATTR_MAX_SUPPORTED OVPN_A_PEER_KEEPALIVE_TIMEOUT
+
 typedef enum ovpn_key_slot dco_key_slot_t;
 typedef enum ovpn_cipher_alg dco_cipher_t;
 
