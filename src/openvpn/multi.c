@@ -4494,7 +4494,7 @@ update_vaddr(struct multi_context *m, struct multi_instance *mi, const char *new
         return;
     }
 
-#if defined(TARGET_LINUX)
+#if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
     /* we update the virtual addresses of the peer in the DCO */
     if (dco_enabled(&m->top.options))
     {

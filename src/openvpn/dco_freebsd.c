@@ -562,7 +562,57 @@ dco_set_peer(dco_context_t *dco, unsigned int peerid, int keepalive_interval, in
 int
 dco_update_peer_addr(dco_context_t *dco, unsigned int peerid, struct in_addr *vpn_ipv4, struct in6_addr *vpn_ipv6, int flags)
 {
-    return 0;
+    msg(D_DCO_DEBUG, "%s: peer-id %u", __func__, peerid);
+
+    if (!flags)
+    {
+        return 0;
+    }
+
+    struct ifdrv drv;
+    nvlist_t *nvl;
+    int ret;
+
+    nvl = nvlist_create(0);
+    nvlist_add_number(nvl, "peerid", peerid);
+
+    if (flags & (1 << AF_INET))
+    {
+        struct in_addr addr;
+        if (!vpn_ipv4)
+        {
+            CLEAR(addr);
+            vpn_ipv4 = &addr;
+        }
+        nvlist_add_binary(nvl, "vpn_ipv4", &vpn_ipv4->s_addr, sizeof(vpn_ipv4->s_addr));
+    }
+
+    if (flags & (1 << AF_INET6))
+    {
+        struct in6_addr addr6;
+        if (!vpn_ipv6)
+        {
+            CLEAR(addr6);
+            vpn_ipv6 = &addr6;
+        }
+        nvlist_add_binary(nvl, "vpn_ipv6", vpn_ipv6, sizeof(*vpn_ipv6));
+    }
+
+    CLEAR(drv);
+    snprintf(drv.ifd_name, IFNAMSIZ, "%s", dco->ifname);
+    drv.ifd_cmd = OVPN_UPDATE_PEER;
+    drv.ifd_data = nvlist_pack(nvl, &drv.ifd_len);
+
+    ret = ioctl(dco->fd, SIOCSDRVSPEC, &drv);
+    if (ret)
+    {
+        msg(M_ERR | M_ERRNO, "Failed to create new peer");
+    }
+
+    free(drv.ifd_data);
+    nvlist_destroy(nvl);
+
+    return ret;
 }
 
 static void

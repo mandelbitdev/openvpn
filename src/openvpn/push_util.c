@@ -254,7 +254,7 @@ support_push_update(struct multi_instance *mi)
 static int
 send_push_update(struct multi_context *m, const void *target, const char *msg, const push_update_type type, const size_t push_bundle_size)
 {
-#if !defined(TARGET_LINUX)
+#if !defined(TARGET_LINUX) && !defined(TARGET_FREEBSD)
     if (dco_enabled(&m->top.options))
     {
         msg(M_WARN, "WARN: PUSH_UPDATE messages cannot currently be sent while DCO is enabled."
