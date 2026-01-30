@@ -2082,23 +2082,6 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
             node = "/dev/net/tun";
         }
 
-#if defined(TARGET_LINUX) && defined(CLONE_NEWNET) && defined(__GLIBC__)
-        if (tt->options.netns)
-        {
-            int netns_fd = open(tt->options.netns, O_RDONLY);
-            if (netns_fd < 0)
-            {
-                msg(M_ERR, "ERROR: Cannot open netns %s", tt->options.netns);
-            }
-
-            if (setns(netns_fd, CLONE_NEWNET) < 0)
-            {
-                msg(M_ERR, "ERROR: setns()");
-                close(netns_fd);
-            }
-        }
-#endif
-
         /*
          * Open the interface
          */
@@ -2151,6 +2134,24 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
         }
 
         msg(M_INFO, "TUN/TAP device %s opened", ifr.ifr_name);
+
+#if defined(TARGET_LINUX) && defined(CLONE_NEWNET) && defined(__GLIBC__)
+        if (tt->options.netns)
+        {
+            /*int netns_fd = open(tt->options.netns, O_RDONLY);
+            if (netns_fd < 0)
+            {
+                msg(M_ERR, "ERROR: Cannot open netns %s", tt->options.netns);
+            }*/
+
+            int ret = net_iface_move_netns(ifr.ifr_name, tt->options.netns);
+
+            if (ret < 0)
+            {
+                msg(M_ERR, "ERROR: switching netns");
+            }
+        }
+#endif
 
         /*
          * Try making the TX send queue bigger

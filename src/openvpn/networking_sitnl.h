@@ -24,4 +24,8 @@
 typedef char openvpn_net_iface_t;
 typedef void *openvpn_net_ctx_t;
 
+int net_iface_move_netns(const char *ifname, const char *netns_path);
+
+int openvpn_if_nametoindex(const char *ifname, int netnsid);
+
 #endif /* NETWORKING_SITNL_H_ */
