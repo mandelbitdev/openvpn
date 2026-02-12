@@ -316,6 +316,7 @@ struct options
 
     struct dns_options dns_options;
 
+    const char *netns;
     bool remote_random;
     const char *ipchange;
     const char *dev;

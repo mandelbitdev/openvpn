@@ -304,6 +304,12 @@ routing.
   Specify the link layer address, more commonly known as the MAC address.
   Only applied to TAP devices.
 
+--netns name
+  Move the created tunnel interface into the specified network
+  namespace. The namespace must already exist.
+
+  (Supported on Linux only, on other platforms this is a no-op).
+
 --persist-tun
   Don't close and reopen TUN/TAP device or run up/down scripts across
   :code:`SIGUSR1` or ``--ping-restart`` restarts.

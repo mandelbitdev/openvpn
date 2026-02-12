@@ -2169,6 +2169,17 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
         set_nonblock(tt->fd);
         set_cloexec(tt->fd);
         tt->actual_name = string_alloc(ifr.ifr_name, NULL);
+
+#if defined(TARGET_LINUX) && defined(ENABLE_SITNL)
+        if (ctx->netns)
+        {
+            int ret = net_iface_move_netns(ifr.ifr_name, ctx->netns);
+            if (ret < 0)
+            {
+                msg(M_WARN | M_ERRNO, "Note: Cannot move dev %s to network namespace %s", ifr.ifr_name, ctx->netns);
+            }
+        }
+#endif /* if defined (TARGET_LINUX) && defined(ENABLE_SITNL) */
     }
     return;
 }
