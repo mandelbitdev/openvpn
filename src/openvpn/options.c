@@ -6488,6 +6488,14 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->mtu_test = true;
     }
+    else if (streq(p[0], "netns") && p[1] && !p[2])
+    {
+#ifndef ENABLE_SITNL
+        msg(M_WARN, "NOTE: --netns is supported only on Linux when compiled with SITNL");
+#endif
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        options->netns = p[1];
+    }
     else if (streq(p[0], "nice") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_NICE);
