@@ -39,10 +39,10 @@ typedef void *openvpn_net_ctx_t;
 typedef void *openvpn_net_iface_t;
 #endif /* ifdef ENABLE_SITNL */
 
-/* Only the iproute2 backend implements these functions,
+/* Only the iproute2 and sitnl backend implements these functions,
  * the rest can rely on these stubs
  */
-#if !defined(ENABLE_IPROUTE)
+#if !defined(ENABLE_IPROUTE) && !defined(ENABLE_SITNL) || defined(TARGET_ANDROID)
 static inline int
 net_ctx_init(struct context *c, openvpn_net_ctx_t *ctx)
 {
@@ -63,7 +63,7 @@ net_ctx_free(openvpn_net_ctx_t *ctx)
 {
     (void)ctx;
 }
-#endif /* !defined(ENABLE_IPROUTE) */
+#endif /* !defined(ENABLE_IPROUTE) && !defined(ENABLE_SITNL) || defined(TARGET_ANDROID) */
 
 #if defined(ENABLE_SITNL) || defined(ENABLE_IPROUTE)
 

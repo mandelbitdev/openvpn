@@ -2082,6 +2082,13 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
     }
     else
     {
+#if defined(TARGET_LINUX) && defined(ENABLE_SITNL)
+        int orig_fd = -1;
+        if (ctx->netns)
+        {
+            orig_fd = netns_switch(ctx);
+        }
+#endif /* if defined(TARGET_LINUX) && defined(ENABLE_SITNL) */
         /*
          * Process --dev-node
          */
@@ -2098,6 +2105,12 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
         {
             msg(M_ERR, "ERROR: Cannot open TUN/TAP dev %s", node);
         }
+#if defined(TARGET_LINUX) && defined(ENABLE_SITNL)
+        if (orig_fd != -1)
+        {
+            netns_restore(orig_fd);
+        }
+#endif
 
         /*
          * Process --tun-ipv6

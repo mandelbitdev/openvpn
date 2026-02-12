@@ -389,6 +389,12 @@ dco_check_startup_option(msglvl_t msglevel, const struct options *o)
                 ret);
         }
     }
+
+    if (o->netns)
+    {
+        msg(msglevel, "Note: --netns not supported by DCO, disabling data channel offload.");
+        return false;
+    }
 #endif /* if defined(_WIN32) */
 
 #if defined(HAVE_LIBCAPNG)
