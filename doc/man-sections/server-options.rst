@@ -286,23 +286,28 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   Push virtual IP endpoints for client tunnel, overriding the
   ``--ifconfig-pool`` dynamic allocation.
 
-  Valid syntax:
+  Valid syntaxes:
   ::
 
-     ifconfig-push local remote-netmask [alias]
+     ifconfig-push local remote [alias]
+     ifconfig-push local netmask [alias]
+     ifconfig-push local/bits [alias]
 
-  The parameters ``local`` and ``remote-netmask`` are set according to the
-  ``--ifconfig`` directive which you want to execute on the client machine
-  to configure the remote end of the tunnel. Note that the parameters
-  ``local`` and ``remote-netmask`` are from the perspective of the client,
-  not the server. They may be DNS names rather than IP addresses, in which
-  case they will be resolved on the server at the time of client
-  connection.
+  The parameters ``local remote`` or ``local netmask`` are set according to
+  the ``--ifconfig`` directive which you want to execute on the client
+  machine to configure the remote end of the tunnel. As a compact form,
+  ``local/bits`` can be used, in which case the netmask is derived from
+  ``bits``. Note that the parameters ``local`` and ``remote`` are from the
+  perspective of the client, not the server. They may be DNS names rather
+  than IP addresses, in which case they will be resolved on the server at
+  the time of client connection.
 
   The optional ``alias`` parameter may be used in cases where NAT causes
   the client view of its local endpoint to differ from the server view. In
-  this case ``local/remote-netmask`` will refer to the server view while
-  ``alias/remote-netmask`` will refer to the client view.
+  this case ``local/netmask`` (or ``local/bits``) will refer to the server
+  view while ``alias/netmask`` (or ``alias/bits``) will refer to the client
+  view, so the server will actually push ``ifconfig alias remote/netmask`` to
+  the client.
 
   This option must be associated with a specific client instance, which
   means that it must be specified either in a client instance config file
@@ -327,6 +332,15 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   When DCO is enabled and the IP is not in contained in the network specified
   by ``--ifconfig``, OpenVPN will install a /32 host route for the ``local``
   IP address.
+
+--ifconfig-push-constraint args
+  Restrict static IPv4 addresses from ``--ifconfig-push`` to a specific subnet.
+
+  Valid syntaxes:
+  ::
+
+     ifconfig-push-constraint network netmask
+     ifconfig-push-constraint network/bits
 
 --ifconfig-ipv6-push args
   for ``--client-config-dir`` per-client static IPv6 interface
@@ -367,13 +381,15 @@ fast hardware. SSL/TLS authentication must be used in this mode.
       applies only to IPv6.
 
 --iroute args
-  Generate an internal route to a specific client. The ``netmask``
-  parameter, if omitted, defaults to :code:`255.255.255.255`.
+  Generate an internal route to a specific client. If both ``netmask`` and
+  ``bits`` are omitted, the default netmask is :code:`255.255.255.255`
+  (equivalent to :code:`/32` in CIDR notation).
 
-  Valid syntax:
+  Valid syntaxes:
   ::
 
      iroute network [netmask]
+     iroute network[/bits]
 
   This directive can be used to route a fixed subnet from the server to a
   particular client, regardless of where the client is connecting from.
@@ -555,10 +571,11 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   optional :code:`nopool` flag is given, no dynamic IP address pool will
   prepared for VPN clients.
 
-  Valid syntax:
+  Valid syntaxes:
   ::
 
       server network netmask [nopool]
+      server network/bits [nopool]
 
   For example, ``--server 10.8.0.0 255.255.255.0`` expands as follows:
   ::
@@ -597,6 +614,7 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   ::
 
       server-bridge gateway netmask pool-start-IP pool-end-IP
+      server-bridge gateway/bits pool-start-IP pool-end-IP
       server-bridge [nogw]
 
   If ``--server-bridge`` is used without any parameters, it will enable a

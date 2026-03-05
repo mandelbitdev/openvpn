@@ -208,6 +208,8 @@ static const char usage_message[] =
     "                  addresses outside of the subnets used by either peer.\n"
     "                  TAP: configure device to use IP address l as a local\n"
     "                  endpoint and rn as a subnet mask.\n"
+    "                  In netmask mode (TAP, or TUN with --topology subnet),\n"
+    "                  l may be specified as l/bits.\n"
     "--ifconfig-ipv6 l r : configure device to use IPv6 address l as local\n"
     "                      endpoint (as a /64) and r as remote endpoint\n"
     "--ifconfig-noexec : Don't actually execute ifconfig/netsh command, instead\n"
@@ -221,6 +223,7 @@ static const char usage_message[] =
     "--route network [netmask] [gateway] [metric] :\n"
     "                  Add route to routing table after connection\n"
     "                  is established.  Multiple routes can be specified.\n"
+    "                  network netmask can also be specified as network/bits.\n"
     "                  netmask default: 255.255.255.255\n"
     "                  gateway default: taken from --route-gateway or --ifconfig\n"
     "                  Specify default by leaving blank or setting to \"default\".\n"
@@ -259,6 +262,7 @@ static const char usage_message[] =
     "                   (Server) Instead of forwarding IPv6 packets send\n"
     "                   ICMPv6 host unreachable packets to the client.\n"
     "--client-nat snat|dnat network netmask alias : on client add 1-to-1 NAT rule.\n"
+    "                  network netmask can also be specified as network/bits.\n"
     "--push-peer-info : (client only) push client info to server.\n"
     "--setenv name value : Set a custom environmental variable to pass to script.\n"
     "--setenv FORWARD_COMPATIBLE 1 : Relax config file syntax checking to allow\n"
@@ -425,10 +429,12 @@ static const char usage_message[] =
     "--vlan-pvid v   : Sets the Port VLAN Identifier. Defaults to 1.\n"
     "\n"
     "Multi-Client Server options (when --mode server is used):\n"
-    "--server network netmask : Helper option to easily configure server mode.\n"
+    "--server network netmask [nopool] : Helper option to easily configure server mode.\n"
+    "                  network netmask can also be specified as network/bits.\n"
     "--server-ipv6 network/bits : Configure IPv6 server mode.\n"
     "--server-bridge [IP netmask pool-start-IP pool-end-IP] : Helper option to\n"
     "                    easily configure ethernet bridging server mode.\n"
+    "                    IP netmask can also be specified as IP/bits.\n"
     "--push \"option\" : Push a config file option back to the peer for remote\n"
     "                  execution.  Peer must specify --pull in its config file.\n"
     "--push-reset    : Don't inherit global push list for specific\n"
@@ -442,13 +448,15 @@ static const char usage_message[] =
     "                  If seconds=0, file will be treated as read-only.\n"
     "--ifconfig-ipv6-pool base-IP/bits : set aside an IPv6 network block\n"
     "                  to be dynamically allocated to connecting clients.\n"
-    "--ifconfig-push local remote-netmask : Push an ifconfig option to remote,\n"
+    "--ifconfig-push local remote-netmask [alias] : Push an ifconfig option to remote,\n"
     "                  overrides --ifconfig-pool dynamic allocation.\n"
+    "                  local remote-netmask can also be specified as local/bits.\n"
     "                  Only valid in a client-specific config file.\n"
     "--ifconfig-ipv6-push local/bits remote : Push an ifconfig-ipv6 option to\n"
     "                  remote, overrides --ifconfig-ipv6-pool allocation.\n"
     "                  Only valid in a client-specific config file.\n"
     "--iroute network [netmask] : Route subnet to client.\n"
+    "                  network netmask can also be specified as network/bits.\n"
     "--iroute-ipv6 network/bits : Route IPv6 subnet to client.\n"
     "                  Sets up internal routes only.\n"
     "                  Only valid in a client-specific config file.\n"
@@ -5365,6 +5373,28 @@ check_dns_option(struct options *options, char *p[], const msglvl_t msglevel, bo
     return true;
 }
 
+static bool
+ipv4_cidr_parms_checked(char *p[], int network_idx, int max_idx, char *normalized[],
+                        const char *cidr_label, const msglvl_t msglevel, struct gc_arena *gc)
+{
+    const int res = convert_ipv4_cidr_parms(p, network_idx, max_idx, normalized, gc);
+    if (res < 0)
+    {
+        msg(msglevel, "%s parameter %s '%s' has invalid CIDR notation",
+            p[0], cidr_label, p[network_idx]);
+        return false;
+    }
+
+    if (res == 1 && p[max_idx])
+    {
+        msg(msglevel, "%s parameter has too many arguments when using CIDR %s",
+            p[0], cidr_label);
+        return false;
+    }
+
+    return true;
+}
+
 void
 update_option(struct context *c, struct options *options, char *p[], bool is_inline,
               const char *file, int line, const int level, const msglvl_t msglevel,
@@ -5378,8 +5408,15 @@ update_option(struct context *c, struct options *options, char *p[], bool is_inl
     {
         if (!(options->push_update_options_found & OPT_P_U_ROUTE))
         {
+            char *route_parms[MAX_PARMS + 1] = { 0 };
+
             VERIFY_PERMISSION(OPT_P_ROUTE);
-            if (!check_route_option(options, p, msglevel, pull_mode))
+            if (!ipv4_cidr_parms_checked(p, 1, 4, route_parms, "network/IP", msglevel, &options->gc))
+            {
+                goto err;
+            }
+
+            if (!check_route_option(options, route_parms, msglevel, pull_mode))
             {
                 goto err;
             }
@@ -5899,18 +5936,32 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         iproute_path = p[1];
     }
 #endif
-    else if (streq(p[0], "ifconfig") && p[1] && p[2] && !p[3])
+    else if (streq(p[0], "ifconfig") && p[1] && !p[3])
     {
+        char *ifconfig_parms[MAX_PARMS + 1] = { 0 };
+
         VERIFY_PERMISSION(OPT_P_UP);
-        if (ip_or_dns_addr_safe(p[1], options->allow_pull_fqdn)
-            && ip_or_dns_addr_safe(p[2], options->allow_pull_fqdn)) /* FQDN -- may be DNS name */
+        if (!ipv4_cidr_parms_checked(p, 1, 2, ifconfig_parms, "local/IP", msglevel, &options->gc))
         {
-            options->ifconfig_local = p[1];
-            options->ifconfig_remote_netmask = p[2];
+            goto err;
+        }
+        if (!ifconfig_parms[2])
+        {
+            msg(msglevel, "--ifconfig requires 'local remote/netmask' or 'local/bits'");
+            goto err;
+        }
+
+        if (ip_or_dns_addr_safe(ifconfig_parms[1], options->allow_pull_fqdn)
+            && ip_or_dns_addr_safe(ifconfig_parms[2],
+                                   options->allow_pull_fqdn)) /* FQDN -- may be DNS name */
+        {
+            options->ifconfig_local = ifconfig_parms[1];
+            options->ifconfig_remote_netmask = ifconfig_parms[2];
         }
         else
         {
-            msg(msglevel, "ifconfig parms '%s' and '%s' must be valid addresses", p[1], p[2]);
+            msg(msglevel, "ifconfig parms '%s' and '%s' must be valid addresses",
+                ifconfig_parms[1], ifconfig_parms[2]);
             goto err;
         }
     }
@@ -6804,11 +6855,24 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         VERIFY_PERMISSION(OPT_P_PERSIST_IP);
         options->persist_remote_ip = true;
     }
-    else if (streq(p[0], "client-nat") && p[1] && p[2] && p[3] && p[4] && !p[5])
+    else if (streq(p[0], "client-nat") && p[1] && p[2] && !p[5])
     {
+        char *client_nat_parms[MAX_PARMS + 1] = { 0 };
+
         VERIFY_PERMISSION(OPT_P_ROUTE);
+        if (!ipv4_cidr_parms_checked(p, 2, 4, client_nat_parms, "network/IP", msglevel, &options->gc))
+        {
+            goto err;
+        }
+        if (!client_nat_parms[3] || !client_nat_parms[4])
+        {
+            msg(msglevel, "--client-nat requires 'snat|dnat network netmask alias' or "
+                          "'snat|dnat network/bits alias'");
+            goto err;
+        }
         cnol_check_alloc(options);
-        add_client_nat_to_option_list(options->client_nat, p[1], p[2], p[3], p[4], msglevel);
+        add_client_nat_to_option_list(options->client_nat, client_nat_parms[1], client_nat_parms[2],
+                                      client_nat_parms[3], client_nat_parms[4], msglevel);
     }
     else if (streq(p[0], "route-table") && p[1] && !p[2])
     {
@@ -6821,11 +6885,19 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     else if (streq(p[0], "route") && p[1] && !p[5])
     {
         VERIFY_PERMISSION(OPT_P_ROUTE);
-        if (!check_route_option(options, p, msglevel, pull_mode))
+
+        char *route_parms[MAX_PARMS + 1] = { 0 };
+        if (!ipv4_cidr_parms_checked(p, 1, 4, route_parms, "network/IP", msglevel, &options->gc))
         {
             goto err;
         }
-        add_route_to_option_list(options->routes, p[1], p[2], p[3], p[4],
+
+        if (!check_route_option(options, route_parms, msglevel, pull_mode))
+        {
+            goto err;
+        }
+        add_route_to_option_list(options->routes, route_parms[1], route_parms[2], route_parms[3],
+                                 route_parms[4],
                                  options->route_default_table_id);
     }
     else if (streq(p[0], "route-ipv6") && p[1] && !p[4])
@@ -7145,15 +7217,26 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->occ = false;
     }
-    else if (streq(p[0], "server") && p[1] && p[2] && !p[4])
+    else if (streq(p[0], "server") && p[1] && !p[4])
     {
-        const int lev = M_WARN;
+        const msglvl_t lev = M_WARN;
         bool error = false;
         in_addr_t network, netmask;
+        char *server_parms[MAX_PARMS + 1] = { 0 };
 
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        network = get_ip_addr(p[1], lev, &error);
-        netmask = get_ip_addr(p[2], lev, &error);
+        if (!ipv4_cidr_parms_checked(p, 1, 3, server_parms, "network/IP", msglevel, &options->gc))
+        {
+            goto err;
+        }
+        if (!server_parms[2])
+        {
+            msg(msglevel, "--server requires 'network netmask [nopool]' or 'network/bits [nopool]'");
+            goto err;
+        }
+
+        network = get_ip_addr(server_parms[1], lev, &error);
+        netmask = get_ip_addr(server_parms[2], lev, &error);
         if (error || !network || !netmask)
         {
             msg(msglevel, "error parsing --server parameters");
@@ -7163,22 +7246,23 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         options->server_network = network;
         options->server_netmask = netmask;
 
-        if (p[3])
+        if (server_parms[3])
         {
-            if (streq(p[3], "nopool"))
+            if (streq(server_parms[3], "nopool"))
             {
                 options->server_flags |= SF_NOPOOL;
             }
             else
             {
-                msg(msglevel, "error parsing --server: %s is not a recognized flag", p[3]);
+                msg(msglevel, "error parsing --server: %s is not a recognized flag",
+                    server_parms[3]);
                 goto err;
             }
         }
     }
     else if (streq(p[0], "server-ipv6") && p[1] && !p[2])
     {
-        const int lev = M_WARN;
+        const msglvl_t lev = M_WARN;
         struct in6_addr network;
         unsigned int netbits = 0;
 
@@ -7199,17 +7283,29 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         options->server_network_ipv6 = network;
         options->server_netbits_ipv6 = netbits;
     }
-    else if (streq(p[0], "server-bridge") && p[1] && p[2] && p[3] && p[4] && !p[5])
+    else if (streq(p[0], "server-bridge") && p[1] && p[2] && p[3] && !p[5])
     {
-        const int lev = M_WARN;
+        const msglvl_t lev = M_WARN;
         bool error = false;
         in_addr_t ip, netmask, pool_start, pool_end;
+        char *server_bridge_parms[MAX_PARMS + 1] = { 0 };
 
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        ip = get_ip_addr(p[1], lev, &error);
-        netmask = get_ip_addr(p[2], lev, &error);
-        pool_start = get_ip_addr(p[3], lev, &error);
-        pool_end = get_ip_addr(p[4], lev, &error);
+        if (!ipv4_cidr_parms_checked(p, 1, 4, server_bridge_parms, "gateway/IP", msglevel, &options->gc))
+        {
+            goto err;
+        }
+        if (!server_bridge_parms[4])
+        {
+            msg(msglevel, "--server-bridge requires 'gateway netmask pool-start-IP pool-end-IP' "
+                          "or 'gateway/bits pool-start-IP pool-end-IP'");
+            goto err;
+        }
+
+        ip = get_ip_addr(server_bridge_parms[1], lev, &error);
+        netmask = get_ip_addr(server_bridge_parms[2], lev, &error);
+        pool_start = get_ip_addr(server_bridge_parms[3], lev, &error);
+        pool_end = get_ip_addr(server_bridge_parms[4], lev, &error);
         if (error || !ip || !netmask || !pool_start || !pool_end)
         {
             msg(msglevel, "error parsing --server-bridge parameters");
@@ -7250,7 +7346,7 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     }
     else if (streq(p[0], "ifconfig-pool") && p[1] && p[2] && !p[4])
     {
-        const int lev = M_WARN;
+        const msglvl_t lev = M_WARN;
         bool error = false;
         in_addr_t start, end, netmask = 0;
 
@@ -7290,7 +7386,7 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     }
     else if (streq(p[0], "ifconfig-ipv6-pool") && p[1] && !p[2])
     {
-        const int lev = M_WARN;
+        const msglvl_t lev = M_WARN;
         struct in6_addr network;
         unsigned int netbits = 0;
 
@@ -7556,30 +7652,51 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     }
     else if (streq(p[0], "iroute") && p[1] && !p[3])
     {
+        char *iroute_parms[MAX_PARMS + 1] = { 0 };
+
         VERIFY_PERMISSION(OPT_P_INSTANCE);
-        option_iroute(options, p[1], p[2], msglevel);
+        if (!ipv4_cidr_parms_checked(p, 1, 2, iroute_parms, "network/IP", msglevel, &options->gc))
+        {
+            goto err;
+        }
+        option_iroute(options, iroute_parms[1], iroute_parms[2], msglevel);
     }
     else if (streq(p[0], "iroute-ipv6") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_INSTANCE);
         option_iroute_ipv6(options, p[1], msglevel);
     }
-    else if (streq(p[0], "ifconfig-push") && p[1] && p[2] && !p[4])
+    else if (streq(p[0], "ifconfig-push") && p[1] && !p[4])
     {
         in_addr_t local, remote_netmask;
+        char *ifconfig_push_parms[MAX_PARMS + 1] = { 0 };
 
         VERIFY_PERMISSION(OPT_P_INSTANCE);
-        local = getaddr(GETADDR_HOST_ORDER | GETADDR_RESOLVE, p[1], 0, NULL, NULL);
-        remote_netmask = getaddr(GETADDR_HOST_ORDER | GETADDR_RESOLVE, p[2], 0, NULL, NULL);
+        if (!ipv4_cidr_parms_checked(p, 1, 3, ifconfig_push_parms, "local/IP", msglevel, &options->gc))
+        {
+            goto err;
+        }
+        if (!ifconfig_push_parms[2])
+        {
+            msg(msglevel, "--ifconfig-push requires 'local remote-netmask [alias]' or "
+                          "'local/bits [alias]'");
+            goto err;
+        }
+
+        local = getaddr(GETADDR_HOST_ORDER | GETADDR_RESOLVE, ifconfig_push_parms[1], 0, NULL,
+                        NULL);
+        remote_netmask = getaddr(GETADDR_HOST_ORDER | GETADDR_RESOLVE, ifconfig_push_parms[2], 0,
+                                 NULL, NULL);
         if (local && remote_netmask)
         {
             options->push_ifconfig_defined = true;
             options->push_ifconfig_local = local;
             options->push_ifconfig_remote_netmask = remote_netmask;
-            if (p[3])
+            if (ifconfig_push_parms[3])
             {
                 options->push_ifconfig_local_alias =
-                    getaddr(GETADDR_HOST_ORDER | GETADDR_RESOLVE, p[3], 0, NULL, NULL);
+                    getaddr(GETADDR_HOST_ORDER | GETADDR_RESOLVE, ifconfig_push_parms[3], 0,
+                            NULL, NULL);
             }
         }
         else
@@ -7588,13 +7705,26 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
             goto err;
         }
     }
-    else if (streq(p[0], "ifconfig-push-constraint") && p[1] && p[2] && !p[3])
+    else if (streq(p[0], "ifconfig-push-constraint") && p[1] && !p[3])
     {
         in_addr_t network, netmask;
+        char *ifconfig_push_constraint_parms[MAX_PARMS + 1] = { 0 };
 
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        network = getaddr(GETADDR_HOST_ORDER | GETADDR_RESOLVE, p[1], 0, NULL, NULL);
-        netmask = getaddr(GETADDR_HOST_ORDER, p[2], 0, NULL, NULL);
+        if (!ipv4_cidr_parms_checked(p, 1, 2, ifconfig_push_constraint_parms, "network/IP", msglevel,
+                                     &options->gc))
+        {
+            goto err;
+        }
+        if (!ifconfig_push_constraint_parms[2])
+        {
+            msg(msglevel, "--ifconfig-push-constraint requires 'network netmask' or 'network/bits'");
+            goto err;
+        }
+
+        network = getaddr(GETADDR_HOST_ORDER | GETADDR_RESOLVE, ifconfig_push_constraint_parms[1],
+                          0, NULL, NULL);
+        netmask = getaddr(GETADDR_HOST_ORDER, ifconfig_push_constraint_parms[2], 0, NULL, NULL);
         if (network && netmask)
         {
             options->push_ifconfig_constraint_defined = true;

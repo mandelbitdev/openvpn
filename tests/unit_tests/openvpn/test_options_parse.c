@@ -34,6 +34,7 @@
 #include <cmocka.h>
 
 #include "options.h"
+#include "options_util.h"
 #include "test_common.h"
 #include "mock_msg.h"
 
@@ -249,20 +250,9 @@ test_read_config(void **state)
     gc_init(&o.gc);
     gc_init(&o.dns_options.gc);
 
-    char *p_expect_someopt[MAX_PARMS];
-    char *p_expect_otheropt[MAX_PARMS];
-    char *p_expect_inlineopt[MAX_PARMS];
-    CLEAR(p_expect_someopt);
-    CLEAR(p_expect_otheropt);
-    CLEAR(p_expect_inlineopt);
-    p_expect_someopt[0] = "someopt";
-    p_expect_someopt[1] = "parm1";
-    p_expect_someopt[2] = "parm2";
-    p_expect_otheropt[0] = "otheropt";
-    p_expect_otheropt[1] = "1";
-    p_expect_otheropt[2] = "2";
-    p_expect_inlineopt[0] = "inlineopt";
-    p_expect_inlineopt[1] = "some text\nother text\n";
+    char *p_expect_someopt[MAX_PARMS] = { "someopt", "parm1", "parm2", NULL };
+    char *p_expect_otheropt[MAX_PARMS] = { "otheropt", "1", "2", NULL };
+    char *p_expect_inlineopt[MAX_PARMS] = { "inlineopt", "some text\nother text\n", NULL };
 
     /* basic test */
     expect_function_call(add_option);
@@ -299,12 +289,209 @@ test_read_config(void **state)
     gc_free(&o.dns_options.gc);
 }
 
+static void
+assert_tokens(char *actual[], const char *expected[], int max_idx)
+{
+    for (int i = 0; i <= max_idx + 1; ++i)
+    {
+        if (!expected[i])
+        {
+            assert_null(actual[i]);
+            continue;
+        }
+        assert_non_null(actual[i]);
+        assert_string_equal(actual[i], expected[i]);
+    }
+}
+
+static void
+test_convert_ipv4_cidr_parms_core(void **state)
+{
+    struct gc_arena gc = gc_new();
+    char *normalized[MAX_PARMS + 1] = { 0 };
+
+    /* non-CIDR input is returned unchanged */
+    char *legacy[MAX_PARMS + 1] = { "route", "10.8.0.0", "255.255.255.0", NULL };
+    const char *legacy_expected[] = { "route", "10.8.0.0", "255.255.255.0", NULL, NULL, NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(legacy, 1, 4, normalized, &gc), 0);
+    assert_tokens(normalized, legacy_expected, 4);
+
+    /* CIDR input is split and netmask is materialized */
+    CLEAR(normalized);
+    char *cidr[MAX_PARMS + 1] = { "route", "10.8.0.0/24", NULL };
+    const char *cidr_expected[] = { "route", "10.8.0.0", "255.255.255.0", NULL, NULL, NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(cidr, 1, 4, normalized, &gc), 1);
+    assert_tokens(normalized, cidr_expected, 4);
+
+    gc_free(&gc);
+}
+
+static void
+test_convert_ipv4_cidr_parms_coverage(void **state)
+{
+    struct gc_arena gc = gc_new();
+    char *normalized[MAX_PARMS + 1] = { 0 };
+
+    /* success paths */
+
+    /* route */
+    char *route[] = { "route", "10.1.2.0/24", "192.0.2.1", "7", NULL };
+    const char *route_expected[] = { "route", "10.1.2.0", "255.255.255.0", "192.0.2.1", "7",
+                                     NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(route, 1, 4, normalized, &gc), 1);
+    assert_tokens(normalized, route_expected, 4);
+
+    /* ifconfig */
+    CLEAR(normalized);
+    char *ifconfig[] = { "ifconfig", "10.8.0.1/24", NULL };
+    const char *ifconfig_expected[] = { "ifconfig", "10.8.0.1", "255.255.255.0", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(ifconfig, 1, 2, normalized, &gc), 1);
+    assert_tokens(normalized, ifconfig_expected, 2);
+
+    /* server */
+    CLEAR(normalized);
+    char *server[] = { "server", "10.8.0.0/24", "nopool", NULL };
+    const char *server_expected[] = { "server", "10.8.0.0", "255.255.255.0", "nopool", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(server, 1, 3, normalized, &gc), 1);
+    assert_tokens(normalized, server_expected, 3);
+
+    /* server-bridge */
+    CLEAR(normalized);
+    char *server_bridge[] = { "server-bridge", "10.8.0.1/24", "10.8.0.10", "10.8.0.20", NULL };
+    const char *server_bridge_expected[] = { "server-bridge", "10.8.0.1", "255.255.255.0",
+                                             "10.8.0.10", "10.8.0.20", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(server_bridge, 1, 4, normalized, &gc), 1);
+    assert_tokens(normalized, server_bridge_expected, 4);
+
+    /* iroute */
+    CLEAR(normalized);
+    char *iroute[] = { "iroute", "172.16.0.0/16", NULL };
+    const char *iroute_expected[] = { "iroute", "172.16.0.0", "255.255.0.0", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(iroute, 1, 2, normalized, &gc), 1);
+    assert_tokens(normalized, iroute_expected, 2);
+
+    /* ifconfig-push */
+    CLEAR(normalized);
+    char *ifconfig_push[] = { "ifconfig-push", "10.8.0.6/24", "10.8.0.7", NULL };
+    const char *ifconfig_push_expected[] = { "ifconfig-push", "10.8.0.6", "255.255.255.0",
+                                             "10.8.0.7", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(ifconfig_push, 1, 3, normalized, &gc), 1);
+    assert_tokens(normalized, ifconfig_push_expected, 3);
+
+    /* ifconfig-push-constraint */
+    CLEAR(normalized);
+    char *ifconfig_push_constraint[] = { "ifconfig-push-constraint", "10.8.0.0/24", NULL };
+    const char *ifconfig_push_constraint_expected[] = { "ifconfig-push-constraint", "10.8.0.0",
+                                                        "255.255.255.0", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(ifconfig_push_constraint, 1, 2, normalized, &gc),
+                     1);
+    assert_tokens(normalized, ifconfig_push_constraint_expected, 2);
+
+    /* client-nat */
+    CLEAR(normalized);
+    char *client_nat[] = { "client-nat", "snat", "192.168.0.0/16", "10.0.0.0", NULL };
+    const char *client_nat_expected[] = { "client-nat", "snat", "192.168.0.0", "255.255.0.0",
+                                          "10.0.0.0", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(client_nat, 2, 4, normalized, &gc), 1);
+    assert_tokens(normalized, client_nat_expected, 4);
+
+    /* CIDR prefix boundaries */
+
+    /* /0 */
+    CLEAR(normalized);
+    char *route_default[MAX_PARMS + 1] = { "route", "0.0.0.0/0", NULL };
+    const char *route_default_expected[] = { "route", "0.0.0.0", "0.0.0.0", NULL, NULL, NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(route_default, 1, 4, normalized, &gc), 1);
+    assert_tokens(normalized, route_default_expected, 4);
+
+    /* /32 */
+    CLEAR(normalized);
+    char *route_host[MAX_PARMS + 1] = { "route", "198.51.100.42/32", NULL };
+    const char *route_host_expected[] = { "route", "198.51.100.42", "255.255.255.255", NULL,
+                                          NULL, NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(route_host, 1, 4, normalized, &gc), 1);
+    assert_tokens(normalized, route_host_expected, 4);
+
+    /* CIDR with DNS-style network token */
+    CLEAR(normalized);
+    char *route_dns_cidr[] = { "route", "vpn.example/24", "192.0.2.1", NULL };
+    const char *route_dns_cidr_expected[] = { "route", "vpn.example", "255.255.255.0",
+                                              "192.0.2.1", NULL, NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(route_dns_cidr, 1, 4, normalized, &gc), 1);
+    assert_tokens(normalized, route_dns_cidr_expected, 4);
+
+    /* non-CIDR passthrough (DNS-style network token) */
+    CLEAR(normalized);
+    char *route_dns[] = { "route", "vpn.example", "255.255.255.0", "192.0.2.1", NULL };
+    const char *route_dns_expected[] = { "route", "vpn.example", "255.255.255.0", "192.0.2.1",
+                                         NULL, NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(route_dns, 1, 4, normalized, &gc), 0);
+    assert_tokens(normalized, route_dns_expected, 4);
+
+    /* varied network_idx/max_idx shapes */
+
+    CLEAR(normalized);
+    char *generic_shift[] = { "opt", "x", "y", "10.9.0.0/25", "tail", NULL };
+    const char *generic_shift_expected[] = { "opt", "x", "y", "10.9.0.0", "255.255.255.128",
+                                             "tail", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(generic_shift, 3, 5, normalized, &gc), 1);
+    assert_tokens(normalized, generic_shift_expected, 5);
+
+    CLEAR(normalized);
+    char *near_limit[MAX_PARMS + 1] = { 0 };
+    near_limit[0] = "opt";
+    near_limit[MAX_PARMS - 2] = "203.0.113.0/24";
+    assert_int_equal(
+        convert_ipv4_cidr_parms(near_limit, MAX_PARMS - 2, MAX_PARMS - 1, normalized, &gc), 1);
+    assert_string_equal(normalized[0], "opt");
+    assert_string_equal(normalized[MAX_PARMS - 2], "203.0.113.0");
+    assert_string_equal(normalized[MAX_PARMS - 1], "255.255.255.0");
+    assert_null(normalized[MAX_PARMS]);
+
+    /* error paths */
+
+    char *route_invalid[] = { "route", "10.1.2.0/33", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(route_invalid, 1, 4, normalized, &gc), -EINVAL);
+    char *route_invalid_negative_prefix[] = { "route", "10.1.2.0/-1", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(route_invalid_negative_prefix, 1, 4, normalized,
+                                             &gc),
+                     -EINVAL);
+    char *route_invalid_plus_prefix[] = { "route", "10.1.2.0/+24", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(route_invalid_plus_prefix, 1, 4, normalized, &gc),
+                     -EINVAL);
+    char *route_invalid_malformed_slash[] = { "route", "10.1.2.0//24", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(route_invalid_malformed_slash, 1, 4, normalized,
+                                             &gc),
+                     -EINVAL);
+    char *route_invalid_overflow_prefix[] = { "route", "10.1.2.0/999999999999999999999", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(route_invalid_overflow_prefix, 1, 4, normalized,
+                                             &gc),
+                     -EINVAL);
+    char *route_invalid_empty_network[] = { "route", "/24", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(route_invalid_empty_network, 1, 4, normalized, &gc),
+                     -EINVAL);
+    char *route_invalid_no_prefix[] = { "route", "10.1.2.0/", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(route_invalid_no_prefix, 1, 4, normalized, &gc),
+                     -EINVAL);
+    char *route_invalid_alpha_prefix[] = { "route", "10.1.2.0/2x", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(route_invalid_alpha_prefix, 1, 4, normalized, &gc),
+                     -EINVAL);
+
+    char *client_nat_invalid[] = { "client-nat", "snat", "192.168.0.0/35", "10.0.0.0", NULL };
+    assert_int_equal(convert_ipv4_cidr_parms(client_nat_invalid, 2, 4, normalized, &gc),
+                     -EINVAL);
+
+    gc_free(&gc);
+}
+
 int
 main(void)
 {
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_parse_line),
         cmocka_unit_test(test_read_config),
+        cmocka_unit_test(test_convert_ipv4_cidr_parms_core),
+        cmocka_unit_test(test_convert_ipv4_cidr_parms_coverage),
     };
 
     return cmocka_run_group_tests_name("options_parse", tests, NULL, NULL);

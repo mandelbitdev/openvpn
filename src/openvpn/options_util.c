@@ -30,6 +30,7 @@
 #include "options_util.h"
 
 #include "push.h"
+#include "socket_util.h"
 
 const char *
 parse_auth_failed_temp(struct options *o, const char *reason)
@@ -191,6 +192,96 @@ atoi_constrained(const char *str, int *value, const char *name, int min, int max
 
     *value = (int)i;
     return true;
+}
+
+static int
+ipv4_cidr_to_netmask(const char *in_cidr, const char *slash, const char **out_network,
+                     const char **out_netmask, struct gc_arena *gc)
+{
+    ASSERT(in_cidr);
+    ASSERT(slash);
+    ASSERT(slash[0] == '/');
+
+    if (slash[1] == '\0')
+    {
+        return -EINVAL;
+    }
+
+    /* extract and validate the prefix value */
+    const char *prefix_str = slash + 1;
+    if (strspn(prefix_str, "0123456789") != strlen(prefix_str))
+    {
+        return -EINVAL;
+    }
+
+    errno = 0;
+    char *endptr = NULL;
+    const unsigned long prefix = strtoul(prefix_str, &endptr, 10);
+    if (errno != 0 || endptr == prefix_str || *endptr != '\0' || prefix > 32)
+    {
+        return -EINVAL;
+    }
+
+    const size_t slash_offset = (size_t)(slash - in_cidr);
+    if (slash_offset == 0)
+    {
+        return -EINVAL;
+    }
+
+    /* build the network string */
+    char *network_buf = gc_malloc(slash_offset + 1, true, gc);
+    memcpy(network_buf, in_cidr, slash_offset);
+    network_buf[slash_offset] = '\0';
+
+    /* build the netmask string */
+    const char *netmask_buf = print_in_addr_t(netbits_to_netmask((int)prefix), 0, gc);
+
+    *out_network = network_buf;
+    *out_netmask = netmask_buf;
+
+    return 0;
+}
+
+int
+convert_ipv4_cidr_parms(char *p[], int network_idx, int max_idx, char *normalized[],
+                        struct gc_arena *gc)
+{
+    ASSERT(max_idx < MAX_PARMS);
+    ASSERT(max_idx >= (network_idx + 1));
+    ASSERT(network_idx >= 1);
+    ASSERT(p[network_idx]);
+
+    /* map normalized parameters to the user provided ones */
+    for (int i = 0; i <= max_idx && p[i]; ++i)
+    {
+        normalized[i] = p[i];
+    }
+
+    const char *slash = strchr(p[network_idx], '/');
+    if (!slash)
+    {
+        return 0;
+    }
+
+    const char *network = NULL;
+    const char *netmask = NULL;
+    const int err = ipv4_cidr_to_netmask(p[network_idx], slash, &network, &netmask, gc);
+    if (err)
+    {
+        return err;
+    }
+
+    /* insert the netmask and shift the next parameters */
+    normalized[network_idx] = (char *)network;
+    normalized[network_idx + 1] = (char *)netmask;
+    for (int src = network_idx + 1, dst = network_idx + 2; dst <= max_idx; ++src, ++dst)
+    {
+        normalized[dst] = p[src];
+    }
+    /* keep argv-style null termination to avoid stale tail entries */
+    normalized[max_idx + 1] = NULL;
+
+    return 1;
 }
 
 static const char *updatable_options[] = { "block-ipv6", "block-outside-dns",

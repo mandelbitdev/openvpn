@@ -108,4 +108,37 @@ bool apply_pull_filter(const struct options *o, char *line);
  */
 bool check_push_update_option_flags(char *line, int *i, unsigned int *flags);
 
+/**
+ * Convert option parameters whose first IPv4 parameter may be in CIDR notation.
+ *
+ * The input tokens are read from \p p and the normalized output tokens are
+ * written to \p normalized.
+ *
+ * When \p p[network_idx] is in CIDR form (for example, ``10.8.0.0/24``), this
+ * function:
+ * - splits the network and prefix length,
+ * - converts the prefix length to dotted-quad netmask,
+ * - writes ``network`` and ``netmask`` into ``normalized[network_idx]`` and
+ *   ``normalized[network_idx + 1]``,
+ * - shifts remaining parameters one position to preserve legacy
+ *   ``network netmask ...`` layout.
+ *
+ * When \p p[network_idx] is not CIDR, \p normalized receives \p p unchanged
+ * for the copied range (indices ``0..max_idx`` until ``NULL``), and no
+ * conversion is applied.
+ *
+ * @param p Input option tokens (argv-style, NULL-terminated).
+ * @param network_idx Index in \p p of the parameter that may contain CIDR.
+ * @param max_idx Maximum parameter index to normalize.
+ * @param normalized Output token array receiving normalized parameters
+ *                   (argv-style, NULL-terminated in CIDR case).
+ * @param gc GC arena used for converted string allocations.
+ *
+ * @return 0 when no CIDR notation was present and no conversion was needed.
+ * @return 1 when CIDR notation was present and conversion was applied.
+ * @return -EINVAL on malformed CIDR input.
+ */
+int convert_ipv4_cidr_parms(char *p[], int network_idx, int max_idx,
+                            char *normalized[], struct gc_arena *gc);
+
 #endif /* ifndef OPTIONS_UTIL_H_ */

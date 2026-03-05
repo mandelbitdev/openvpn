@@ -778,6 +778,7 @@ if (BUILD_TESTING)
 
     target_sources(test_ssl PRIVATE
             tests/unit_tests/openvpn/mock_management.c
+            tests/unit_tests/openvpn/mock_signal.c
             tests/unit_tests/openvpn/mock_ssl_dependencies.c
             tests/unit_tests/openvpn/mock_win32_execve.c
             src/openvpn/argv.c
@@ -794,6 +795,7 @@ if (BUILD_TESTING)
             src/openvpn/otime.c
             src/openvpn/packet_id.c
             src/openvpn/run_command.c
+            src/openvpn/socket_util.c
             src/openvpn/ssl_mbedtls.c
             src/openvpn/ssl_openssl.c
             src/openvpn/ssl_util.c
@@ -802,6 +804,7 @@ if (BUILD_TESTING)
             src/openvpn/xkey_helper.c
             src/openvpn/xkey_provider.c
     )
+    target_link_libraries(test_ssl PUBLIC ${RESOLV_LIBRARIES})
 
     target_sources(test_mbuf PRIVATE
         tests/unit_tests/openvpn/mock_get_random.c
@@ -811,10 +814,15 @@ if (BUILD_TESTING)
 
     target_sources(test_misc PRIVATE
         tests/unit_tests/openvpn/mock_get_random.c
+        tests/unit_tests/openvpn/mock_management.c
+        tests/unit_tests/openvpn/mock_setenv.c
+        tests/unit_tests/openvpn/mock_signal.c
         src/openvpn/options_util.c
+        src/openvpn/socket_util.c
         src/openvpn/ssl_util.c
         src/openvpn/list.c
         )
+    target_link_libraries(test_misc PUBLIC ${RESOLV_LIBRARIES})
 
     target_sources(test_ncp PRIVATE
         src/openvpn/crypto_epoch.c
@@ -829,9 +837,14 @@ if (BUILD_TESTING)
 
     target_sources(test_options_parse PRIVATE
         tests/unit_tests/openvpn/mock_get_random.c
+        tests/unit_tests/openvpn/mock_management.c
+        tests/unit_tests/openvpn/mock_setenv.c
+        tests/unit_tests/openvpn/mock_signal.c
         src/openvpn/options_parse.c
         src/openvpn/options_util.c
+        src/openvpn/socket_util.c
         )
+    target_link_libraries(test_options_parse PUBLIC ${RESOLV_LIBRARIES})
 
     target_sources(test_packet_id PRIVATE
         tests/unit_tests/openvpn/mock_get_random.c
@@ -888,10 +901,15 @@ if (BUILD_TESTING)
     target_sources(test_push_update_msg PRIVATE
         tests/unit_tests/openvpn/mock_msg.c
         tests/unit_tests/openvpn/mock_get_random.c
+        tests/unit_tests/openvpn/mock_management.c
+        tests/unit_tests/openvpn/mock_setenv.c
+        tests/unit_tests/openvpn/mock_signal.c
         src/openvpn/options_util.c
         src/openvpn/otime.c
+        src/openvpn/socket_util.c
         src/openvpn/list.c
         )
+    target_link_libraries(test_push_update_msg PUBLIC ${RESOLV_LIBRARIES})
 
     target_sources(test_argv PRIVATE
         tests/unit_tests/openvpn/mock_get_random.c

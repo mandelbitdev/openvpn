@@ -51,8 +51,6 @@
 /* Mock function to be allowed to include win32.c which is required for
  * getting the temp directory */
 #ifdef _WIN32
-struct signal_info siginfo_static; /* GLOBAL */
-
 const char *
 strerror_win32(DWORD errnum, struct gc_arena *gc)
 {

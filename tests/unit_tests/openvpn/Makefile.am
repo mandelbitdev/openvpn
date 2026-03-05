@@ -102,6 +102,7 @@ ssl_testdriver_LDFLAGS = @TEST_LDFLAGS@  $(OPTIONAL_CRYPTO_LIBS)
 ssl_testdriver_SOURCES = test_ssl.c \
 	mock_msg.c mock_msg.h test_common.h \
 	mock_management.c \
+	mock_signal.c \
 	mock_ssl_dependencies.c mock_win32_execve.c \
 	$(top_srcdir)/src/openvpn/argv.c \
 	$(top_srcdir)/src/openvpn/base64.c \
@@ -121,6 +122,7 @@ ssl_testdriver_SOURCES = test_ssl.c \
 	$(top_srcdir)/src/openvpn/packet_id.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/run_command.c \
+	$(top_srcdir)/src/openvpn/socket_util.c \
 	$(top_srcdir)/src/openvpn/ssl_openssl.c \
 	$(top_srcdir)/src/openvpn/ssl_mbedtls.c \
 	$(top_srcdir)/src/openvpn/ssl_util.c \
@@ -225,9 +227,13 @@ options_parse_testdriver_LDFLAGS = @TEST_LDFLAGS@ -L$(top_srcdir)/src/openvpn
 options_parse_testdriver_SOURCES = test_options_parse.c \
 	mock_msg.c mock_msg.h test_common.h \
 	mock_get_random.c \
+	mock_management.c \
+	mock_setenv.c \
+	mock_signal.c \
 	$(top_srcdir)/src/openvpn/options_parse.c \
 	$(top_srcdir)/src/openvpn/options_util.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/socket_util.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
 	$(top_srcdir)/src/openvpn/platform.c
 
@@ -370,7 +376,11 @@ misc_testdriver_LDFLAGS = @TEST_LDFLAGS@
 misc_testdriver_SOURCES = test_misc.c \
 	mock_msg.c test_common.h  \
 	mock_get_random.c \
+	mock_management.c \
+	mock_setenv.c \
+	mock_signal.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/socket_util.c \
 	$(top_srcdir)/src/openvpn/options_util.c \
 	$(top_srcdir)/src/openvpn/ssl_util.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
@@ -389,10 +399,14 @@ push_update_msg_testdriver_LDFLAGS = \
 push_update_msg_testdriver_SOURCES = test_push_update_msg.c \
 	mock_msg.c \
 	mock_get_random.c \
+	mock_management.c \
+	mock_setenv.c \
+	mock_signal.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/options_util.c \
 	$(top_srcdir)/src/openvpn/otime.c \
+	$(top_srcdir)/src/openvpn/socket_util.c \
 	$(top_srcdir)/src/openvpn/list.c
 
 socket_testdriver_CFLAGS  = \
