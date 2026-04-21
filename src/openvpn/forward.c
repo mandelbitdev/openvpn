@@ -2029,8 +2029,7 @@ pre_select(struct context *c)
 }
 
 static void
-multi_io_process_flags(struct context *c, struct event_set *es, const unsigned int flags,
-                       unsigned int *out_socket, unsigned int *out_tuntap)
+multi_io_process_flags(struct context *c, struct event_set *es, const unsigned int flags)
 {
     unsigned int socket = 0;
     unsigned int tuntap = 0;
@@ -2130,16 +2129,6 @@ multi_io_process_flags(struct context *c, struct event_set *es, const unsigned i
     }
 
     tun_set(c->c1.tuntap, es, tuntap, (void *)tun_shift, NULL);
-
-    if (out_socket)
-    {
-        *out_socket = socket;
-    }
-
-    if (out_tuntap)
-    {
-        *out_tuntap = tuntap;
-    }
 }
 
 /*
@@ -2150,10 +2139,7 @@ multi_io_process_flags(struct context *c, struct event_set *es, const unsigned i
 void
 get_io_flags_udp(struct context *c, struct multi_io *multi_io, const unsigned int flags)
 {
-    unsigned int out_socket;
-
-    multi_io_process_flags(c, multi_io->es, flags, &out_socket, NULL);
-    multi_io->udp_flags = (out_socket << SOCKET_SHIFT);
+    multi_io_process_flags(c, multi_io->es, flags);
 }
 
 /*
@@ -2163,8 +2149,6 @@ get_io_flags_udp(struct context *c, struct multi_io *multi_io, const unsigned in
 void
 io_wait(struct context *c, const unsigned int flags)
 {
-    unsigned int out_socket;
-    unsigned int out_tuntap;
     struct event_set_return esr[4];
 
     /* These shifts all depend on EVENT_READ and EVENT_WRITE */
@@ -2183,7 +2167,7 @@ io_wait(struct context *c, const unsigned int flags)
      */
     event_reset(c->c2.event_set);
 
-    multi_io_process_flags(c, c->c2.event_set, flags, &out_socket, &out_tuntap);
+    multi_io_process_flags(c, c->c2.event_set, flags);
 
 #if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
     if (c->c1.tuntap)
