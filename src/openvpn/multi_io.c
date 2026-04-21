@@ -171,7 +171,18 @@ multi_io_wait(struct multi_context *m)
 
     if (has_udp_in_local_list(&m->top.options))
     {
-        get_io_flags_udp(&m->top, m->multi_io, p2mp_iow_flags(m));
+        for (int i = 0; i < m->top.c1.link_sockets_num; i++)
+        {
+            struct link_socket *sock = m->top.c2.link_sockets[i];
+
+            if ((m->top.options.mode == MODE_SERVER) && proto_is_dgram(sock->info.proto))
+            {
+                unsigned int flags =
+                    p2mp_iow_flags(m, sock);
+
+                multi_io_process_flags(&m->top, m->multi_io->es, sock, flags);
+            }
+        }
     }
 
     tun_set(m->top.c1.tuntap, m->multi_io->es, EVENT_READ, MULTI_IO_TUN, persistent);
@@ -457,7 +468,7 @@ multi_io_process_io(struct multi_context *m)
                     }
                     else
                     {
-                        multi_process_io_udp(m, ev_arg->u.sock);
+                        multi_process_io_udp(m, ev_arg->u.sock, e->rwflags);
                         mi = m->pending;
                     }
                     /* monitor and/or handle events that are

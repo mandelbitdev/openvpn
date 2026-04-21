@@ -68,7 +68,7 @@ extern counter_type link_read_bytes_global;
 
 extern counter_type link_write_bytes_global;
 
-void get_io_flags_udp(struct context *c, struct multi_io *multi_io, const unsigned int flags);
+void multi_io_process_flags(struct context *c, struct event_set *es, struct link_socket *sock, const unsigned int flags);
 
 void io_wait(struct context *c, const unsigned int flags);
 
