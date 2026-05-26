@@ -187,6 +187,7 @@ net_ctx_init(struct context *c, openvpn_net_ctx_t *ctx)
     char path[PATH_MAX];
 
     ctx->netns = NULL;
+    ctx->l3mdev = NULL;
 
     if (c && c->options.netns)
     {
@@ -198,6 +199,16 @@ net_ctx_init(struct context *c, openvpn_net_ctx_t *ctx)
         }
 
         ctx->netns = c->options.netns;
+    }
+
+    if (c && c->options.l3mdev)
+    {
+        if (!if_nametoindex(c->options.l3mdev))
+        {
+            msg(M_ERR, "%s: L3 master device %s does not exist", __func__, c->options.l3mdev);
+        }
+
+        ctx->l3mdev = c->options.l3mdev;
     }
 
     ctx->gc = gc_new();
@@ -1044,6 +1055,44 @@ net_route_v4_best_gw(openvpn_net_ctx_t *ctx, const in_addr_t *dst, in_addr_t *be
 }
 
 #ifdef ENABLE_SITNL
+
+int
+net_iface_l3mdev_bind(openvpn_net_ctx_t *ctx, const char *iface)
+{
+    struct sitnl_link_req req;
+    int ret = -1;
+
+    CLEAR(req);
+
+    int ifindex = if_nametoindex(iface);
+    int l3mdev_index = if_nametoindex(ctx->l3mdev);
+
+    if (ifindex == 0)
+    {
+        msg(M_WARN | M_ERRNO, "%s: rtnl: cannot get ifindex for %s", __func__, iface);
+        return ret;
+    }
+    if (l3mdev_index == 0)
+    {
+        msg(M_WARN | M_ERRNO, "%s: rtnl: cannot get ifindex for %s", __func__, ctx->l3mdev);
+        return ret;
+    }
+
+    req.n.nlmsg_len = NLMSG_LENGTH(sizeof(req.i));
+    req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_ACK;
+    req.n.nlmsg_type = RTM_NEWLINK;
+
+    req.i.ifi_family = AF_PACKET;
+    req.i.ifi_index = ifindex;
+
+    SITNL_ADDATTR(&req.n, sizeof(req), IFLA_MASTER, &l3mdev_index, sizeof(int));
+
+    msg(M_INFO, "Binding %s to %s", iface, ctx->l3mdev);
+
+    ret = sitnl_send(&req.n, 0, 0, NULL, NULL);
+err:
+    return ret;
+}
 
 int
 net_iface_up(openvpn_net_ctx_t *ctx, const char *iface, bool up)

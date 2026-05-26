@@ -125,6 +125,16 @@ int net_iface_type(openvpn_net_ctx_t *ctx, const char *iface, char type[IFACE_TY
 int net_iface_del(openvpn_net_ctx_t *ctx, const openvpn_net_iface_t *iface);
 
 /**
+ * Bind a network interface to an L3 master device.
+ *
+ * @param ctx       OpenVPN network context.
+ * @param iface     Interface to bind.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int net_iface_l3mdev_bind(openvpn_net_ctx_t *ctx, const char *iface);
+
+/**
  * Bring interface up or down.
  *
  * @param ctx       the implementation specific context

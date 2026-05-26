@@ -320,6 +320,9 @@ static const char usage_message[] =
     "--bind-dev dev  : Bind to the given device when making connection to a peer or\n"
     "                  listening for connections. This allows sending encrypted packets\n"
     "                  via a VRF present on the system.\n"
+    "--l3mdev        : Enslave the tunnel interface to a layer 3 master device causing\n"
+    "                  the data traffic traversing the tunnel to follow the routing policy\n"
+    "                  associated with that layer 3 domain.\n"
 #endif
     "--txqueuelen n  : Set the tun/tap TX queue length to n (Linux only).\n"
     "--mlock         : Disable Paging -- ensures key material and tunnel\n"
@@ -6502,6 +6505,14 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
 #endif
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->netns = p[1];
+    }
+    else if (streq(p[0], "l3mdev") && p[1] && !p[2])
+    {
+#ifndef ENABLE_SITNL
+        msg(M_WARN, "NOTE: --l3mdev is supported only on Linux when compiled with SITNL");
+#endif
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        options->l3mdev = p[1];
     }
     else if (streq(p[0], "nice") && p[1] && !p[2])
     {

@@ -28,6 +28,7 @@ typedef char openvpn_net_iface_t;
 struct openvpn_net_ctx
 {
     const char *netns;
+    const char *l3mdev;
     struct gc_arena gc;
 };
 

@@ -304,6 +304,19 @@ routing.
   Specify the link layer address, more commonly known as the MAC address.
   Only applied to TAP devices.
 
+--l3mdev name
+   Specify the L3 master device (such as VRF) to which the tunnel
+   interface will be bound. The specified device must already exist.
+
+   Unlike ``--bind-dev``, which affects only the transport traffic
+   (the encrypted packets exchanged between peers),
+   ``--l3mdev`` associates tun0 with an L3 master device,
+   causing the data traffic traversing the tunnel
+   (in its unencrypted form within the local networking stack)
+   to follow the routing policy associated with that L3 domain.
+
+  (Supported on Linux only, on other platforms this is a no-op).
+
 --netns name
   Specify the network namespace in which the tunnel interface will be created.
   The namespace must already exist.

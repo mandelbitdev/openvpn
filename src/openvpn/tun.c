@@ -1059,6 +1059,15 @@ do_ifconfig_ipv6(struct tuntap *tt, const char *ifname, int tun_mtu, const struc
     {
         msg(M_FATAL, "Linux can't set mtu (%d) on %s", tun_mtu, ifname);
     }
+#if defined(ENABLE_SITNL)
+    if (ctx->l3mdev)
+    {
+        if (net_iface_l3mdev_bind(ctx, ifname) < 0)
+        {
+            msg(M_NONFATAL, "Linux can't bind %s to %s", ifname, ctx->l3mdev);
+        }
+    }
+#endif
 
     if (net_iface_up(ctx, ifname, true) < 0)
     {
@@ -1264,6 +1273,16 @@ do_ifconfig_ipv4(struct tuntap *tt, const char *ifname, int tun_mtu, const struc
     {
         msg(M_FATAL, "Linux can't set mtu (%d) on %s", tun_mtu, ifname);
     }
+
+#if defined(ENABLE_SITNL)
+    if (ctx->l3mdev)
+    {
+        if (net_iface_l3mdev_bind(ctx, ifname) < 0)
+        {
+            msg(M_NONFATAL, "Linux can't bind %s to %s", ifname, ctx->l3mdev);
+        }
+    }
+#endif
 
     if (net_iface_up(ctx, ifname, true) < 0)
     {
