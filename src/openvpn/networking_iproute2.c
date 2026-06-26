@@ -82,6 +82,16 @@ net_iface_type(openvpn_net_ctx_t *ctx, const char *iface, char type[IFACE_TYPE_L
     return -1;
 }
 
+#if defined(ENABLE_DCO)
+int
+net_iface_ovpn_mode(openvpn_net_ctx_t *ctx, const char *iface, enum ovpn_mode *mode)
+{
+    /* not supported by iproute2 */
+    msg(M_WARN, "%s: operation not supported by iproute2 backend", __func__);
+    return -EOPNOTSUPP;
+}
+#endif
+
 int
 net_iface_del(openvpn_net_ctx_t *ctx, const char *iface)
 {

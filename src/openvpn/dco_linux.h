@@ -24,6 +24,7 @@
 #if defined(ENABLE_DCO) && defined(TARGET_LINUX)
 
 #include "event.h"
+#include "networking_sitnl.h"
 
 #include "ovpn_dco_linux.h"
 
@@ -37,28 +38,6 @@
 
 typedef enum ovpn_key_slot dco_key_slot_t;
 typedef enum ovpn_cipher_alg dco_cipher_t;
-
-/* OVPN section */
-
-#ifndef IFLA_OVPN_MAX
-
-enum ovpn_mode
-{
-    OVPN_MODE_P2P,
-    OVPN_MODE_MP,
-};
-
-enum ovpn_ifla_attrs
-{
-    IFLA_OVPN_UNSPEC = 0,
-    IFLA_OVPN_MODE,
-
-    __IFLA_OVPN_MAX,
-};
-
-#define IFLA_OVPN_MAX (__IFLA_OVPN_MAX - 1)
-
-#endif /* ifndef IFLA_OVPN_MAX */
 
 typedef struct
 {

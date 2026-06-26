@@ -115,6 +115,19 @@ int net_iface_new(openvpn_net_ctx_t *ctx, const openvpn_net_iface_t *iface, cons
  */
 int net_iface_type(openvpn_net_ctx_t *ctx, const char *iface, char type[IFACE_TYPE_LEN_MAX]);
 
+#if defined(ENABLE_DCO) && defined(TARGET_LINUX)
+/**
+ * Retrieve the ovpn interface mode
+ *
+ * @param ctx       the implementation specific context
+ * @param iface     interface to query
+ * @param mode      variable where the ovpn mode attribute will be stored
+ *
+ * @return          0 on success, a negative error code otherwise
+ */
+int net_iface_ovpn_mode(openvpn_net_ctx_t *ctx, const char *iface, enum ovpn_mode *mode);
+#endif
+
 /**
  * Remove an interface
  *

@@ -1432,8 +1432,18 @@ sitnl_type_save(struct nlmsghdr *n, void *arg)
     return 0;
 }
 
-int
-net_iface_type(openvpn_net_ctx_t *ctx, const char *iface, char type[IFACE_TYPE_LEN_MAX])
+/**
+ * Issue an RTM_GETLINK query for an interface and feed the reply to the given
+ * parsing callback.
+ *
+ * @param iface     name of the interface to query
+ * @param cb        callback invoked with the netlink reply
+ * @param arg       opaque argument passed through to the callback
+ *
+ * @return          0 on success, a negative error code otherwise
+ */
+static int
+sitnl_link_get(const char *iface, sitnl_parse_reply_cb cb, void *arg)
 {
     struct sitnl_link_req req = {};
     int ifindex = if_nametoindex(iface);
@@ -1450,9 +1460,15 @@ net_iface_type(openvpn_net_ctx_t *ctx, const char *iface, char type[IFACE_TYPE_L
     req.i.ifi_family = AF_PACKET;
     req.i.ifi_index = ifindex;
 
+    return sitnl_send(&req.n, 0, 0, cb, arg);
+}
+
+int
+net_iface_type(openvpn_net_ctx_t *ctx, const char *iface, char type[IFACE_TYPE_LEN_MAX])
+{
     memset(type, 0, IFACE_TYPE_LEN_MAX);
 
-    int ret = sitnl_send(&req.n, 0, 0, sitnl_type_save, type);
+    int ret = sitnl_link_get(iface, sitnl_type_save, type);
     if (ret < 0)
     {
         msg(D_ROUTE, "%s: cannot retrieve iface %s: %s (%d)", __func__, iface, strerror(-ret), ret);
@@ -1463,6 +1479,82 @@ net_iface_type(openvpn_net_ctx_t *ctx, const char *iface, char type[IFACE_TYPE_L
 
     return 0;
 }
+
+#if defined(ENABLE_DCO)
+static int
+sitnl_ovpn_mode_save(struct nlmsghdr *n, void *arg)
+{
+    struct ifinfomsg *ifi = NLMSG_DATA(n);
+    struct rtattr *tb[IFLA_MAX + 1];
+    struct rtattr *tb_link[IFLA_INFO_MAX + 1];
+    struct rtattr *tb_data[IFLA_OVPN_MAX + 1];
+    enum ovpn_mode *mode = arg;
+    uint8_t raw_mode;
+
+    if (n->nlmsg_type != RTM_NEWLINK)
+    {
+        return -EINVAL;
+    }
+
+    if (n->nlmsg_len < NLMSG_LENGTH(sizeof(*ifi)))
+    {
+        return -EINVAL;
+    }
+
+    sitnl_parse_rtattr(tb, IFLA_MAX, IFLA_RTA(ifi), IFLA_PAYLOAD(n));
+
+    if (!tb[IFLA_LINKINFO])
+    {
+        return -ENOENT;
+    }
+
+    sitnl_parse_rtattr_nested(tb_link, IFLA_INFO_MAX, tb[IFLA_LINKINFO]);
+
+    if (!tb_link[IFLA_INFO_KIND]
+        || strcmp(RTA_DATA(tb_link[IFLA_INFO_KIND]), OVPN_FAMILY_NAME) != 0)
+    {
+        return -EINVAL;
+    }
+
+    if (!tb_link[IFLA_INFO_DATA])
+    {
+        return -ENOENT;
+    }
+
+    sitnl_parse_rtattr_nested(tb_data, IFLA_OVPN_MAX, tb_link[IFLA_INFO_DATA]);
+
+    if (!tb_data[IFLA_OVPN_MODE])
+    {
+        return -ENOENT;
+    }
+
+    if (RTA_PAYLOAD(tb_data[IFLA_OVPN_MODE]) < sizeof(raw_mode))
+    {
+        return -EINVAL;
+    }
+
+    raw_mode = *(uint8_t *)RTA_DATA(tb_data[IFLA_OVPN_MODE]);
+    *mode = (enum ovpn_mode)raw_mode;
+
+    return 0;
+}
+
+int
+net_iface_ovpn_mode(openvpn_net_ctx_t *ctx, const char *iface, enum ovpn_mode *mode)
+{
+    int ret = sitnl_link_get(iface, sitnl_ovpn_mode_save, mode);
+    if (ret < 0)
+    {
+        msg(D_ROUTE, "%s: cannot retrieve ovpn mode for iface %s: %s (%d)", __func__, iface,
+            strerror(-ret), ret);
+        return ret;
+    }
+
+    msg(D_ROUTE, "%s: mode of %s: %d", __func__, iface, *mode);
+
+    return 0;
+}
+#endif /* defined(ENABLE_DCO) */
 
 int
 net_iface_del(openvpn_net_ctx_t *ctx, const char *iface)

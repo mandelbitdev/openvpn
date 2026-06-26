@@ -502,6 +502,19 @@ ovpn_dco_uninit_netlink(dco_context_t *dco)
     CLEAR(dco);
 }
 
+static const char *
+ovpn_mode_to_str(enum ovpn_mode mode)
+{
+    switch (mode)
+    {
+        case OVPN_MODE_P2P:
+            return "p2p";
+        case OVPN_MODE_MP:
+            return "server";
+    }
+    return "unknown";
+}
+
 int
 open_tun_dco(struct tuntap *tt, openvpn_net_ctx_t *ctx, const char *dev)
 {
@@ -509,10 +522,29 @@ open_tun_dco(struct tuntap *tt, openvpn_net_ctx_t *ctx, const char *dev)
     ASSERT(tt->type == DEV_TYPE_TUN);
 
     int ret = net_iface_new(ctx, dev, OVPN_FAMILY_NAME, &tt->dco);
-    if (ret < 0)
+    if (ret < 0 && ret != -EEXIST)
     {
         msg(D_DCO_DEBUG, "Cannot create DCO interface %s: %d", dev, ret);
         return ret;
+    }
+    if (ret == -EEXIST)
+    {
+        enum ovpn_mode mode;
+        int mode_ret = net_iface_ovpn_mode(ctx, dev, &mode);
+
+        if (mode_ret < 0)
+        {
+            msg(M_WARN, "DCO: cannot retrieve mode of existing interface %s: %s (%d)", dev,
+                strerror(-mode_ret), mode_ret);
+            return mode_ret;
+        }
+
+        if (mode != tt->dco.ifmode)
+        {
+            msg(M_WARN, "DCO: existing interface %s is in %s mode, expected %s mode",
+                dev, ovpn_mode_to_str(mode), ovpn_mode_to_str(tt->dco.ifmode));
+            return -EINVAL;
+        }
     }
 
     tt->dco.ifindex = if_nametoindex(dev);
@@ -521,7 +553,7 @@ open_tun_dco(struct tuntap *tt, openvpn_net_ctx_t *ctx, const char *dev)
         msg(M_FATAL, "DCO: cannot retrieve ifindex for interface %s", dev);
     }
 
-    return 0;
+    return ret;
 }
 
 void
@@ -529,7 +561,10 @@ close_tun_dco(struct tuntap *tt, openvpn_net_ctx_t *ctx)
 {
     msg(D_DCO_DEBUG, __func__);
 
-    net_iface_del(ctx, tt->actual_name);
+    if (!tt->persistent_if)
+    {
+        net_iface_del(ctx, tt->actual_name);
+    }
     ovpn_dco_uninit_netlink(&tt->dco);
 }
 

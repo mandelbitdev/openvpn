@@ -109,7 +109,8 @@ bool dco_check_pull_options(msglvl_t msglevel, const struct options *o);
 bool ovpn_dco_init(struct context *c);
 
 /**
- * Open/create a DCO interface
+ * Open/create a DCO interface and store its ifindex.
+ * If the interface already exists, save the ifindex anyway and return -EEXIST.
  *
  * @param tt        the tuntap context
  * @param ctx       the networking API context
