@@ -1085,21 +1085,59 @@ do_persist_tuntap(struct options *options, openvpn_net_ctx_t *ctx)
     }
 
 #if defined(ENABLE_DCO)
-    if (dco_enabled(options))
+    if (dco_enabled(options) && dev_type_enum(options->dev, options->dev_type) == DEV_TYPE_TUN)
     {
-        /* creating a DCO interface via --mktun is not supported as it does not
-         * make much sense. Since DCO is enabled by default, people may run into
-         * this without knowing, therefore this case should be properly handled.
+#if defined(TARGET_LINUX)
+        if (options->persist_mode)
+        {
+            /* dco_available autoloads the kernel module. Use D_DCO_DEBUG
+             * because it could print "disabling data channel offload" which is
+             * misleading if you immediately fatal.
+             */
+            if (!dco_available(D_DCO_DEBUG))
+            {
+                msg(M_FATAL, "Cannot create DCO device: ovpn kernel support unavailable. "
+                             "Install ovpn or use --disable-dco to create a TUN device.");
+            }
+
+            struct tuntap *tt;
+
+            ALLOC_OBJ_CLEAR(tt, struct tuntap);
+            tt->type = DEV_TYPE_TUN;
+            tt->backend_driver = DRIVER_DCO;
+            tt->dco.ifmode = options->mode == MODE_SERVER ? OVPN_MODE_MP : OVPN_MODE_P2P;
+
+            open_tun(options->dev, options->dev_type, options->dev_node, tt, ctx);
+            msg(M_INFO, "Created DCO device %s in %s mode", tt->actual_name,
+                options->mode == MODE_SERVER ? "server" : "p2p");
+            free(tt->actual_name);
+            free(tt);
+            return true;
+        }
+        else
+        {
+            int ret = net_iface_del(ctx, options->dev);
+            if (ret < 0)
+            {
+                msg(M_FATAL, "Cannot remove DCO device %s: %s (%d)", options->dev,
+                    strerror(-ret), ret);
+            }
+            msg(M_INFO, "Deleted DCO device %s", options->dev);
+            return true;
+        }
+#else  /* if defined(TARGET_LINUX) */
+        /* creating a non-Linux DCO interface via --mktun is not supported as it
+         * does not make much sense. Since DCO is enabled by default, people may
+         * run into this without knowing, therefore this case should be properly
+         * handled.
          *
          * Disable DCO if --mktun was provided and print a message to let
          * user know.
          */
-        if (dev_type_enum(options->dev, options->dev_type) == DEV_TYPE_TUN)
-        {
-            msg(M_WARN, "Note: --mktun does not support DCO. Creating TUN interface.");
-        }
+        msg(M_WARN, "Note: --mktun does not support DCO. Creating TUN interface.");
 
         options->disable_dco = true;
+#endif /* defined(TARGET_LINUX) */
     }
 #endif
 
