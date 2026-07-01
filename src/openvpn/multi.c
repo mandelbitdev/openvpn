@@ -2267,6 +2267,8 @@ multi_client_setup_dco_initial(struct multi_context *m, struct multi_instance *m
         /* DCO not enabled, nothing to do, return sucess */
         return true;
     }
+    tls_multi_apply_dco_capabilities(mi->context.c2.tls_multi,
+                                     &mi->context.c2.tls_multi->session[TM_ACTIVE]);
     int ret = dco_multi_add_new_peer(m, mi);
     if (ret < 0)
     {

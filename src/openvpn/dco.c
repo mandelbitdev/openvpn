@@ -791,4 +791,38 @@ dco_delete_iroutes(struct multi_context *m, struct multi_instance *mi)
 #endif /* if defined(TARGET_LINUX) || defined(TARGET_FREEBSD) || defined(_WIN32) */
 }
 
+unsigned int
+dco_get_capabilities(dco_context_t *dco)
+{
+#if defined(TARGET_LINUX)
+    unsigned int caps = 0;
+    if (dco->max_attr >= OVPN_A_PEER_TX_ID)
+    {
+        caps |= DCO_CAP_ASYM_PEER_ID;
+    }
+    msg(D_DCO, "%s: max_attr=%u OVPN_A_PEER_TX_ID=%u caps=0x%x",
+        __func__, dco->max_attr, OVPN_A_PEER_TX_ID, caps);
+    return caps;
+#else
+    return 0;
+#endif
+}
+
+void
+tls_multi_apply_dco_capabilities(struct tls_multi *multi,
+                                 struct tls_session *session)
+{
+    if (!session->opt->dco_enabled)
+    {
+        return;
+    }
+#if defined(TARGET_LINUX)
+    if (!(session->opt->dco_capabilities & DCO_CAP_ASYM_PEER_ID))
+    {
+        multi->tx_peer_id = multi->rx_peer_id;
+        multi->use_asymmetric_peer_id = false;
+    }
+#endif
+}
+
 #endif /* defined(ENABLE_DCO) */

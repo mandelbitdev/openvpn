@@ -36,7 +36,7 @@
 #define OVPN_CMD_FLOAT_PEER OVPN_CMD_PEER_FLOAT_NTF
 
 /* Used for feature negotiation */
-#define OVPN_ATTR_MAX_SUPPORTED OVPN_A_PEER_KEEPALIVE_TIMEOUT
+#define OVPN_ATTR_MAX_SUPPORTED OVPN_A_PEER_TX_ID
 
 typedef enum ovpn_key_slot dco_key_slot_t;
 typedef enum ovpn_cipher_alg dco_cipher_t;
@@ -84,7 +84,16 @@ typedef struct
     int dco_message_key_id;
     int dco_del_peer_reason;
     struct sockaddr_storage dco_float_peer_ss;
+
+    uint32_t max_attr; /**< max peer policy attr index reported by kernel */
 } dco_context_t;
+
+/**
+ * Probe DCO capabilities via a standalone netlink call, without requiring
+ * an already-initialised dco_context_t.  Safe to call before the tuntap
+ * device has been created.
+ */
+unsigned int dco_probe_capabilities(void);
 
 #endif /* defined(ENABLE_DCO) && defined(TARGET_LINUX) */
 #endif /* ifndef DCO_LINUX_H */

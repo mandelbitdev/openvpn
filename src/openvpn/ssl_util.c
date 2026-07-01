@@ -72,6 +72,21 @@ extract_iv_proto(const char *peer_info)
     return 0;
 }
 
+unsigned int
+extract_dco_caps(const char *peer_info)
+{
+    const char *optstr = peer_info ? strstr(peer_info, "IV_DCO_CAPS=") : NULL;
+    if (optstr)
+    {
+        unsigned int caps = 0;
+        if (sscanf(optstr, "IV_DCO_CAPS=%u", &caps) == 1)
+        {
+            return caps;
+        }
+    }
+    return 0;
+}
+
 uint32_t
 extract_asymmetric_peer_id(const char *peer_info)
 {

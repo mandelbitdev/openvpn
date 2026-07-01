@@ -2405,6 +2405,8 @@ do_up(struct context *c, bool pulled_options, uint64_t option_types_found)
             /* ovpn-dco requires adding the peer now, before any option can be set,
              * but *after* having parsed the pushed peer-id in do_deferred_options()
              */
+            tls_multi_apply_dco_capabilities(c->c2.tls_multi,
+                                             &c->c2.tls_multi->session[TM_ACTIVE]);
             int ret = dco_p2p_add_new_peer(c);
             if (ret < 0)
             {
@@ -3463,6 +3465,20 @@ do_init_crypto_tls(struct context *c, const unsigned int flags)
 
     /* let the TLS engine know if keys have to be installed in DCO or not */
     to.dco_enabled = dco_enabled(options);
+    if (to.dco_enabled)
+    {
+        /* For --pull clients the tuntap is opened later (in do_up), so probe
+         * capabilities via a standalone netlink query rather than reading from
+         * the dco context which is not yet initialised. */
+        if (c->c1.tuntap)
+        {
+            to.dco_capabilities = dco_get_capabilities(&c->c1.tuntap->dco);
+        }
+        else
+        {
+            to.dco_capabilities = dco_probe_capabilities();
+        }
+    }
 
     /*
      * Initialize OpenVPN's master TLS-mode object.
@@ -4634,6 +4650,14 @@ init_instance(struct context *c, const struct env_set *env, const unsigned int f
     {
         int error_flags = 0;
         c->c2.did_open_tun = do_open_tun(c, &error_flags);
+    }
+
+    /* Update DCO capabilities now that tuntap is open; do_init_crypto runs before
+     * do_open_tun so the initial to.dco_capabilities may have been zero. */
+    if (c->c2.tls_multi && c->c1.tuntap && dco_enabled(options))
+    {
+        c->c2.tls_multi->opt.dco_capabilities =
+            dco_get_capabilities(&c->c1.tuntap->dco);
     }
 
     /* print MTU info */

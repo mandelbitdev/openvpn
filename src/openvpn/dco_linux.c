@@ -71,88 +71,148 @@ void dco_check_key_ctx(const struct key_ctx_bi *key);
 
 typedef int (*ovpn_nl_cb)(struct nl_msg *msg, void *arg);
 
+/*
+ * Context passed across all getpolicy_cb() invocations for a single DUMP.
+ * The DUMP produces multiple messages and OP_POLICY / POLICY data may arrive
+ * in any order, so we collect everything first and resolve at the end.
+ */
+struct getpolicy_ctx
+{
+    int peer_new_policy_id; /* policy index for OVPN_CMD_PEER_NEW doit */
+    /* deferred policy table: policy entries seen before policy_id was known */
+#define GETPOLICY_MAX_DEFERRED 64
+    struct
+    {
+        int policy_id;
+        int max_attr; /* NL_POLICY_TYPE_ATTR_POLICY_MAXTYPE of OVPN_A_PEER */
+    } deferred[GETPOLICY_MAX_DEFERRED];
+    int n_deferred;
+    int out_max; /* final result, -1 until resolved */
+};
+
+static void
+getpolicy_ctx_try_resolve(struct getpolicy_ctx *ctx)
+{
+    if (ctx->peer_new_policy_id < 0 || ctx->out_max >= 0)
+    {
+        return;
+    }
+    for (int i = 0; i < ctx->n_deferred; i++)
+    {
+        if (ctx->deferred[i].policy_id == ctx->peer_new_policy_id
+            && ctx->deferred[i].max_attr >= 0)
+        {
+            ctx->out_max = ctx->deferred[i].max_attr;
+            return;
+        }
+    }
+}
+
 static int
 getpolicy_cb(struct nl_msg *msg, void *arg)
 {
+    struct getpolicy_ctx *ctx = arg;
     struct nlattr *tb[CTRL_ATTR_MAX + 1];
     struct genlmsghdr *ghdr = nlmsg_data(nlmsg_hdr(msg));
-    int *out_max = arg;
-    static int policy_id = -1;
-    *out_max = -1;
 
     if (nla_parse(tb, CTRL_ATTR_MAX, genlmsg_attrdata(ghdr, 0),
                   genlmsg_attrlen(ghdr, 0), NULL)
         < 0)
-        return NL_STOP;
+    {
+        return NL_SKIP;
+    }
 
     /* -------------------------------------------------
-     * 1. CTRL_ATTR_OP_POLICY → op / do / dump
+     * 1. CTRL_ATTR_OP_POLICY → find policy_id for OVPN_CMD_PEER_NEW doit
      * ------------------------------------------------- */
-    if (tb[CTRL_ATTR_OP_POLICY] && policy_id < 0)
+    if (tb[CTRL_ATTR_OP_POLICY] && ctx->peer_new_policy_id < 0)
     {
         struct nlattr *pos;
         int rem;
 
-        /* Looking for op -> OVPN_CMD_PEER_NEW */
         nla_for_each_nested(pos, tb[CTRL_ATTR_OP_POLICY], rem)
         {
             if (nla_type(pos) != OVPN_CMD_PEER_NEW)
+            {
                 continue;
+            }
 
             struct nlattr *ptb[CTRL_ATTR_POLICY_DUMP_MAX + 1];
-
             if (nla_parse(ptb, CTRL_ATTR_POLICY_DUMP_MAX,
                           nla_data(pos), nla_len(pos), NULL)
                 < 0)
-                break;
-
-            /* Looking for associated doit */
-            if (ptb[CTRL_ATTR_POLICY_DO])
             {
-                policy_id = nla_get_u32(ptb[CTRL_ATTR_POLICY_DO]);
+                break;
             }
 
-            break; /* We're good with OVPN_CMD_PEER_NEW */
+            if (ptb[CTRL_ATTR_POLICY_DO])
+            {
+                ctx->peer_new_policy_id = nla_get_u32(ptb[CTRL_ATTR_POLICY_DO]);
+            }
+            break;
         }
+
+        getpolicy_ctx_try_resolve(ctx);
     }
 
     /* -------------------------------------------------
-     * 2. CTRL_ATTR_POLICY → max_attr
+     * 2. CTRL_ATTR_POLICY → find max_attr of PEER sub-policy via OVPN_A_PEER
      * ------------------------------------------------- */
     if (tb[CTRL_ATTR_POLICY])
     {
         struct nlattr *policy;
         int rem;
 
-        /* Looking for attr -> OVPN_A_PEER  */
         nla_for_each_nested(policy, tb[CTRL_ATTR_POLICY], rem)
         {
-            if (nla_type(policy) != policy_id)
-                continue;
+            int pid = nla_type(policy);
 
             struct nlattr *attr;
             int rem_attr;
+            int found_max = -1;
 
             nla_for_each_nested(attr, policy, rem_attr)
             {
-                struct nlattr *tp[NL_POLICY_TYPE_ATTR_MAX + 1];
-
-                if (nla_parse_nested(tp, NL_POLICY_TYPE_ATTR_MAX,
-                                     attr, NULL)
-                    < 0)
-                    continue;
-
-                /* OVPN_A_PEER */
-                int attr_index = nla_type(attr);
-
-                if (tp[NL_POLICY_TYPE_ATTR_TYPE] && attr_index == OVPN_A_PEER)
+                if (nla_type(attr) != OVPN_A_PEER)
                 {
-                    if (tp[NL_POLICY_TYPE_ATTR_POLICY_MAXTYPE])
-                    {
-                        *out_max = nla_get_u32(tp[NL_POLICY_TYPE_ATTR_POLICY_MAXTYPE]);
-                        printf("max_attr: %d\n", *out_max);
-                        return NL_STOP;
-                    }
+                    continue;
+                }
+
+                struct nlattr *tp[NL_POLICY_TYPE_ATTR_MAX + 1];
+                if (nla_parse_nested(tp, NL_POLICY_TYPE_ATTR_MAX, attr, NULL) < 0)
+                {
+                    continue;
+                }
+
+                if (tp[NL_POLICY_TYPE_ATTR_POLICY_MAXTYPE])
+                {
+                    found_max = (int)nla_get_u32(tp[NL_POLICY_TYPE_ATTR_POLICY_MAXTYPE]);
+                }
+                break;
+            }
+
+            if (found_max < 0)
+            {
+                continue;
+            }
+
+            if (ctx->peer_new_policy_id >= 0 && pid == ctx->peer_new_policy_id)
+            {
+                /* Direct match — we're done */
+                ctx->out_max = found_max;
+                return NL_STOP;
+            }
+
+            /* policy_id not known yet — defer */
+            if (ctx->n_deferred < GETPOLICY_MAX_DEFERRED)
+            {
+                ctx->deferred[ctx->n_deferred].policy_id = pid;
+                ctx->deferred[ctx->n_deferred].max_attr = found_max;
+                ctx->n_deferred++;
+                getpolicy_ctx_try_resolve(ctx);
+                if (ctx->out_max >= 0)
+                {
+                    return NL_STOP;
                 }
             }
         }
@@ -174,7 +234,7 @@ getpolicy_cb(struct nl_msg *msg, void *arg)
  * @return ID on success, negative error code on error
  */
 static int
-resolve_ovpn_netlink_id(msglvl_t msglevel)
+resolve_ovpn_netlink_id(msglvl_t msglevel, uint32_t *out_max_attr)
 {
     int ret;
     struct nl_sock *nl_sock = nl_socket_alloc();
@@ -200,29 +260,48 @@ resolve_ovpn_netlink_id(msglvl_t msglevel)
     }
 
     int ctrl_id = genl_ctrl_resolve(nl_sock, "nlctrl");
-    int max_attr = -1;
 
-    struct nl_msg *msg = nlmsg_alloc();
-    genlmsg_put(msg, NL_AUTO_PORT, NL_AUTO_SEQ,
+    struct nl_msg *nl_msg_gp = nlmsg_alloc();
+    genlmsg_put(nl_msg_gp, NL_AUTO_PORT, NL_AUTO_SEQ,
                 ctrl_id, 0, NLM_F_ROOT | NLM_F_MATCH | NLM_F_REQUEST,
                 CTRL_CMD_GETPOLICY, 0);
 
-    nla_put_string(msg, CTRL_ATTR_FAMILY_NAME, OVPN_FAMILY_NAME);
+    nla_put_string(nl_msg_gp, CTRL_ATTR_FAMILY_NAME, OVPN_FAMILY_NAME);
 
+    struct getpolicy_ctx gpctx = {
+        .peer_new_policy_id = -1,
+        .n_deferred = 0,
+        .out_max = -1,
+    };
     nl_socket_modify_cb(nl_sock, NL_CB_VALID, NL_CB_CUSTOM,
-                        getpolicy_cb, &max_attr);
+                        getpolicy_cb, &gpctx);
 
-    nl_send_auto(nl_sock, msg);
+    nl_send_auto(nl_sock, nl_msg_gp);
     nl_recvmsgs_default(nl_sock);
 
-    if (max_attr != OVPN_ATTR_MAX_SUPPORTED)
+    msg(D_DCO, "%s: peer policy max_attr=%d (baseline=%d)",
+        __func__, gpctx.out_max, OVPN_ATTR_MAX_SUPPORTED);
+
+    if (out_max_attr && gpctx.out_max >= 0)
     {
-        msg(msglevel, "Kernel and userspace differs in capability, disabling data channel offload");
+        *out_max_attr = (uint32_t)gpctx.out_max;
     }
 
 err_sock:
     nl_socket_free(nl_sock);
     return ret;
+}
+
+unsigned int
+dco_probe_capabilities(void)
+{
+    uint32_t max_attr = 0;
+    if (resolve_ovpn_netlink_id(D_DCO, &max_attr) >= 0
+        && max_attr >= OVPN_A_PEER_TX_ID)
+    {
+        return DCO_CAP_ASYM_PEER_ID;
+    }
+    return 0;
 }
 
 static struct nl_msg *
@@ -351,7 +430,12 @@ dco_new_peer(dco_context_t *dco, unsigned int rx_peer_id, unsigned int tx_peer_i
     int ret = -EMSGSIZE;
 
     NLA_PUT_U32(nl_msg, OVPN_A_PEER_ID, rx_peer_id);
-    NLA_PUT_U32(nl_msg, OVPN_A_PEER_TX_ID, tx_peer_id);
+    /* Only set TX_ID when the kernel advertises support for it; old kernels
+     * reject OVPN_CMD_PEER_NEW with EINVAL if they see an unknown attribute. */
+    if (dco->max_attr >= OVPN_A_PEER_TX_ID)
+    {
+        NLA_PUT_U32(nl_msg, OVPN_A_PEER_TX_ID, tx_peer_id);
+    }
     NLA_PUT_U32(nl_msg, OVPN_A_PEER_SOCKET, sd);
 
     /* Set the remote endpoint if defined (for UDP) */
@@ -527,7 +611,7 @@ static int ovpn_handle_msg(struct nl_msg *msg, void *arg);
 static void
 ovpn_dco_init_netlink(dco_context_t *dco)
 {
-    dco->ovpn_dco_id = resolve_ovpn_netlink_id(M_FATAL);
+    dco->ovpn_dco_id = resolve_ovpn_netlink_id(M_FATAL, &dco->max_attr);
 
     dco->nl_sock = nl_socket_alloc();
 
@@ -1000,7 +1084,7 @@ ovpn_handle_peer(dco_context_t *dco, struct nlattr *attrs[])
     if (dco->ifmode == OVPN_MODE_P2P)
     {
         c2 = &dco->c->c2;
-        if (c2->tls_multi->dco_rx_peer_id != rx_peer_id)
+        if ((uint32_t)c2->tls_multi->dco_rx_peer_id != rx_peer_id)
         {
             return NL_SKIP;
         }
@@ -1353,7 +1437,7 @@ dco_get_peer_stats_multi(dco_context_t *dco, const bool raise_sigusr1_on_err)
 bool
 dco_available(msglvl_t msglevel)
 {
-    if (resolve_ovpn_netlink_id(D_DCO_DEBUG) < 0)
+    if (resolve_ovpn_netlink_id(D_DCO_DEBUG, NULL) < 0)
     {
         msg(msglevel, "Note: Kernel support for ovpn interfaces missing, "
                       "disabling data channel offload. Use Linux 6.16.0 or "

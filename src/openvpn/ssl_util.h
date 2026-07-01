@@ -53,6 +53,13 @@ char *extract_var_peer_info(const char *peer_info, const char *var, struct gc_ar
  */
 unsigned int extract_iv_proto(const char *peer_info);
 
+/**
+ * Extracts the IV_DCO_CAPS variable and returns its value or 0
+ * if it cannot be extracted.
+ *
+ * @param peer_info     peer info string to search for IV_DCO_CAPS
+ */
+unsigned int extract_dco_caps(const char *peer_info);
 
 /**
  * Extracts the ID variable and returns its value or

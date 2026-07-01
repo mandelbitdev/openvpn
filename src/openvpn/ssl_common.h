@@ -452,7 +452,8 @@ struct tls_options
     size_t ekm_label_size;
     size_t ekm_size;
 
-    bool dco_enabled; /**< Whether keys have to be installed in DCO or not */
+    bool dco_enabled;              /**< Whether keys have to be installed in DCO or not */
+    unsigned int dco_capabilities; /**< negotiated DCO capability bitmap (DCO_CAP_*) */
 };
 
 /** @addtogroup control_processor
