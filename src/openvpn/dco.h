@@ -41,10 +41,14 @@ struct multi_instance;
 struct mroute_addr;
 struct options;
 struct tls_multi;
+struct tls_session;
 struct tuntap;
 
 #define DCO_IROUTE_METRIC  100
 #define DCO_DEFAULT_METRIC 200
+
+/** Local DCO capability bits, derived from kernel introspection */
+#define DCO_CAP_ASYM_PEER_ID (1u << 0) /**< kernel supports OVPN_A_PEER_TX_ID */
 
 #if defined(ENABLE_DCO)
 
@@ -254,6 +258,25 @@ const char *dco_get_supported_ciphers(void);
  */
 bool
 dco_supports_epoch_data(struct context *c);
+
+/**
+ * Return a bitmap of DCO_CAP_* bits describing what the local kernel supports.
+ * Must be called after ovpn_dco_init().
+ *
+ * @param dco   the DCO context
+ * @return      bitmask of DCO_CAP_* flags
+ */
+unsigned int dco_get_capabilities(dco_context_t *dco);
+
+/**
+ * Probe DCO capability bits without a pre-initialised dco_context_t.
+ * Safe to call before the tuntap device exists (e.g. during TLS option
+ * setup). On platforms without capability probing this returns 0.
+ *
+ * @return  bitmask of DCO_CAP_* flags, or 0 on failure
+ */
+unsigned int dco_probe_capabilities(void);
+
 #else  /* if defined(ENABLE_DCO) */
 
 typedef void *dco_context_t;
@@ -388,5 +411,18 @@ dco_supports_epoch_data(struct context *c)
 {
     return false;
 }
+
+static inline unsigned int
+dco_get_capabilities(dco_context_t *dco)
+{
+    return 0;
+}
+
+static inline unsigned int
+dco_probe_capabilities(void)
+{
+    return 0;
+}
+
 #endif /* defined(ENABLE_DCO) */
 #endif /* ifndef DCO_H */

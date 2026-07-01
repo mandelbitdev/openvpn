@@ -81,6 +81,8 @@ typedef struct
     int dco_message_key_id;
     int dco_del_peer_reason;
     struct sockaddr_storage dco_float_peer_ss;
+
+    unsigned int capabilities; /**< DCO_CAP_* bits supported by the kernel */
 } dco_context_t;
 
 /**

@@ -50,6 +50,7 @@
 #include "ssl_ncp.h"
 #include "ssl_util.h"
 #include "openvpn.h"
+#include "dco.h"
 
 /**
  * Return the Negotiable Crypto Parameters version advertised in the peer info
@@ -406,12 +407,21 @@ p2p_ncp_set_options(struct tls_multi *multi, struct tls_session *session, const 
 {
     /* will return 0 if peer_info is null */
     const unsigned int iv_proto_peer = extract_iv_proto(multi->peer_info);
-    const unsigned int tx_peer_id = extract_asymmetric_peer_id(multi->peer_info);
+    uint32_t tx_peer_id = extract_asymmetric_peer_id(multi->peer_info);
 
     /* The other peer does not support P2P NCP */
     if (!(iv_proto_peer & IV_PROTO_NCP_P2P))
     {
         return;
+    }
+
+    if (session->opt->dco_enabled
+        && !(session->opt->dco_capabilities & DCO_CAP_ASYM_PEER_ID))
+    {
+        /* We cannot use asymmetric peer-ids locally: ignore the announced
+         * ID and use the legacy shared peer-id selection below */
+        tx_peer_id = MAX_PEER_ID;
+        multi->use_asymmetric_peer_id = false;
     }
 
     if (iv_proto_peer & IV_PROTO_DATA_V2)
@@ -446,7 +456,7 @@ p2p_ncp_set_options(struct tls_multi *multi, struct tls_session *session, const 
         session->opt->crypto_flags |= CO_USE_TLS_KEY_MATERIAL_EXPORT;
 
         /* The asymmetric peer-id trumps on the EKM generated ones */
-        if ((tx_peer_id != MAX_PEER_ID) && (!multi->opt.dco_enabled))
+        if (tx_peer_id != MAX_PEER_ID)
         {
             multi->tx_peer_id = tx_peer_id;
             multi->use_asymmetric_peer_id = true;

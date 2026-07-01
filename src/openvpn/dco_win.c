@@ -616,6 +616,18 @@ dco_swap_keys(dco_context_t *dco, unsigned int rx_peer_id)
     return 0;
 }
 
+unsigned int
+dco_probe_capabilities(void)
+{
+    return 0;
+}
+
+unsigned int
+dco_get_capabilities(dco_context_t *dco)
+{
+    return 0;
+}
+
 bool
 dco_available(msglvl_t msglevel)
 {

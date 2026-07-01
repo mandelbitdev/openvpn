@@ -330,6 +330,48 @@ err_sock:
     return ret;
 }
 
+/*
+ * DCO capability requirements: the DCO_CAP_* bit is set when the nested
+ * policy of `attr` within the doit policy of `cmd` accepts attribute types
+ * up to at least `required_attr`.
+ *
+ * This is the architectural constraint of the mechanism: every capability
+ * must be observable as a new attribute in some command policy.
+ */
+static const struct
+{
+    unsigned int cap;
+    uint16_t cmd;
+    uint16_t attr;
+    uint16_t required_attr;
+} dco_cap_reqs[] = {
+    { DCO_CAP_ASYM_PEER_ID, OVPN_CMD_PEER_NEW, OVPN_A_PEER, OVPN_A_PEER_TX_ID },
+};
+
+unsigned int
+dco_probe_capabilities(void)
+{
+    unsigned int caps = 0;
+
+    for (size_t i = 0; i < SIZE(dco_cap_reqs); i++)
+    {
+        int max_attr = ovpn_get_policy_max_attr(D_DCO, dco_cap_reqs[i].cmd,
+                                                dco_cap_reqs[i].attr);
+        if (max_attr >= (int)dco_cap_reqs[i].required_attr)
+        {
+            caps |= dco_cap_reqs[i].cap;
+        }
+    }
+
+    return caps;
+}
+
+unsigned int
+dco_get_capabilities(dco_context_t *dco)
+{
+    return dco->capabilities;
+}
+
 static struct nl_msg *
 ovpn_dco_nlmsg_create(dco_context_t *dco, uint8_t cmd)
 {
@@ -456,7 +498,12 @@ dco_new_peer(dco_context_t *dco, unsigned int rx_peer_id, unsigned int tx_peer_i
     int ret = -EMSGSIZE;
 
     NLA_PUT_U32(nl_msg, OVPN_A_PEER_ID, rx_peer_id);
-    NLA_PUT_U32(nl_msg, OVPN_A_PEER_TX_ID, tx_peer_id);
+    /* Only set TX_ID when the kernel advertises support for it; old kernels
+     * reject OVPN_CMD_PEER_NEW with EINVAL if they see an unknown attribute. */
+    if (dco->capabilities & DCO_CAP_ASYM_PEER_ID)
+    {
+        NLA_PUT_U32(nl_msg, OVPN_A_PEER_TX_ID, tx_peer_id);
+    }
     NLA_PUT_U32(nl_msg, OVPN_A_PEER_SOCKET, sd);
 
     /* Set the remote endpoint if defined (for UDP) */
@@ -633,6 +680,7 @@ static void
 ovpn_dco_init_netlink(dco_context_t *dco)
 {
     dco->ovpn_dco_id = resolve_ovpn_netlink_id(M_FATAL);
+    dco->capabilities = dco_probe_capabilities();
 
     dco->nl_sock = nl_socket_alloc();
 

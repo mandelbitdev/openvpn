@@ -1879,9 +1879,17 @@ read_string_alloc(struct buffer *buf)
 static bool
 push_peer_info_peerid(struct buffer *out, struct tls_multi *multi, struct tls_session *session)
 {
-    if (multi->rx_peer_id == MAX_PEER_ID || session->opt->dco_enabled)
+    if (multi->rx_peer_id == MAX_PEER_ID)
     {
-        /* No valid peer id or DCO is enabled. Cannot use this feature */
+        /* No valid peer id */
+        return true;
+    }
+
+    if (session->opt->dco_enabled
+        && !(session->opt->dco_capabilities & DCO_CAP_ASYM_PEER_ID))
+    {
+        /* DCO is in use but the local kernel cannot do asymmetric peer-ids:
+         * do not announce our ID so that the peer falls back as well */
         return true;
     }
 
@@ -2317,31 +2325,30 @@ key_method_2_read(struct buffer *buf, struct tls_multi *multi, struct tls_sessio
         output_peer_info_env(session->opt->es, multi->peer_info);
         if (session->opt->mode == MODE_SERVER)
         {
-            if (!session->opt->dco_enabled)
+            uint32_t peer_id = extract_asymmetric_peer_id(multi->peer_info);
+            if (peer_id != MAX_PEER_ID
+                && (!session->opt->dco_enabled
+                    || (session->opt->dco_capabilities & DCO_CAP_ASYM_PEER_ID)))
             {
-                uint32_t peer_id = extract_asymmetric_peer_id(multi->peer_info);
-                if (peer_id != MAX_PEER_ID)
-                {
-                    multi->tx_peer_id = peer_id;
-                    multi->use_asymmetric_peer_id = true;
-                    multi->use_peer_id = true;
-                }
-                else
-                {
-                    /* Client has no asymmetric peer-id capability */
-                    multi->tx_peer_id = multi->rx_peer_id;
-                }
+                multi->tx_peer_id = peer_id;
+                multi->use_asymmetric_peer_id = true;
+                multi->use_peer_id = true;
             }
             else
             {
-                /* With DCO we don't need the tx_peer_id atm */
+                /* The client did not announce an ID or we cannot use
+                 * asymmetric peer-ids locally: stay symmetric. Decided
+                 * here, before key_method_2_write, so that we do not
+                 * announce our own ID to the client either */
                 multi->tx_peer_id = multi->rx_peer_id;
             }
         }
-        if (session->opt->mode == MODE_POINT_TO_POINT && !session->opt->dco_enabled)
+        if (session->opt->mode == MODE_POINT_TO_POINT)
         {
             uint32_t peer_id = extract_asymmetric_peer_id(multi->peer_info);
-            if (peer_id != MAX_PEER_ID)
+            if (peer_id != MAX_PEER_ID
+                && (!session->opt->dco_enabled
+                    || (session->opt->dco_capabilities & DCO_CAP_ASYM_PEER_ID)))
             {
                 multi->tx_peer_id = peer_id;
                 multi->use_asymmetric_peer_id = true;
