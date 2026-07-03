@@ -498,18 +498,14 @@ multi_io_process_io(struct multi_context *m)
                     {
                         socket_reset_listen_persistent(ev_arg->u.sock);
                         mi = multi_create_instance_tcp(m, ev_arg->u.sock);
+                        if (mi)
+                        {
+                            multi_io_action(m, mi, TA_INITIAL, false);
+                        }
                     }
                     else
                     {
                         multi_process_io_udp(m, ev_arg->u.sock, e->rwflags);
-                        mi = m->pending;
-                    }
-                    /* monitor and/or handle events that are
-                     * triggered in succession by the first one
-                     * before returning to the main loop. */
-                    if (mi)
-                    {
-                        multi_io_action(m, mi, TA_INITIAL, false);
                     }
                     break;
             }

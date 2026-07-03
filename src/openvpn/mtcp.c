@@ -168,8 +168,7 @@ multi_tcp_process_outgoing_link(struct multi_context *m, bool defer, const unsig
 
     if (mi)
     {
-        if ((defer && !proto_is_dgram(mi->context.c2.link_sockets[0]->info.proto))
-            || mbuf_defined(mi->tcp_link_out_deferred))
+        if (defer || mbuf_defined(mi->tcp_link_out_deferred))
         {
             /* save to queue */
             struct buffer *buf = &mi->context.c2.to_link;
