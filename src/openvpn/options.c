@@ -446,6 +446,8 @@ static const char usage_message[] =
     "--subnet-pool tag network netmask [gateway] : Define a named pool of\n"
     "                  addresses outside the --server network, selected per\n"
     "                  client with --subnet-pool-tag.\n"
+    "--subnet-pool-ipv6 tag network/bits [gateway] : IPv6 counterpart of\n"
+    "                  --subnet-pool.\n"
     "--subnet-pool-tag tag : Assign this client to the --subnet-pool named tag.\n"
     "                  Only valid in a client-specific config file.\n"
     "--ifconfig-push local remote-netmask : Push an ifconfig option to remote,\n"
@@ -7657,6 +7659,37 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
                            : (network & netmask) + 1;
         sp->next = options->subnet_pools;
         options->subnet_pools = sp;
+    }
+    else if (streq(p[0], "subnet-pool-ipv6") && p[1] && p[2] && !p[4])
+    {
+        struct subnet_pool6_def *sp;
+        struct in6_addr network, gateway;
+        unsigned int netbits = 0;
+
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        if (!get_ipv6_addr(p[2], &network, &netbits, msglevel))
+        {
+            msg(msglevel, "cannot parse --subnet-pool-ipv6 network");
+            goto err;
+        }
+        if (netbits < 64 || netbits > 124)
+        {
+            msg(msglevel, "--subnet-pool-ipv6 network must be between /64 and /124 (not /%d)",
+                netbits);
+            goto err;
+        }
+        if (p[3] && !get_ipv6_addr(p[3], &gateway, NULL, msglevel))
+        {
+            msg(msglevel, "cannot parse --subnet-pool-ipv6 gateway");
+            goto err;
+        }
+        ALLOC_OBJ_GC(sp, struct subnet_pool6_def, &options->gc);
+        sp->tag = p[1];
+        sp->network = network;
+        sp->netbits = netbits;
+        sp->gateway = p[3] ? gateway : add_in6_addr(network, 1);
+        sp->next = options->subnet_pools_ipv6;
+        options->subnet_pools_ipv6 = sp;
     }
     else if (streq(p[0], "subnet-pool-tag") && p[1] && !p[2])
     {

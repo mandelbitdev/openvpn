@@ -44,6 +44,19 @@ subnet_pool_by_tag(const struct subnet_pool_def *pools, const char *tag)
     return NULL;
 }
 
+const struct subnet_pool6_def *
+subnet_pool6_by_tag(const struct subnet_pool6_def *pools, const char *tag)
+{
+    for (const struct subnet_pool6_def *d = pools; d; d = d->next)
+    {
+        if (!strcmp(d->tag, tag))
+        {
+            return d;
+        }
+    }
+    return NULL;
+}
+
 const char *
 parse_auth_failed_temp(struct options *o, const char *reason)
 {

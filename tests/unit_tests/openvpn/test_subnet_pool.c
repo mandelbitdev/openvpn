@@ -60,8 +60,26 @@ test_subnet_pool_by_tag(void **state)
     assert_null(subnet_pool_by_tag(NULL, "grpA"));
 }
 
+/* the IPv6 counterpart resolves independently: a tag may name a v4 pool, a
+ * v6 pool, or both. */
+static void
+test_subnet_pool6_by_tag(void **state)
+{
+    struct subnet_pool6_def c = { .next = NULL, .tag = "grpC", .netbits = 64 };
+    struct subnet_pool6_def b = { .next = &c, .tag = "grpB", .netbits = 96 };
+    struct subnet_pool6_def a = { .next = &b, .tag = "grpA", .netbits = 64 };
+
+    assert_ptr_equal(subnet_pool6_by_tag(&a, "grpA"), &a);
+    assert_ptr_equal(subnet_pool6_by_tag(&a, "grpB"), &b);
+    assert_ptr_equal(subnet_pool6_by_tag(&a, "grpC"), &c);
+    assert_int_equal(subnet_pool6_by_tag(&a, "grpB")->netbits, 96);
+    assert_null(subnet_pool6_by_tag(&a, "nope"));
+    assert_null(subnet_pool6_by_tag(NULL, "grpA"));
+}
+
 const struct CMUnitTest subnet_pool_tests[] = {
     cmocka_unit_test(test_subnet_pool_by_tag),
+    cmocka_unit_test(test_subnet_pool6_by_tag),
 };
 
 int

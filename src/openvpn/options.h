@@ -261,6 +261,16 @@ struct subnet_pool_def
     in_addr_t gateway;
 };
 
+/* The IPv6 counterpart of struct subnet_pool_def (--subnet-pool-ipv6). */
+struct subnet_pool6_def
+{
+    struct subnet_pool6_def *next;
+    const char *tag;
+    struct in6_addr network;
+    unsigned int netbits;
+    struct in6_addr gateway;
+};
+
 /* Command line options */
 struct options
 {
@@ -526,12 +536,17 @@ struct options
     bool push_ifconfig_constraint_defined;
     in_addr_t push_ifconfig_constraint_network;
     in_addr_t push_ifconfig_constraint_netmask;
-    struct subnet_pool_def *subnet_pools; /* named pools (server config) */
-    const char *subnet_pool_tag;          /* which pool this client uses (CCD) */
-    bool subnet_pool_defined;             /* resolved from the tag at connect */
+    struct subnet_pool_def *subnet_pools;       /* named IPv4 pools (server config) */
+    struct subnet_pool6_def *subnet_pools_ipv6; /* named IPv6 pools (server config) */
+    const char *subnet_pool_tag;                /* which pool this client uses (CCD) */
+    bool subnet_pool_defined;                   /* resolved from the tag at connect */
     in_addr_t subnet_pool_network;
     in_addr_t subnet_pool_netmask;
     in_addr_t subnet_pool_gateway;
+    bool subnet_pool_ipv6_defined; /* resolved from the tag at connect */
+    struct in6_addr subnet_pool_ipv6_network;
+    unsigned int subnet_pool_ipv6_netbits;
+    struct in6_addr subnet_pool_ipv6_gateway;
     bool push_ifconfig_ipv4_blocked;           /* IPv4 */
     bool push_ifconfig_ipv6_defined;           /* IPv6 */
     struct in6_addr push_ifconfig_ipv6_local;  /* IPv6 */

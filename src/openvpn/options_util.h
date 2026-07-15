@@ -38,6 +38,10 @@ const char *parse_auth_failed_temp(struct options *o, const char *reason);
 const struct subnet_pool_def *subnet_pool_by_tag(const struct subnet_pool_def *pools,
                                                  const char *tag);
 
+/** IPv6 counterpart of subnet_pool_by_tag(). */
+const struct subnet_pool6_def *subnet_pool6_by_tag(const struct subnet_pool6_def *pools,
+                                                   const char *tag);
+
 
 /** Checks if the string is a valid integer by checking if it can be
  *  converted to an integer */

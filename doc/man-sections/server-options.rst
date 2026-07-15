@@ -355,11 +355,24 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   ``push "route <server-VPN-IP> 255.255.255.255"`` (or the ``route-ipv6``
   equivalent) to the server config.
 
+--subnet-pool-ipv6 args
+  The IPv6 counterpart of ``--subnet-pool``. Repeatable main-config directive.
+
+  Valid syntax:
+  ::
+
+     subnet-pool-ipv6 tag network/bits [gateway]
+
+  ``bits`` must be between 64 and 124; ``gateway`` defaults to the first
+  address of the network. A tag may name an IPv4 pool, an IPv6 pool, or both;
+  a client referencing it with ``--subnet-pool-tag`` is then assigned an
+  address from each family the tag defines.
+
 --subnet-pool-tag tag
-  Assign this client to the ``--subnet-pool`` named ``tag``. Must be
-  associated with a specific client instance via ``--client-config-dir`` or
-  ``--client-connect``. Several clients may reference the same tag and are
-  then served from the same shared pool.
+  Assign this client to the ``--subnet-pool`` / ``--subnet-pool-ipv6`` named
+  ``tag``. Must be associated with a specific client instance via
+  ``--client-config-dir`` or ``--client-connect``. Several clients may
+  reference the same tag and are then served from the same shared pool(s).
 
 --ifconfig-ipv6-push args
   for ``--client-config-dir`` per-client static IPv6 interface
