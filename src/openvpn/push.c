@@ -645,6 +645,16 @@ prepare_push_reply(struct context *c, struct gc_arena *gc, struct push_list *pus
                         print_in6_addr(c->c2.push_ifconfig_ipv6_local, 0, gc),
                         c->c2.push_ifconfig_ipv6_netbits,
                         print_in6_addr(c->c2.push_ifconfig_ipv6_remote, 0, gc));
+
+        /* subnet-pool-ipv6 counterpart of the IPv4 push below: replace the
+         * global route-ipv6-gateway (the server's VPN IP, off-link for this
+         * client) with one inside the client's own subnet. */
+        if (o->subnet_pool_ipv6_defined)
+        {
+            push_remove_option(o, "route-ipv6-gateway");
+            push_option_fmt(gc, push_list, M_USAGE, "route-ipv6-gateway %s",
+                            print_in6_addr(o->subnet_pool_ipv6_gateway, 0, gc));
+        }
     }
 
     /* ipv4 */
@@ -659,6 +669,19 @@ prepare_push_reply(struct context *c, struct gc_arena *gc, struct push_list *pus
         push_option_fmt(gc, push_list, M_USAGE, "ifconfig %s %s",
                         print_in_addr_t(ifconfig_local, 0, gc),
                         print_in_addr_t(c->c2.push_ifconfig_remote_netmask, 0, gc));
+
+        /* A subnet-pool client sits outside the --server network, so the
+         * global route-gateway (the server's own VPN IP) is off-link for it:
+         * replace it with one inside the client's own subnet so that its
+         * pushed routes install on-link.  A host route to the server's VPN IP
+         * is deliberately not pushed (not needed to reach the networks behind
+         * the server); an admin who needs it adds an explicit push "route". */
+        if (o->subnet_pool_defined)
+        {
+            push_remove_option(o, "route-gateway");
+            push_option_fmt(gc, push_list, M_USAGE, "route-gateway %s",
+                            print_in_addr_t(o->subnet_pool_gateway, 0, gc));
+        }
     }
 
     if (tls_multi->use_peer_id)
