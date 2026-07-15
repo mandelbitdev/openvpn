@@ -43,6 +43,7 @@ struct ifconfig_pool_entry
     char *common_name;
     time_t last_release;
     bool fixed;
+    bool reserved; /* never handed out, e.g. a --subnet-pool gateway */
 };
 
 struct ifconfig_pool
@@ -85,6 +86,17 @@ ifconfig_pool_handle ifconfig_pool_acquire(struct ifconfig_pool *pool, in_addr_t
                                            const char *common_name);
 
 bool ifconfig_pool_release(struct ifconfig_pool *pool, ifconfig_pool_handle hand, const bool hard);
+
+/**
+ * Permanently reserve the pool slot holding \c addr, so that it is never
+ * handed out to a client nor taken over by a persisted entry (e.g. the
+ * gateway of a --subnet-pool).
+ *
+ * @param pool  the pool
+ * @param addr  IPv4 address (host order) to reserve
+ * @return      true if \c addr lies in the pool and was reserved
+ */
+bool ifconfig_pool_reserve_ip(struct ifconfig_pool *pool, in_addr_t addr);
 
 struct ifconfig_pool_persist *ifconfig_pool_persist_init(const char *filename, int refresh_freq);
 

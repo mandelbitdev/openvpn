@@ -392,6 +392,7 @@ misc_testdriver_LDFLAGS = @TEST_LDFLAGS@
 
 misc_testdriver_SOURCES = test_misc.c \
 	test_schedule.c test_schedule.h \
+	test_subnet_pool.c test_subnet_pool.h \
 	mock_msg.c test_common.h  \
 	mock_get_random.c \
 	$(top_srcdir)/src/compat/compat-strlcpy.c \

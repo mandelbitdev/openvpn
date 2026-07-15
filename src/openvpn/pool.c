@@ -351,7 +351,7 @@ ifconfig_pool_release(struct ifconfig_pool *pool, ifconfig_pool_handle hand, con
 {
     bool ret = false;
 
-    if (pool && hand >= 0 && hand < pool->size)
+    if (pool && hand >= 0 && hand < pool->size && !pool->list[hand].reserved)
     {
         ifconfig_pool_entry_free(&pool->list[hand], hard);
         ret = true;
@@ -430,6 +430,22 @@ ifconfig_pool_ipv6_base_to_handle(const struct ifconfig_pool *pool, const struct
     return ret;
 }
 
+bool
+ifconfig_pool_reserve_ip(struct ifconfig_pool *pool, const in_addr_t addr)
+{
+    const ifconfig_pool_handle h = ifconfig_pool_ip_base_to_handle(pool, addr);
+
+    if (h < 0)
+    {
+        return false;
+    }
+
+    ifconfig_pool_entry_free(&pool->list[h], true);
+    pool->list[h].in_use = true;
+    pool->list[h].reserved = true;
+    return true;
+}
+
 static in_addr_t
 ifconfig_pool_handle_to_ip_base(const struct ifconfig_pool *pool, ifconfig_pool_handle hand)
 {
@@ -477,6 +493,13 @@ ifconfig_pool_set(struct ifconfig_pool *pool, const char *cn, ifconfig_pool_hand
                   const bool fixed)
 {
     struct ifconfig_pool_entry *e = &pool->list[h];
+
+    if (e->reserved)
+    {
+        msg(M_WARN, "pool: ignoring persisted entry for CN=%s: its address is reserved", cn);
+        return;
+    }
+
     ifconfig_pool_entry_free(e, true);
     e->in_use = false;
     e->common_name = string_alloc(cn, NULL);

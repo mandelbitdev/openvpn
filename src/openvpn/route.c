@@ -408,6 +408,11 @@ init_route(struct route_ipv4 *r, struct addrinfo **network_list, const struct ro
         r->flags |= RT_METRIC_DEFINED;
     }
 
+    if (ro->on_link)
+    {
+        r->flags |= RT_ON_LINK;
+    }
+
     r->flags |= RT_DEFINED;
 
     /* routing table id */
@@ -478,12 +483,12 @@ fail:
     return false;
 }
 
-void
+struct route_option *
 add_route_to_option_list(struct route_option_list *l, const char *network, const char *netmask,
                          const char *gateway, const char *metric, int table_id)
 {
     struct route_option *ro;
-    ALLOC_OBJ_GC(ro, struct route_option, l->gc);
+    ALLOC_OBJ_CLEAR_GC(ro, struct route_option, l->gc);
     ro->network = network;
     ro->netmask = netmask;
     ro->gateway = gateway;
@@ -491,6 +496,7 @@ add_route_to_option_list(struct route_option_list *l, const char *network, const
     ro->table_id = table_id;
     ro->next = l->routes;
     l->routes = ro;
+    return ro;
 }
 
 void
@@ -1322,7 +1328,11 @@ setenv_route(struct env_set *es, const struct route_ipv4 *r, int i)
     {
         setenv_route_addr(es, "network", r->network, i);
         setenv_route_addr(es, "netmask", r->netmask, i);
-        setenv_route_addr(es, "gateway", r->gateway, i);
+        /* an on-link route has no gateway */
+        if (!(r->flags & RT_ON_LINK))
+        {
+            setenv_route_addr(es, "gateway", r->gateway, i);
+        }
 
         if (r->flags & RT_METRIC_DEFINED)
         {
@@ -1478,11 +1488,18 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
 
 #if defined(TARGET_LINUX)
     const char *iface = NULL;
+    const in_addr_t *gateway = &r->gateway;
     int metric = -1;
 
     if (is_on_link(is_local_route, flags, rgi))
     {
         iface = rgi->iface;
+    }
+
+    if ((r->flags & RT_ON_LINK) && tt)
+    {
+        gateway = NULL;
+        iface = tt->actual_name;
     }
 
     if (r->flags & RT_METRIC_DEFINED)
@@ -1492,8 +1509,8 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
 
 
     status = RTA_SUCCESS;
-    int ret = net_route_v4_add(ctx, &r->network, netmask_to_netbits2(r->netmask), &r->gateway,
-                               iface, r->table_id, metric);
+    int ret = net_route_v4_add(ctx, &r->network, netmask_to_netbits2(r->netmask), gateway, iface,
+                               r->table_id, metric);
     if (ret == -EEXIST)
     {
         msg(D_ROUTE, "NOTE: Linux route add command failed because route exists");
@@ -1616,7 +1633,15 @@ add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
     }
 #endif
 
-    argv_printf_cat(&argv, "-net %s %s %s", network, gateway, netmask);
+    if ((r->flags & RT_ON_LINK) && tt)
+    {
+        argv_printf_cat(&argv, "-net %s/%d -iface %s", network, netmask_to_netbits2(r->netmask),
+                        tt->actual_name);
+    }
+    else
+    {
+        argv_printf_cat(&argv, "-net %s %s %s", network, gateway, netmask);
+    }
 
     /* FIXME -- add on-link support for FreeBSD */
 
@@ -2035,7 +2060,16 @@ delete_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
         metric = r->metric;
     }
 
-    if (net_route_v4_del(ctx, &r->network, netmask_to_netbits2(r->netmask), &r->gateway, NULL,
+    const in_addr_t *gateway = &r->gateway;
+    const char *iface = NULL;
+
+    if ((r->flags & RT_ON_LINK) && tt)
+    {
+        gateway = NULL;
+        iface = tt->actual_name;
+    }
+
+    if (net_route_v4_del(ctx, &r->network, netmask_to_netbits2(r->netmask), gateway, iface,
                          r->table_id, metric)
         < 0)
     {
@@ -2091,7 +2125,15 @@ delete_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags,
 
 #elif defined(TARGET_FREEBSD)
 
-    argv_printf(&argv, "%s delete -net %s %s %s", ROUTE_PATH, network, gateway, netmask);
+    if ((r->flags & RT_ON_LINK) && tt)
+    {
+        argv_printf(&argv, "%s delete -net %s/%d -iface %s", ROUTE_PATH, network,
+                    netmask_to_netbits2(r->netmask), tt->actual_name);
+    }
+    else
+    {
+        argv_printf(&argv, "%s delete -net %s %s %s", ROUTE_PATH, network, gateway, netmask);
+    }
 
     argv_msg(D_ROUTE, &argv);
     openvpn_execve_check(&argv, es, 0, "ERROR: FreeBSD route delete command failed");

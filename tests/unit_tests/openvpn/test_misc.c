@@ -45,6 +45,7 @@
 #include "win32-util.h"
 #endif
 #include "test_schedule.h"
+#include "test_subnet_pool.h"
 
 static void
 test_compat_lzo_string(void **state)
@@ -561,7 +562,12 @@ const struct CMUnitTest misc_tests[] = {
     cmocka_unit_test(test_list),
     cmocka_unit_test(test_atoi_variants),
     cmocka_unit_test(schedule_test),
-    cmocka_unit_test(test_sid_hash_list)
+    cmocka_unit_test(test_sid_hash_list),
+    cmocka_unit_test(test_subnet_pool_by_name),
+    cmocka_unit_test(test_subnet_pools_check_netmask),
+    cmocka_unit_test(test_subnet_pools_check_gateway),
+    cmocka_unit_test(test_subnet_pools_check_range),
+    cmocka_unit_test(test_subnet_pools_check_overlap),
 };
 
 int

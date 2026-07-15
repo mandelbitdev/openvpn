@@ -252,6 +252,21 @@ struct verify_hash_list
     struct verify_hash_list *next;
 };
 
+/* A named --subnet-pool: a subnet clients can be assigned from, referenced
+ * from a CCD file by its name via --subnet-pool-name. */
+struct subnet_pool_def
+{
+    struct subnet_pool_def *next;
+    const char *name;
+    in_addr_t network;
+    in_addr_t netmask;
+    in_addr_t gateway;
+    /* optional range of the dynamic pool (0/0: every host address of the
+     * subnet); addresses outside it are left for static --ifconfig-push */
+    in_addr_t pool_start;
+    in_addr_t pool_end;
+};
+
 /* Command line options */
 struct options
 {
@@ -518,6 +533,12 @@ struct options
     bool push_ifconfig_constraint_defined;
     in_addr_t push_ifconfig_constraint_network;
     in_addr_t push_ifconfig_constraint_netmask;
+    struct subnet_pool_def *subnet_pools; /* named pools (server config) */
+    const char *subnet_pool_name;         /* which pool this client uses (CCD) */
+    bool subnet_pool_defined;             /* resolved from the name at connect */
+    in_addr_t subnet_pool_network;
+    in_addr_t subnet_pool_netmask;
+    in_addr_t subnet_pool_gateway;
     bool push_ifconfig_ipv4_blocked;           /* IPv4 */
     bool push_ifconfig_ipv6_defined;           /* IPv6 */
     struct in6_addr push_ifconfig_ipv6_local;  /* IPv6 */
@@ -977,6 +998,25 @@ dco_enabled(const struct options *o)
 #else
     return false;
 #endif /* ENABLE_DCO */
+}
+
+/**
+ * Whether the routes of the --subnet-pool networks are installed on-link on
+ * the DCO device rather than via a gateway.  With DCO on Linux and FreeBSD the
+ * kernel selects the peer by a route's next hop, so a route via a gateway
+ * would deliver every packet for an unassigned pool address to the client
+ * owning that gateway address; on-link, such a packet matches no peer, while
+ * each pool client gets its own on-link host route when it connects (see
+ * multi_learn_in_addr_t()).
+ */
+static inline bool
+subnet_pool_routes_onlink(const struct options *o)
+{
+#if defined(TARGET_LINUX) || defined(TARGET_FREEBSD)
+    return dco_enabled(o);
+#else
+    return false;
+#endif
 }
 
 #endif /* ifndef OPTIONS_H */

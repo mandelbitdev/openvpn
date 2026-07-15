@@ -330,6 +330,48 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   by ``--ifconfig``, OpenVPN will install a /32 host route for the ``local``
   IP address.
 
+--subnet-pool args
+  Define a named pool of addresses from a subnet different from the
+  ``--server`` network, so groups of clients can be given IPs from separate
+  subnets for per-group firewall rules under ``--topology subnet`` (and
+  therefore DCO). This is a main-config directive and may be repeated to
+  define several pools.
+
+  Valid syntax:
+  ::
+
+     subnet-pool name network netmask [gateway [start end]]
+
+  ``name`` is what a client refers to with ``--subnet-pool-name``; ``gateway``
+  defaults to the first address of ``network``/``netmask`` and is never
+  assigned to a client. A client assigned to a pool receives (dynamically, or
+  via a static ``--ifconfig-push`` that must lie within the subnet) an address
+  from it, plus the matching netmask.
+
+  Dynamic addresses are taken from ``start`` to ``end`` (every host address
+  of the subnet by default). Static ``--ifconfig-push`` addresses are not
+  reserved in the pool: when mixing static and dynamic clients in one pool,
+  set ``start``/``end`` so that the static addresses fall outside the range.
+
+  Requires ``--server`` with ``--dev tun`` and ``--topology subnet``.
+  ``netmask`` must be between /16 and /29 (as for ``--server``), ``gateway``
+  must be a host address inside the subnet, ``start`` and ``end`` host
+  addresses inside the subnet with ``start`` lower than ``end``, each ``name``
+  may be defined only once and no pool may overlap another one or the
+  ``--server`` network.
+
+  The server routes each pool's subnet into the tun device, as it does for
+  the ``--server`` network; no ``--route`` needs to be added for it. These
+  routes honour ``--route-table`` and ``--route-metric``. With DCO on Linux
+  and FreeBSD the IPv4 route is installed on-link, without a gateway, so its
+  ``route_gateway_{n}`` is not set for ``--route-up`` scripts.
+
+--subnet-pool-name name
+  Assign this client to the ``--subnet-pool`` named ``name``. Must be
+  associated with a specific client instance via ``--client-config-dir`` or
+  ``--client-connect``. Several clients may reference the same name and are
+  then served from the same shared pool.
+
 --ifconfig-ipv6-push args
   for ``--client-config-dir`` per-client static IPv6 interface
   configuration, see ``--client-config-dir`` and ``--ifconfig-push`` for

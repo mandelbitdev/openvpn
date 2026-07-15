@@ -28,6 +28,33 @@
 
 const char *parse_auth_failed_temp(struct options *o, const char *reason);
 
+/**
+ * Look up a named --subnet-pool in a list of pool definitions.
+ *
+ * @param pools  head of the --subnet-pool list (may be NULL)
+ * @param name    the --subnet-pool-name to match
+ * @return       the matching pool definition, or NULL if none matches
+ */
+const struct subnet_pool_def *subnet_pool_by_name(const struct subnet_pool_def *pools,
+                                                  const char *name);
+
+/**
+ * Validate the --subnet-pool definitions: contiguous netmask between
+ * /IFCONFIG_POOL_MIN_NETBITS and /29, gateway a host address inside its
+ * subnet, an explicit dynamic range made of at least 2 host addresses of the
+ * subnet,
+ * unique names, and no subnet overlapping another pool or the --server
+ * network.
+ *
+ * @param pools           head of the --subnet-pool list (may be NULL)
+ * @param server_network  the --server network (host order)
+ * @param server_netmask  the --server netmask, or 0 if there is none
+ * @param msglevel        level of the message logged on the first error
+ * @return                true if every definition is valid
+ */
+bool subnet_pools_check(const struct subnet_pool_def *pools, in_addr_t server_network,
+                        in_addr_t server_netmask, msglvl_t msglevel);
+
 
 /** Checks if the string is a valid integer by checking if it can be
  *  converted to an integer */

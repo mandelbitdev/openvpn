@@ -30,6 +30,105 @@
 #include "options_util.h"
 
 #include "push.h"
+#include "pool.h"
+
+const struct subnet_pool_def *
+subnet_pool_by_name(const struct subnet_pool_def *pools, const char *name)
+{
+    for (const struct subnet_pool_def *d = pools; d; d = d->next)
+    {
+        if (!strcmp(d->name, name))
+        {
+            return d;
+        }
+    }
+    return NULL;
+}
+
+/* true if the two IPv4 subnets share at least one address */
+static bool
+subnets_overlap(in_addr_t a, in_addr_t mask_a, in_addr_t b, in_addr_t mask_b)
+{
+    const in_addr_t mask = mask_a & mask_b;
+
+    return (a & mask) == (b & mask);
+}
+
+bool
+subnet_pools_check(const struct subnet_pool_def *pools, in_addr_t server_network,
+                   in_addr_t server_netmask, msglvl_t msglevel)
+{
+    for (const struct subnet_pool_def *d = pools; d; d = d->next)
+    {
+        const in_addr_t host = ~d->netmask;
+        int netbits = 32;
+
+        /* the netmask must be contiguous */
+        if (host & (host + 1))
+        {
+            msg(msglevel, "--subnet-pool %s: invalid netmask", d->name);
+            return false;
+        }
+        for (in_addr_t h = host; h; h >>= 1)
+        {
+            netbits--;
+        }
+
+        /* same bounds as --server: the pool must hold at least 2 addresses
+         * besides network, gateway and broadcast, and fit IFCONFIG_POOL_MAX */
+        if (netbits < IFCONFIG_POOL_MIN_NETBITS || netbits > 29)
+        {
+            msg(msglevel, "--subnet-pool %s: netmask must be between /%d and /29 (not /%d)",
+                d->name, IFCONFIG_POOL_MIN_NETBITS, netbits);
+            return false;
+        }
+
+        if ((d->gateway & d->netmask) != d->network || d->gateway == d->network
+            || d->gateway == (d->network | host))
+        {
+            msg(msglevel, "--subnet-pool %s: gateway must be a host address inside the subnet",
+                d->name);
+            return false;
+        }
+
+        /* an explicit dynamic range must be made of host addresses of the
+         * subnet and hold at least the 2 entries an ifconfig pool needs */
+        if ((d->pool_start || d->pool_end)
+            && ((d->pool_start & d->netmask) != d->network
+                || (d->pool_end & d->netmask) != d->network || d->pool_start == d->network
+                || d->pool_end == (d->network | host) || d->pool_start >= d->pool_end))
+        {
+            msg(msglevel,
+                "--subnet-pool %s: range start and end must be host addresses inside the "
+                "subnet, with start lower than end",
+                d->name);
+            return false;
+        }
+
+        if (server_netmask
+            && subnets_overlap(d->network, d->netmask, server_network, server_netmask))
+        {
+            msg(msglevel, "--subnet-pool %s: subnet overlaps the --server network", d->name);
+            return false;
+        }
+
+        for (const struct subnet_pool_def *e = d->next; e; e = e->next)
+        {
+            if (!strcmp(d->name, e->name))
+            {
+                msg(msglevel, "--subnet-pool %s: name defined more than once", d->name);
+                return false;
+            }
+            if (subnets_overlap(d->network, d->netmask, e->network, e->netmask))
+            {
+                msg(msglevel, "--subnet-pool %s and %s: subnets overlap", d->name, e->name);
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
 
 const char *
 parse_auth_failed_temp(struct options *o, const char *reason)

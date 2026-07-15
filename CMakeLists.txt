@@ -858,6 +858,7 @@ if (BUILD_TESTING)
     target_sources(test_misc PRIVATE
         tests/unit_tests/openvpn/mock_get_random.c
         tests/unit_tests/openvpn/test_schedule.c
+        tests/unit_tests/openvpn/test_subnet_pool.c
         src/openvpn/options_util.c
         src/openvpn/otime.c
         src/openvpn/ssl_util.c

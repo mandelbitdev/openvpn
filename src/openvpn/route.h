@@ -80,6 +80,10 @@ struct route_option
     const char *gateway;
     int table_id;
     const char *metric;
+    /* on Linux and FreeBSD, install the route on-link on the tun device
+     * instead of via the gateway (needed under DCO, where the kernel selects
+     * the peer by the route's next hop) */
+    bool on_link;
 };
 
 /* redirect-gateway flags */
@@ -120,6 +124,7 @@ struct route_ipv4
 #define RT_DEFINED        (1u << 0)
 #define RT_ADDED          (1u << 1)
 #define RT_METRIC_DEFINED (1u << 2)
+#define RT_ON_LINK        (1u << 3) /* see struct route_option.on_link */
     struct route_ipv4 *next;
     unsigned int flags;
     const struct route_option *option;
@@ -311,8 +316,9 @@ bool add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags
                const struct route_gateway_info *rgi, const struct env_set *es,
                openvpn_net_ctx_t *ctx);
 
-void add_route_to_option_list(struct route_option_list *l, const char *network, const char *netmask,
-                              const char *gateway, const char *metric, int table_id);
+struct route_option *add_route_to_option_list(struct route_option_list *l, const char *network,
+                                              const char *netmask, const char *gateway,
+                                              const char *metric, int table_id);
 
 void add_route_ipv6_to_option_list(struct route_ipv6_option_list *l, const char *prefix,
                                    const char *gateway, const char *metric, int table_id);

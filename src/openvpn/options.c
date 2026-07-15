@@ -453,6 +453,12 @@ static const char usage_message[] =
     "                  If seconds=0, file will be treated as read-only.\n"
     "--ifconfig-ipv6-pool base-IP/bits : set aside an IPv6 network block\n"
     "                  to be dynamically allocated to connecting clients.\n"
+    "--subnet-pool name network netmask [gateway [start end]] : Define a named\n"
+    "                  pool of addresses outside the --server network, selected\n"
+    "                  per client with --subnet-pool-name. start/end restrict the\n"
+    "                  dynamically assigned range.\n"
+    "--subnet-pool-name name : Assign this client to the --subnet-pool named name.\n"
+    "                  Only valid in a client-specific config file.\n"
     "--ifconfig-push local remote-netmask : Push an ifconfig option to remote,\n"
     "                  overrides --ifconfig-pool dynamic allocation.\n"
     "                  Only valid in a client-specific config file.\n"
@@ -1899,6 +1905,20 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         {
             msg(M_USAGE, "--ifconfig-ipv6-pool needs --ifconfig-ipv6");
         }
+        if (options->subnet_pools)
+        {
+            if (!options->server_defined)
+            {
+                msg(M_USAGE, "--subnet-pool requires --server");
+            }
+            if (dev_type_enum(options->dev, options->dev_type) != DEV_TYPE_TUN
+                || options->topology != TOP_SUBNET)
+            {
+                msg(M_USAGE, "--subnet-pool requires --dev tun and --topology subnet");
+            }
+            subnet_pools_check(options->subnet_pools, options->server_network,
+                               options->server_netmask, M_USAGE);
+        }
         MUST_BE_UNDEF(allow_recursive_routing, "allow-recursive-routing");
         if (options->auth_user_pass_file)
         {
@@ -1965,6 +1985,7 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         MUST_BE_UNDEF(ifconfig_pool_defined, "ifconfig-pool");
         MUST_BE_UNDEF(ifconfig_pool_persist_filename, "ifconfig-pool-persist");
         MUST_BE_UNDEF(ifconfig_ipv6_pool_defined, "ifconfig-ipv6-pool");
+        MUST_BE_UNDEF(subnet_pools, "subnet-pool");
         MUST_BE_UNDEF(real_hash_size, "hash-size");
         MUST_BE_UNDEF(virtual_hash_size, "hash-size");
         MUST_BE_UNDEF(learn_address_script, "learn-address");
@@ -3097,6 +3118,28 @@ helper_hashmap_sizes(struct options *o)
     }
 }
 
+/*
+ * The server's tun device is only configured with the --server network, so
+ * route each --subnet-pool network into it as well: without this the server
+ * could not reach its subnet-pool clients when the data channel runs in
+ * userspace.  Under DCO on Linux and FreeBSD the routes are installed on-link,
+ * see subnet_pool_routes_onlink().
+ */
+static void
+options_postprocess_subnet_pool_routes(struct options *o)
+{
+    for (const struct subnet_pool_def *d = o->subnet_pools; d; d = d->next)
+    {
+        struct route_option *ro;
+
+        rol_check_alloc(o);
+        ro = add_route_to_option_list(o->routes, print_in_addr_t(d->network, 0, &o->gc),
+                                      print_in_addr_t(d->netmask, 0, &o->gc), NULL, NULL,
+                                      o->route_default_table_id);
+        ro->on_link = subnet_pool_routes_onlink(o);
+    }
+}
+
 static void
 options_postprocess_mutate(struct options *o, struct env_set *es)
 {
@@ -3231,6 +3274,12 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
     {
         /* check if any option should force disabling DCO */
         o->disable_dco = !dco_check_option(D_DCO, o) || !dco_check_startup_option(D_DCO, o);
+    }
+
+    if (o->mode == MODE_SERVER)
+    {
+        /* how the pools are routed depends on the DCO decision above */
+        options_postprocess_subnet_pool_routes(o);
     }
 #ifdef USE_COMP
     if (dco_enabled(o))
@@ -6218,6 +6267,57 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
             msg(msglevel, "cannot parse --ifconfig-push addresses");
             goto err;
         }
+    }
+    else if (streq(p[0], "subnet-pool") && p[1] && p[2] && p[3] && (!p[5] || p[6]) && !p[7])
+    {
+        struct subnet_pool_def *sp;
+        in_addr_t network, netmask;
+
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        network = getaddr(GETADDR_HOST_ORDER | GETADDR_RESOLVE, p[2], 0, NULL, NULL);
+        netmask = getaddr(GETADDR_HOST_ORDER, p[3], 0, NULL, NULL);
+        if (!network || !netmask)
+        {
+            msg(msglevel, "cannot parse --subnet-pool addresses");
+            goto err;
+        }
+        ALLOC_OBJ_CLEAR_GC(sp, struct subnet_pool_def, &options->gc);
+        sp->name = p[1];
+        sp->network = network & netmask;
+        sp->netmask = netmask;
+        sp->gateway = (network & netmask) + 1;
+        if (p[4])
+        {
+            bool ok = false;
+
+            sp->gateway = getaddr(GETADDR_HOST_ORDER | GETADDR_RESOLVE, p[4], 0, &ok, NULL);
+            if (!ok)
+            {
+                msg(msglevel, "cannot parse --subnet-pool gateway");
+                goto err;
+            }
+        }
+        /* optional range of the dynamic pool, validated in
+         * subnet_pools_check(); unset, it spans the whole subnet */
+        if (p[5])
+        {
+            bool ok_start = false, ok_end = false;
+
+            sp->pool_start = getaddr(GETADDR_HOST_ORDER, p[5], 0, &ok_start, NULL);
+            sp->pool_end = getaddr(GETADDR_HOST_ORDER, p[6], 0, &ok_end, NULL);
+            if (!ok_start || !ok_end)
+            {
+                msg(msglevel, "cannot parse --subnet-pool range");
+                goto err;
+            }
+        }
+        sp->next = options->subnet_pools;
+        options->subnet_pools = sp;
+    }
+    else if (streq(p[0], "subnet-pool-name") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_INSTANCE);
+        options->subnet_pool_name = p[1];
     }
     else if (streq(p[0], "ifconfig-push-constraint") && p[1] && p[2] && !p[3])
     {
