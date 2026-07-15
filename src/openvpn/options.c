@@ -443,6 +443,11 @@ static const char usage_message[] =
     "                  If seconds=0, file will be treated as read-only.\n"
     "--ifconfig-ipv6-pool base-IP/bits : set aside an IPv6 network block\n"
     "                  to be dynamically allocated to connecting clients.\n"
+    "--subnet-pool tag network netmask [gateway] : Define a named pool of\n"
+    "                  addresses outside the --server network, selected per\n"
+    "                  client with --subnet-pool-tag.\n"
+    "--subnet-pool-tag tag : Assign this client to the --subnet-pool named tag.\n"
+    "                  Only valid in a client-specific config file.\n"
     "--ifconfig-push local remote-netmask : Push an ifconfig option to remote,\n"
     "                  overrides --ifconfig-pool dynamic allocation.\n"
     "                  Only valid in a client-specific config file.\n"
@@ -7630,6 +7635,33 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
             msg(msglevel, "cannot parse --ifconfig-push addresses");
             goto err;
         }
+    }
+    else if (streq(p[0], "subnet-pool") && p[1] && p[2] && p[3] && !p[5])
+    {
+        struct subnet_pool_def *sp;
+        in_addr_t network, netmask;
+
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        network = getaddr(GETADDR_HOST_ORDER | GETADDR_RESOLVE, p[2], 0, NULL, NULL);
+        netmask = getaddr(GETADDR_HOST_ORDER, p[3], 0, NULL, NULL);
+        if (!network || !netmask)
+        {
+            msg(msglevel, "cannot parse --subnet-pool addresses");
+            goto err;
+        }
+        ALLOC_OBJ_GC(sp, struct subnet_pool_def, &options->gc);
+        sp->tag = p[1];
+        sp->network = network & netmask;
+        sp->netmask = netmask;
+        sp->gateway = p[4] ? getaddr(GETADDR_HOST_ORDER | GETADDR_RESOLVE, p[4], 0, NULL, NULL)
+                           : (network & netmask) + 1;
+        sp->next = options->subnet_pools;
+        options->subnet_pools = sp;
+    }
+    else if (streq(p[0], "subnet-pool-tag") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_INSTANCE);
+        options->subnet_pool_tag = p[1];
     }
     else if (streq(p[0], "ifconfig-push-constraint") && p[1] && p[2] && !p[3])
     {

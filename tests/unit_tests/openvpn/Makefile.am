@@ -21,6 +21,7 @@ test_binaries = argv_testdriver \
 	push_update_msg_testdriver \
 	socket_testdriver \
 	ssl_testdriver \
+	subnet_pool_testdriver \
 	user_pass_testdriver
 
 if HAVE_LD_WRAP_SUPPORT
@@ -360,6 +361,19 @@ mbuf_testdriver_SOURCES = test_mbuf.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/mbuf.c
+
+subnet_pool_testdriver_CFLAGS  = \
+	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
+	@TEST_CFLAGS@
+
+subnet_pool_testdriver_LDFLAGS = @TEST_LDFLAGS@
+
+subnet_pool_testdriver_SOURCES = test_subnet_pool.c \
+	mock_msg.c test_common.h \
+	mock_get_random.c \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/options_util.c \
+	$(top_srcdir)/src/openvpn/platform.c
 
 misc_testdriver_CFLAGS  = \
 	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \

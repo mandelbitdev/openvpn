@@ -671,6 +671,7 @@ if (BUILD_TESTING)
         "test_provider"
         "test_socket"
         "test_ssl"
+        "test_subnet_pool"
         "test_user_pass"
         "test_push_update_msg"
         )
@@ -827,6 +828,11 @@ if (BUILD_TESTING)
         src/openvpn/options_util.c
         src/openvpn/ssl_util.c
         src/openvpn/list.c
+        )
+
+    target_sources(test_subnet_pool PRIVATE
+        tests/unit_tests/openvpn/mock_get_random.c
+        src/openvpn/options_util.c
         )
 
     target_sources(test_ncp PRIVATE

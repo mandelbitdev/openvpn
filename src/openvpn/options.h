@@ -250,6 +250,17 @@ struct verify_hash_list
     struct verify_hash_list *next;
 };
 
+/* A named --subnet-pool: a subnet clients can be assigned from, referenced
+ * from a CCD file by its tag via --subnet-pool-tag. */
+struct subnet_pool_def
+{
+    struct subnet_pool_def *next;
+    const char *tag;
+    in_addr_t network;
+    in_addr_t netmask;
+    in_addr_t gateway;
+};
+
 /* Command line options */
 struct options
 {
@@ -515,6 +526,12 @@ struct options
     bool push_ifconfig_constraint_defined;
     in_addr_t push_ifconfig_constraint_network;
     in_addr_t push_ifconfig_constraint_netmask;
+    struct subnet_pool_def *subnet_pools; /* named pools (server config) */
+    const char *subnet_pool_tag;          /* which pool this client uses (CCD) */
+    bool subnet_pool_defined;             /* resolved from the tag at connect */
+    in_addr_t subnet_pool_network;
+    in_addr_t subnet_pool_netmask;
+    in_addr_t subnet_pool_gateway;
     bool push_ifconfig_ipv4_blocked;           /* IPv4 */
     bool push_ifconfig_ipv6_defined;           /* IPv6 */
     struct in6_addr push_ifconfig_ipv6_local;  /* IPv6 */

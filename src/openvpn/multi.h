@@ -121,6 +121,8 @@ struct multi_instance
     struct mroute_addr real; /**< External network address of the
                               *   remote peer. */
     ifconfig_pool_handle vaddr_handle;
+    /* pool vaddr_handle belongs to (NULL = the global one) */
+    struct ifconfig_pool *vaddr_pool;
     char msg_prefix[MULTI_PREFIX_MAX_LENGTH];
 
     /* queued outgoing data in Server/TCP mode */
@@ -176,6 +178,8 @@ struct multi_context
                                         *   instances. */
     struct multi_io *multi_io;         /**< I/O state and events tracker */
     struct ifconfig_pool *ifconfig_pool;
+    /* per-group --subnet-pool dynamic pools */
+    struct subnet_pool *subnet_pools;
     struct frequency_limit *new_connection_limiter;
     struct initial_packet_rate_limit *initial_rate_limiter;
     struct mroute_helper *route_helper;

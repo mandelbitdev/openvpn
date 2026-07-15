@@ -330,6 +330,37 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   by ``--ifconfig``, OpenVPN will install a /32 host route for the ``local``
   IP address.
 
+--subnet-pool args
+  Define a named pool of addresses from a subnet different from the
+  ``--server`` network, so groups of clients can be given IPs from separate
+  subnets for per-group firewall rules under ``--topology subnet`` (and
+  therefore DCO). This is a main-config directive and may be repeated to
+  define several pools.
+
+  Valid syntax:
+  ::
+
+     subnet-pool tag network netmask [gateway]
+
+  ``tag`` is a name a client refers to with ``--subnet-pool-tag``; ``gateway``
+  defaults to the first address of ``network``/``netmask``. A client assigned
+  to a pool receives (dynamically, or via a static ``--ifconfig-push`` that
+  must lie within the subnet) an address from it, plus the matching netmask
+  and a ``--route-gateway`` inside the subnet so that its pushed routes
+  install on-link.
+
+  A host route to the server's own VPN IP is not pushed, as it is not needed
+  to reach the networks behind the server. If your clients need to reach the
+  server's VPN address itself, add an explicit
+  ``push "route <server-VPN-IP> 255.255.255.255"`` (or the ``route-ipv6``
+  equivalent) to the server config.
+
+--subnet-pool-tag tag
+  Assign this client to the ``--subnet-pool`` named ``tag``. Must be
+  associated with a specific client instance via ``--client-config-dir`` or
+  ``--client-connect``. Several clients may reference the same tag and are
+  then served from the same shared pool.
+
 --ifconfig-ipv6-push args
   for ``--client-config-dir`` per-client static IPv6 interface
   configuration, see ``--client-config-dir`` and ``--ifconfig-push`` for

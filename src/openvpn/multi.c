@@ -42,6 +42,7 @@
 #include "vlan.h"
 #include "auth_token.h"
 #include "route.h"
+#include "options_util.h"
 #include <inttypes.h>
 #include <string.h>
 
@@ -52,6 +53,17 @@
 #include "ssl_util.h"
 #include "dco.h"
 #include "reflect_filter.h"
+
+/*
+ * Dynamic address pool serving the clients of one --subnet-pool tag.  Shared
+ * by every client that references the tag, created on first use.
+ */
+struct subnet_pool
+{
+    struct subnet_pool *next;
+    const char *tag;
+    struct ifconfig_pool *pool;
+};
 
 /*#define MULTI_DEBUG_EVENT_LOOP*/
 
@@ -612,7 +624,8 @@ multi_close_instance(struct multi_context *m, struct multi_instance *mi, bool sh
 
         schedule_remove_entry(m->schedule, (struct schedule_entry *)mi);
 
-        ifconfig_pool_release(m->ifconfig_pool, mi->vaddr_handle, false);
+        ifconfig_pool_release(mi->vaddr_pool ? mi->vaddr_pool : m->ifconfig_pool, mi->vaddr_handle,
+                              false);
 
         if (mi->did_iroutes)
         {
@@ -687,6 +700,14 @@ multi_uninit(struct multi_context *m)
         schedule_free(m->schedule);
         mbuf_free(m->mbuf);
         ifconfig_pool_free(m->ifconfig_pool);
+        while (m->subnet_pools)
+        {
+            struct subnet_pool *sp = m->subnet_pools;
+
+            m->subnet_pools = sp->next;
+            ifconfig_pool_free(sp->pool);
+            free(sp);
+        }
         frequency_limit_free(m->new_connection_limiter);
         initial_rate_limit_free(m->initial_rate_limiter);
         multi_reap_free(m->reaper);
@@ -1384,6 +1405,12 @@ ifconfig_push_constraint_satisfied(const struct context *c)
     const struct options *o = &c->options;
     if (o->push_ifconfig_constraint_defined && c->c2.push_ifconfig_defined)
     {
+        /* a subnet-pool client is validated against its own subnet */
+        if (o->subnet_pool_defined)
+        {
+            return (o->subnet_pool_netmask & c->c2.push_ifconfig_local)
+                   == o->subnet_pool_network;
+        }
         return (o->push_ifconfig_constraint_netmask & c->c2.push_ifconfig_local)
                == o->push_ifconfig_constraint_network;
     }
@@ -1391,6 +1418,34 @@ ifconfig_push_constraint_satisfied(const struct context *c)
     {
         return true;
     }
+}
+
+/*
+ * Return the dynamic pool serving the clients tagged with <tag>, creating it
+ * on first use from the matching --subnet-pool definition.
+ */
+static struct ifconfig_pool *
+multi_get_group_pool(struct multi_context *m, const char *tag)
+{
+    struct subnet_pool *sp;
+
+    for (sp = m->subnet_pools; sp; sp = sp->next)
+    {
+        if (!strcmp(sp->tag, tag))
+        {
+            return sp->pool;
+        }
+    }
+
+    const struct subnet_pool_def *d4 = subnet_pool_by_tag(m->top.options.subnet_pools, tag);
+    ALLOC_OBJ_CLEAR(sp, struct subnet_pool);
+    sp->tag = d4->tag;
+    sp->pool = ifconfig_pool_init(true, IFCONFIG_POOL_INDIV, d4->network + 2,
+                                  (d4->network | ~d4->netmask) - 1, m->top.options.duplicate_cn,
+                                  false, in6addr_any, 0);
+    sp->next = m->subnet_pools;
+    m->subnet_pools = sp;
+    return sp->pool;
 }
 
 /*
@@ -1403,6 +1458,21 @@ multi_select_virtual_addr(struct multi_context *m, struct multi_instance *mi)
 {
     struct gc_arena gc = gc_new();
 
+    /* resolve a CCD --subnet-pool-tag against the main-config --subnet-pool list
+     * (an unknown tag is rejected with AUTH_FAILED in multi_client_connect) */
+    if (mi->context.options.subnet_pool_tag && !mi->context.options.subnet_pool_defined)
+    {
+        const struct subnet_pool_def *d =
+            subnet_pool_by_tag(m->top.options.subnet_pools, mi->context.options.subnet_pool_tag);
+        if (d)
+        {
+            mi->context.options.subnet_pool_defined = true;
+            mi->context.options.subnet_pool_network = d->network;
+            mi->context.options.subnet_pool_netmask = d->netmask;
+            mi->context.options.subnet_pool_gateway = d->gateway;
+        }
+    }
+
     /*
      * If ifconfig addresses were set by dynamic config file,
      * release pool addresses, otherwise keep them.
@@ -1413,8 +1483,10 @@ multi_select_virtual_addr(struct multi_context *m, struct multi_instance *mi)
          * release dynamic allocation */
         if (mi->vaddr_handle >= 0)
         {
-            ifconfig_pool_release(m->ifconfig_pool, mi->vaddr_handle, true);
+            ifconfig_pool_release(mi->vaddr_pool ? mi->vaddr_pool : m->ifconfig_pool,
+                                  mi->vaddr_handle, true);
             mi->vaddr_handle = -1;
+            mi->vaddr_pool = NULL;
         }
 
         mi->context.c2.push_ifconfig_defined = true;
@@ -1432,6 +1504,44 @@ multi_select_virtual_addr(struct multi_context *m, struct multi_instance *mi)
         {
             msg(M_INFO,
                 "MULTI_sva: WARNING: if --ifconfig-push is used for IPv4, automatic IPv6 assignment from --ifconfig-ipv6-pool does not work.  Use --ifconfig-ipv6-push for IPv6 then.");
+        }
+    }
+    else if (mi->context.options.subnet_pool_defined)
+    {
+        /* dynamic address from this client's --subnet-pool group */
+
+        /* the CCD is read after a global-pool address may already have been
+         * acquired; drop it so we can serve this client from its group */
+        if (mi->vaddr_handle >= 0 && !mi->vaddr_pool)
+        {
+            ifconfig_pool_release(m->ifconfig_pool, mi->vaddr_handle, true);
+            mi->vaddr_handle = -1;
+        }
+
+        if (mi->vaddr_handle < 0)
+        {
+            in_addr_t local = 0, remote = 0;
+            const char *cn = NULL;
+
+            if (!mi->context.options.duplicate_cn)
+            {
+                cn = tls_common_name(mi->context.c2.tls_multi, true);
+            }
+
+            mi->vaddr_pool = multi_get_group_pool(m, mi->context.options.subnet_pool_tag);
+            mi->vaddr_handle = ifconfig_pool_acquire(mi->vaddr_pool, &local, &remote, NULL, cn);
+            if (mi->vaddr_handle >= 0)
+            {
+                mi->context.c2.push_ifconfig_local = remote;
+                mi->context.c2.push_ifconfig_remote_netmask =
+                    mi->context.options.subnet_pool_netmask;
+                mi->context.c2.push_ifconfig_defined = true;
+            }
+            else
+            {
+                msg(D_MULTI_ERRORS, "MULTI: no free --subnet-pool addresses are available for %s",
+                    multi_instance_string(mi, false, &gc));
+            }
         }
     }
     else if (m->ifconfig_pool && mi->vaddr_handle < 0) /* otherwise, choose a pool address */
@@ -2339,10 +2449,9 @@ multi_client_connect_late_setup(struct multi_context *m, struct multi_instance *
         const char *ifconfig_constraint_netmask =
             print_in_addr_t(mi->context.options.push_ifconfig_constraint_netmask, 0, &gc);
 
-        /* JYFIXME -- this should cause the connection to fail */
         msg(D_MULTI_ERRORS,
-            "MULTI ERROR: primary virtual IP for %s (%s) "
-            "violates tunnel network/netmask constraint (%s/%s)",
+            "WARNING: primary virtual IP for %s (%s) "
+            "violates tunnel network/netmask constraint (%s/%s) and may not work",
             multi_instance_string(mi, false, &gc),
             print_in_addr_t(mi->context.c2.push_ifconfig_local, 0, &gc),
             ifconfig_constraint_network, ifconfig_constraint_netmask);
@@ -2450,6 +2559,7 @@ multi_client_connect_early_setup(struct multi_context *m, struct multi_instance 
 
     /* reset pool handle to null */
     mi->vaddr_handle = -1;
+    mi->vaddr_pool = NULL;
 
     /* do --client-connect setenvs */
     multi_select_virtual_addr(m, mi);
@@ -2738,6 +2848,15 @@ multi_connection_established(struct multi_context *m, struct multi_instance *mi)
     if (!check_compression_settings_valid(&mi->context.options.comp, D_MULTI_ERRORS))
     {
         msg(D_MULTI_ERRORS, "MULTI: client has been rejected due to invalid compression options");
+        cc_succeeded = false;
+    }
+
+    if (mi->context.options.subnet_pool_tag
+        && !subnet_pool_by_tag(m->top.options.subnet_pools, mi->context.options.subnet_pool_tag))
+    {
+        msg(D_MULTI_ERRORS, "MULTI: client has been rejected due to unknown --subnet-pool-tag '%s'",
+            mi->context.options.subnet_pool_tag);
+        auth_set_client_reason(mi->context.c2.tls_multi, "unknown subnet-pool-tag");
         cc_succeeded = false;
     }
 

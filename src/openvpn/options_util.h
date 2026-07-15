@@ -28,6 +28,16 @@
 
 const char *parse_auth_failed_temp(struct options *o, const char *reason);
 
+/**
+ * Look up a named --subnet-pool in a list of pool definitions.
+ *
+ * @param pools  head of the --subnet-pool list (may be NULL)
+ * @param tag    the --subnet-pool-tag to match
+ * @return       the matching pool definition, or NULL if none matches
+ */
+const struct subnet_pool_def *subnet_pool_by_tag(const struct subnet_pool_def *pools,
+                                                 const char *tag);
+
 
 /** Checks if the string is a valid integer by checking if it can be
  *  converted to an integer */
