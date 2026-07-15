@@ -441,6 +441,7 @@ static const char usage_message[] =
     "--ifconfig-pool-persist file [seconds] : Persist/unpersist ifconfig-pool\n"
     "                  data to file, at seconds intervals (default=600).\n"
     "                  If seconds=0, file will be treated as read-only.\n"
+    "                  Covers the global pool and every --subnet-pool.\n"
     "--ifconfig-ipv6-pool base-IP/bits : set aside an IPv6 network block\n"
     "                  to be dynamically allocated to connecting clients.\n"
     "--subnet-pool tag network netmask [gateway] : Define a named pool of\n"
@@ -2566,10 +2567,11 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         MUST_BE_UNDEF(route_delay_defined, "route-delay");
         MUST_BE_UNDEF(up_delay, "up-delay");
         if (!options->ifconfig_pool_defined && !options->ifconfig_ipv6_pool_defined
+            && !options->subnet_pools && !options->subnet_pools_ipv6
             && options->ifconfig_pool_persist_filename)
         {
-            msg(M_USAGE,
-                "--ifconfig-pool-persist must be used with --ifconfig-pool or --ifconfig-ipv6-pool");
+            msg(M_USAGE, "--ifconfig-pool-persist must be used with --ifconfig-pool, "
+                         "--ifconfig-ipv6-pool or --subnet-pool");
         }
         if (options->ifconfig_ipv6_pool_defined && !options->ifconfig_ipv6_local)
         {

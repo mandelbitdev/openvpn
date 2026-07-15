@@ -92,9 +92,15 @@ void ifconfig_pool_persist_close(struct ifconfig_pool_persist *persist);
 
 bool ifconfig_pool_write_trigger(struct ifconfig_pool_persist *persist);
 
-void ifconfig_pool_read(struct ifconfig_pool_persist *persist, struct ifconfig_pool *pool);
+/* Read a persist file into a set of pools, routing each entry to the pool
+ * whose address range owns it.  Entries matching no pool (e.g. a --subnet-pool
+ * that is no longer configured) are ignored. */
+void ifconfig_pool_read(struct ifconfig_pool_persist *persist, struct ifconfig_pool **pools,
+                        int n_pools);
 
-void ifconfig_pool_write(struct ifconfig_pool_persist *persist, const struct ifconfig_pool *pool);
+/* Write a set of pools to a single persist file. */
+void ifconfig_pool_write(struct ifconfig_pool_persist *persist,
+                         struct ifconfig_pool *const *pools, int n_pools);
 
 #ifdef IFCONFIG_POOL_TEST
 void ifconfig_pool_test(in_addr_t start, in_addr_t end);

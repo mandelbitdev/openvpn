@@ -65,6 +65,41 @@ struct subnet_pool
     struct ifconfig_pool *pool;
 };
 
+static struct ifconfig_pool *multi_get_group_pool(struct multi_context *m,
+                                                  const struct options *o, const char *tag);
+
+/*
+ * Collect every address pool (the global one plus each --subnet-pool group)
+ * into a gc-allocated array, for the single combined --ifconfig-pool-persist
+ * file.  Returns the number of pools.
+ */
+static int
+multi_all_pools(struct multi_context *m, struct gc_arena *gc, struct ifconfig_pool ***pools)
+{
+    struct subnet_pool *sp;
+    int n = m->ifconfig_pool ? 1 : 0;
+
+    for (sp = m->subnet_pools; sp; sp = sp->next)
+    {
+        n++;
+    }
+
+    struct ifconfig_pool **arr = gc_malloc(n * sizeof(struct ifconfig_pool *), true, gc);
+    int i = 0;
+
+    if (m->ifconfig_pool)
+    {
+        arr[i++] = m->ifconfig_pool;
+    }
+    for (sp = m->subnet_pools; sp; sp = sp->next)
+    {
+        arr[i++] = sp->pool;
+    }
+
+    *pools = arr;
+    return n;
+}
+
 /*#define MULTI_DEBUG_EVENT_LOOP*/
 
 #ifdef MULTI_DEBUG_EVENT_LOOP
@@ -161,11 +196,16 @@ learn_address_script(const struct multi_context *m, const struct multi_instance 
 void
 multi_ifconfig_pool_persist(struct multi_context *m, bool force)
 {
-    /* write pool data to file */
-    if (m->ifconfig_pool && m->top.c1.ifconfig_pool_persist
+    /* write the global pool and every --subnet-pool to the one persist file */
+    if (m->top.c1.ifconfig_pool_persist
         && (force || ifconfig_pool_write_trigger(m->top.c1.ifconfig_pool_persist)))
     {
-        ifconfig_pool_write(m->top.c1.ifconfig_pool_persist, m->ifconfig_pool);
+        struct gc_arena gc = gc_new();
+        struct ifconfig_pool **pools;
+        int n = multi_all_pools(m, &gc, &pools);
+
+        ifconfig_pool_write(m->top.c1.ifconfig_pool_persist, pools, n);
+        gc_free(&gc);
     }
 }
 
@@ -368,12 +408,29 @@ multi_init(struct context *t)
             t->options.ifconfig_pool_end, t->options.duplicate_cn,
             t->options.ifconfig_ipv6_pool_defined, t->options.ifconfig_ipv6_pool_base,
             t->options.ifconfig_ipv6_pool_netbits);
+    }
 
-        /* reload pool data from file */
-        if (t->c1.ifconfig_pool_persist)
+    /* With --ifconfig-pool-persist the single file covers the global pool and
+     * every configured --subnet-pool, so eagerly create the subnet pools and
+     * reload them all in one pass (entries for unknown pools are ignored). */
+    if (t->c1.ifconfig_pool_persist)
+    {
+        struct gc_arena gc = gc_new();
+        struct ifconfig_pool **pools;
+        int n;
+
+        for (const struct subnet_pool_def *d = t->options.subnet_pools; d; d = d->next)
         {
-            ifconfig_pool_read(t->c1.ifconfig_pool_persist, m->ifconfig_pool);
+            multi_get_group_pool(m, &t->options, d->tag);
         }
+        for (const struct subnet_pool6_def *d = t->options.subnet_pools_ipv6; d; d = d->next)
+        {
+            multi_get_group_pool(m, &t->options, d->tag);
+        }
+
+        n = multi_all_pools(m, &gc, &pools);
+        ifconfig_pool_read(t->c1.ifconfig_pool_persist, pools, n);
+        gc_free(&gc);
     }
 
     /*
@@ -1425,7 +1482,7 @@ ifconfig_push_constraint_satisfied(const struct context *c)
  * on first use from the matching --subnet-pool definition.
  */
 static struct ifconfig_pool *
-multi_get_group_pool(struct multi_context *m, const char *tag)
+multi_get_group_pool(struct multi_context *m, const struct options *o, const char *tag)
 {
     struct subnet_pool *sp;
 
@@ -1437,14 +1494,13 @@ multi_get_group_pool(struct multi_context *m, const char *tag)
         }
     }
 
-    const struct subnet_pool_def *d4 = subnet_pool_by_tag(m->top.options.subnet_pools, tag);
-    const struct subnet_pool6_def *d6 = subnet_pool6_by_tag(m->top.options.subnet_pools_ipv6, tag);
+    const struct subnet_pool_def *d4 = subnet_pool_by_tag(o->subnet_pools, tag);
+    const struct subnet_pool6_def *d6 = subnet_pool6_by_tag(o->subnet_pools_ipv6, tag);
     ALLOC_OBJ_CLEAR(sp, struct subnet_pool);
     sp->tag = d4 ? d4->tag : d6->tag;
     sp->pool = ifconfig_pool_init(d4 != NULL, IFCONFIG_POOL_INDIV, d4 ? d4->network + 2 : 0,
-                                  d4 ? (d4->network | ~d4->netmask) - 1 : 0,
-                                  m->top.options.duplicate_cn, d6 != NULL,
-                                  d6 ? add_in6_addr(d6->network, 2) : in6addr_any,
+                                  d4 ? (d4->network | ~d4->netmask) - 1 : 0, o->duplicate_cn,
+                                  d6 != NULL, d6 ? add_in6_addr(d6->network, 2) : in6addr_any,
                                   d6 ? (int)d6->netbits : 0);
     sp->next = m->subnet_pools;
     m->subnet_pools = sp;
@@ -1549,7 +1605,8 @@ multi_select_virtual_addr(struct multi_context *m, struct multi_instance *mi)
                 cn = tls_common_name(mi->context.c2.tls_multi, true);
             }
 
-            mi->vaddr_pool = multi_get_group_pool(m, mi->context.options.subnet_pool_tag);
+            mi->vaddr_pool =
+                multi_get_group_pool(m, &m->top.options, mi->context.options.subnet_pool_tag);
             mi->vaddr_handle =
                 ifconfig_pool_acquire(mi->vaddr_pool, &local, &remote, &remote_ipv6, cn);
             if (mi->vaddr_handle < 0)

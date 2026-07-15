@@ -275,6 +275,11 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   ``file`` is a comma-delimited ASCII file, formatted as
   :code:`<Common-Name>,<IP-address>`.
 
+  A single ``file`` covers the global pool and every ``--subnet-pool``: each
+  entry is associated with a pool by its address, and on load an entry whose
+  address falls in no configured pool (for example a ``--subnet-pool`` that is
+  no longer defined) is ignored.
+
   If ``seconds`` = :code:`0`, ``file`` will be treated as read-only. This
   is useful if you would like to treat ``file`` as a configuration file.
 

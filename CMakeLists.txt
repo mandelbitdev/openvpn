@@ -668,6 +668,7 @@ if (BUILD_TESTING)
         "test_options_parse"
         "test_packet_id"
         "test_pkt"
+        "test_pool"
         "test_provider"
         "test_socket"
         "test_ssl"
@@ -833,6 +834,15 @@ if (BUILD_TESTING)
     target_sources(test_subnet_pool PRIVATE
         tests/unit_tests/openvpn/mock_get_random.c
         src/openvpn/options_util.c
+        )
+
+    target_sources(test_pool PRIVATE
+        tests/unit_tests/openvpn/mock_get_random.c
+        src/openvpn/pool.c
+        src/openvpn/status.c
+        src/openvpn/otime.c
+        src/openvpn/fdmisc.c
+        src/openvpn/interval.c
         )
 
     target_sources(test_ncp PRIVATE

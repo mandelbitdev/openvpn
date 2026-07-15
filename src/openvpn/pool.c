@@ -583,13 +583,14 @@ ifconfig_pool_write_trigger(struct ifconfig_pool_persist *persist)
 }
 
 void
-ifconfig_pool_read(struct ifconfig_pool_persist *persist, struct ifconfig_pool *pool)
+ifconfig_pool_read(struct ifconfig_pool_persist *persist, struct ifconfig_pool **pools,
+                   int n_pools)
 {
     const int buf_size = 128;
 
     update_time();
 
-    if (persist && persist->file && pool)
+    if (persist && persist->file && n_pools > 0)
     {
         struct gc_arena gc = gc_new();
         struct buffer in = alloc_buf_gc(256, &gc);
@@ -634,6 +635,9 @@ ifconfig_pool_read(struct ifconfig_pool_persist *persist, struct ifconfig_pool *
                 continue;
             }
 
+            /* the address selects which pool this entry belongs to; an entry
+             * matching none of the configured pools is ignored */
+            struct ifconfig_pool *pool = NULL;
             ifconfig_pool_handle h = -1, h6 = -1;
 
             if (strlen(ip_buf) > 0)
@@ -647,10 +651,13 @@ ifconfig_pool_read(struct ifconfig_pool_persist *persist, struct ifconfig_pool *
                 }
                 else
                 {
-                    h = ifconfig_pool_ip_base_to_handle(pool, addr);
-                    if (h < 0)
+                    for (int i = 0; i < n_pools && !pool; ++i)
                     {
-                        msg(M_WARN, "pool: IPv4 (%s) out of pool range for CN=%s", ip_buf, cn_buf);
+                        h = ifconfig_pool_ip_base_to_handle(pools[i], addr);
+                        if (h >= 0)
+                        {
+                            pool = pools[i];
+                        }
                     }
                 }
             }
@@ -663,12 +670,20 @@ ifconfig_pool_read(struct ifconfig_pool_persist *persist, struct ifconfig_pool *
                 {
                     msg(M_WARN, "pool: invalid IPv6 (%s) for CN=%s", ip6_buf, cn_buf);
                 }
+                else if (pool)
+                {
+                    /* IPv4 already picked the pool; v4 and v6 share the handle */
+                    h6 = ifconfig_pool_ipv6_base_to_handle(pool, &addr6);
+                }
                 else
                 {
-                    h6 = ifconfig_pool_ipv6_base_to_handle(pool, &addr6);
-                    if (h6 < 0)
+                    for (int i = 0; i < n_pools && !pool; ++i)
                     {
-                        msg(M_WARN, "pool: IPv6 (%s) out of pool range for CN=%s", ip6_buf, cn_buf);
+                        h6 = ifconfig_pool_ipv6_base_to_handle(pools[i], &addr6);
+                        if (h6 >= 0)
+                        {
+                            pool = pools[i];
+                        }
                     }
 
                     /* Rely on IPv6 if no IPv4 was provided or the one provided
@@ -681,40 +696,44 @@ ifconfig_pool_read(struct ifconfig_pool_persist *persist, struct ifconfig_pool *
                 }
             }
 
-            /* at the moment IPv4 and IPv6 share the same pool, therefore offsets
-             * have to match for the same client.
-             *
-             * If offsets differ we use the IPv4, therefore warn the user about this.
-             */
+            /* IPv4 and IPv6 share the same pool handle, so their offsets have
+             * to match; if they differ we use the IPv4 and warn */
             if ((h6 >= 0) && (h != h6))
             {
                 msg(M_WARN, "pool: IPv4 (%s) and IPv6 (%s) have different offsets! Relying on IPv4",
                     ip_buf, ip6_buf);
             }
 
-            /* if at least one among v4 and v6 was properly parsed, attempt
-             * setting an handle for this client
-             */
-            if (h >= 0)
+            /* set the handle if the entry belongs to one of the pools */
+            if (pool && h >= 0)
             {
-                msg(M_INFO, "succeeded -> ifconfig_pool_set(hand=%d)", h);
                 ifconfig_pool_set(pool, cn_buf, h, persist->fixed);
             }
         }
 
-        ifconfig_pool_msg(pool, D_IFCONFIG_POOL);
+        for (int i = 0; i < n_pools; ++i)
+        {
+            ifconfig_pool_msg(pools[i], D_IFCONFIG_POOL);
+        }
 
         gc_free(&gc);
     }
 }
 
 void
-ifconfig_pool_write(struct ifconfig_pool_persist *persist, const struct ifconfig_pool *pool)
+ifconfig_pool_write(struct ifconfig_pool_persist *persist, struct ifconfig_pool *const *pools,
+                    int n_pools)
 {
-    if (persist && persist->file && (status_rw_flags(persist->file) & STATUS_OUTPUT_WRITE) && pool)
+    if (persist && persist->file && (status_rw_flags(persist->file) & STATUS_OUTPUT_WRITE))
     {
         status_reset(persist->file);
-        ifconfig_pool_list(pool, persist->file);
+        for (int i = 0; i < n_pools; ++i)
+        {
+            if (pools[i])
+            {
+                ifconfig_pool_list(pools[i], persist->file);
+            }
+        }
         status_flush(persist->file);
     }
 }
