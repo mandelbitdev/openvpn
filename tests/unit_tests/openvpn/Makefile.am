@@ -393,6 +393,7 @@ misc_testdriver_LDFLAGS = @TEST_LDFLAGS@
 misc_testdriver_SOURCES = test_misc.c \
 	test_schedule.c test_schedule.h \
 	test_subnet_pool.c test_subnet_pool.h \
+	test_pool.c test_pool.h \
 	mock_msg.c test_common.h  \
 	mock_get_random.c \
 	$(top_srcdir)/src/compat/compat-strlcpy.c \
@@ -406,7 +407,11 @@ misc_testdriver_SOURCES = test_misc.c \
 	$(top_srcdir)/src/openvpn/schedule.c \
 	$(top_srcdir)/src/openvpn/siphash.c \
 	$(top_srcdir)/src/openvpn/siphash_reference.c \
-	$(top_srcdir)/src/openvpn/session_id.c
+	$(top_srcdir)/src/openvpn/session_id.c \
+	$(top_srcdir)/src/openvpn/pool.c \
+	$(top_srcdir)/src/openvpn/status.c \
+	$(top_srcdir)/src/openvpn/fdmisc.c \
+	$(top_srcdir)/src/openvpn/interval.c
 
 push_update_msg_testdriver_CFLAGS = -I$(top_srcdir)/src/openvpn \
 	-I$(top_srcdir)/src/compat \

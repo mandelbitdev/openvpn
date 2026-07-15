@@ -859,6 +859,7 @@ if (BUILD_TESTING)
         tests/unit_tests/openvpn/mock_get_random.c
         tests/unit_tests/openvpn/test_schedule.c
         tests/unit_tests/openvpn/test_subnet_pool.c
+        tests/unit_tests/openvpn/test_pool.c
         src/openvpn/options_util.c
         src/openvpn/otime.c
         src/openvpn/ssl_util.c
@@ -869,6 +870,10 @@ if (BUILD_TESTING)
         src/openvpn/siphash.c
         src/openvpn/siphash_reference.c
         src/openvpn/session_id.c
+        src/openvpn/pool.c
+        src/openvpn/status.c
+        src/openvpn/fdmisc.c
+        src/openvpn/interval.c
     )
 
     target_sources(test_ncp PRIVATE

@@ -46,6 +46,7 @@
 #endif
 #include "test_schedule.h"
 #include "test_subnet_pool.h"
+#include "test_pool.h"
 
 static void
 test_compat_lzo_string(void **state)
@@ -570,6 +571,13 @@ const struct CMUnitTest misc_tests[] = {
     cmocka_unit_test(test_subnet_pools_check_overlap),
     cmocka_unit_test(test_subnet_pool6_by_name),
     cmocka_unit_test(test_subnet_pools6_check),
+    cmocka_unit_test_setup_teardown(test_persist_roundtrip, test_pool_persist_setup,
+                                    test_pool_persist_teardown),
+    cmocka_unit_test_setup_teardown(test_persist_ignore_unknown, test_pool_persist_setup,
+                                    test_pool_persist_teardown),
+    cmocka_unit_test(test_reserve_gateway),
+    cmocka_unit_test_setup_teardown(test_reserve_survives_persist, test_pool_persist_setup,
+                                    test_pool_persist_teardown),
 };
 
 int
