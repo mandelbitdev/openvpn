@@ -366,6 +366,16 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   and FreeBSD the IPv4 route is installed on-link, without a gateway, so its
   ``route_gateway_{n}`` is not set for ``--route-up`` scripts.
 
+  A client assigned to a pool is pushed a ``--route-gateway`` (and, with
+  ``--subnet-pool-ipv6``, a ``--route-ipv6-gateway``) inside its own subnet
+  in place of the global one, so that its pushed routes install on-link.
+
+  A host route to the server's own VPN IP is not pushed, as it is not needed
+  to reach the networks behind the server. If your clients need to reach the
+  server's VPN address itself, add an explicit
+  ``push "route <server-VPN-IP> 255.255.255.255"`` (or the ``route-ipv6``
+  equivalent) to the server config.
+
 --subnet-pool-ipv6 args
   The IPv6 counterpart of ``--subnet-pool``. Repeatable main-config directive.
 
