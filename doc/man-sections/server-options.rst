@@ -366,11 +366,32 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   and FreeBSD the IPv4 route is installed on-link, without a gateway, so its
   ``route_gateway_{n}`` is not set for ``--route-up`` scripts.
 
+--subnet-pool-ipv6 args
+  The IPv6 counterpart of ``--subnet-pool``. Repeatable main-config directive.
+
+  Valid syntax:
+  ::
+
+     subnet-pool-ipv6 name network/bits [gateway]
+
+  ``bits`` must be between 64 and 124; ``gateway`` defaults to the first
+  address of the network, is never assigned to a client, and is pushed to the
+  pool's clients as the remote end of their ``ifconfig-ipv6``. A name may refer to
+  an IPv4 pool, an IPv6 pool, or both; a client referencing it with
+  ``--subnet-pool-name`` is then assigned an address from each family the name
+  defines.
+
+  Requires ``--server-ipv6`` with ``--dev tun`` and ``--topology subnet``.
+  ``network`` must have no host bits set, ``gateway`` must be a host address
+  inside it, each ``name`` may be defined only once and no pool may overlap
+  another one or the ``--server-ipv6`` network. As for ``--subnet-pool``, the
+  server routes each pool's network into the tun device.
+
 --subnet-pool-name name
-  Assign this client to the ``--subnet-pool`` named ``name``. Must be
-  associated with a specific client instance via ``--client-config-dir`` or
-  ``--client-connect``. Several clients may reference the same name and are
-  then served from the same shared pool.
+  Assign this client to the ``--subnet-pool`` / ``--subnet-pool-ipv6`` named
+  ``name``. Must be associated with a specific client instance via
+  ``--client-config-dir`` or ``--client-connect``. Several clients may
+  reference the same name and are then served from the same shared pool(s).
 
 --ifconfig-ipv6-push args
   for ``--client-config-dir`` per-client static IPv6 interface

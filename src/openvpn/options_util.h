@@ -55,6 +55,25 @@ const struct subnet_pool_def *subnet_pool_by_name(const struct subnet_pool_def *
 bool subnet_pools_check(const struct subnet_pool_def *pools, in_addr_t server_network,
                         in_addr_t server_netmask, msglvl_t msglevel);
 
+/**
+ * IPv6 counterpart of subnet_pools_check(): network between /64 and /124
+ * without host bits, gateway a host address inside it, unique names, and no
+ * network overlapping another pool or the --server-ipv6 network.
+ *
+ * @param pools           head of the --subnet-pool-ipv6 list (may be NULL)
+ * @param server_network  the --server-ipv6 network
+ * @param server_netbits  the --server-ipv6 prefix length, or 0 if there is none
+ * @param msglevel        level of the message logged on the first error
+ * @return                true if every definition is valid
+ */
+bool subnet_pools6_check(const struct subnet_pool6_def *pools,
+                         const struct in6_addr *server_network, unsigned int server_netbits,
+                         msglvl_t msglevel);
+
+/** IPv6 counterpart of subnet_pool_by_name(). */
+const struct subnet_pool6_def *subnet_pool6_by_name(const struct subnet_pool6_def *pools,
+                                                    const char *name);
+
 
 /** Checks if the string is a valid integer by checking if it can be
  *  converted to an integer */

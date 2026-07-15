@@ -568,6 +568,8 @@ const struct CMUnitTest misc_tests[] = {
     cmocka_unit_test(test_subnet_pools_check_gateway),
     cmocka_unit_test(test_subnet_pools_check_range),
     cmocka_unit_test(test_subnet_pools_check_overlap),
+    cmocka_unit_test(test_subnet_pool6_by_name),
+    cmocka_unit_test(test_subnet_pools6_check),
 };
 
 int

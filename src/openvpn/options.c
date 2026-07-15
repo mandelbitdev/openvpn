@@ -457,6 +457,8 @@ static const char usage_message[] =
     "                  pool of addresses outside the --server network, selected\n"
     "                  per client with --subnet-pool-name. start/end restrict the\n"
     "                  dynamically assigned range.\n"
+    "--subnet-pool-ipv6 name network/bits [gateway] : IPv6 counterpart of\n"
+    "                  --subnet-pool.\n"
     "--subnet-pool-name name : Assign this client to the --subnet-pool named name.\n"
     "                  Only valid in a client-specific config file.\n"
     "--ifconfig-push local remote-netmask : Push an ifconfig option to remote,\n"
@@ -1919,6 +1921,20 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
             subnet_pools_check(options->subnet_pools, options->server_network,
                                options->server_netmask, M_USAGE);
         }
+        if (options->subnet_pools_ipv6)
+        {
+            if (!options->server_ipv6_defined)
+            {
+                msg(M_USAGE, "--subnet-pool-ipv6 requires --server-ipv6");
+            }
+            if (dev_type_enum(options->dev, options->dev_type) != DEV_TYPE_TUN
+                || options->topology != TOP_SUBNET)
+            {
+                msg(M_USAGE, "--subnet-pool-ipv6 requires --dev tun and --topology subnet");
+            }
+            subnet_pools6_check(options->subnet_pools_ipv6, &options->server_network_ipv6,
+                                options->server_netbits_ipv6, M_USAGE);
+        }
         MUST_BE_UNDEF(allow_recursive_routing, "allow-recursive-routing");
         if (options->auth_user_pass_file)
         {
@@ -1986,6 +2002,7 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         MUST_BE_UNDEF(ifconfig_pool_persist_filename, "ifconfig-pool-persist");
         MUST_BE_UNDEF(ifconfig_ipv6_pool_defined, "ifconfig-ipv6-pool");
         MUST_BE_UNDEF(subnet_pools, "subnet-pool");
+        MUST_BE_UNDEF(subnet_pools_ipv6, "subnet-pool-ipv6");
         MUST_BE_UNDEF(real_hash_size, "hash-size");
         MUST_BE_UNDEF(virtual_hash_size, "hash-size");
         MUST_BE_UNDEF(learn_address_script, "learn-address");
@@ -3119,8 +3136,9 @@ helper_hashmap_sizes(struct options *o)
 }
 
 /*
- * The server's tun device is only configured with the --server network, so
- * route each --subnet-pool network into it as well: without this the server
+ * The server's tun device is only configured with the --server and
+ * --server-ipv6 networks, so route each --subnet-pool and --subnet-pool-ipv6
+ * network into it as well: without this the server
  * could not reach its subnet-pool clients when the data channel runs in
  * userspace.  Under DCO on Linux and FreeBSD the routes are installed on-link,
  * see subnet_pool_routes_onlink().
@@ -3137,6 +3155,16 @@ options_postprocess_subnet_pool_routes(struct options *o)
                                       print_in_addr_t(d->netmask, 0, &o->gc), NULL, NULL,
                                       o->route_default_table_id);
         ro->on_link = subnet_pool_routes_onlink(o);
+    }
+
+    for (const struct subnet_pool6_def *d = o->subnet_pools_ipv6; d; d = d->next)
+    {
+        struct buffer prefix = alloc_buf_gc(64, &o->gc);
+
+        buf_printf(&prefix, "%s/%u", print_in6_addr(d->network, 0, &o->gc), d->netbits);
+        rol6_check_alloc(o);
+        add_route_ipv6_to_option_list(o->routes_ipv6, BSTR(&prefix), NULL, NULL,
+                                      o->route_default_table_id);
     }
 }
 
@@ -6313,6 +6341,37 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         }
         sp->next = options->subnet_pools;
         options->subnet_pools = sp;
+    }
+    else if (streq(p[0], "subnet-pool-ipv6") && p[1] && p[2] && !p[4])
+    {
+        struct subnet_pool6_def *sp;
+        struct in6_addr network, gateway;
+        unsigned int netbits = 0;
+
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        if (!get_ipv6_addr(p[2], &network, &netbits, msglevel))
+        {
+            msg(msglevel, "cannot parse --subnet-pool-ipv6 network");
+            goto err;
+        }
+        if (netbits < 64 || netbits > 124)
+        {
+            msg(msglevel, "--subnet-pool-ipv6 network must be between /64 and /124 (not /%u)",
+                netbits);
+            goto err;
+        }
+        if (p[3] && !get_ipv6_addr(p[3], &gateway, NULL, msglevel))
+        {
+            msg(msglevel, "cannot parse --subnet-pool-ipv6 gateway");
+            goto err;
+        }
+        ALLOC_OBJ_GC(sp, struct subnet_pool6_def, &options->gc);
+        sp->name = p[1];
+        sp->network = network;
+        sp->netbits = netbits;
+        sp->gateway = p[3] ? gateway : add_in6_addr(network, 1);
+        sp->next = options->subnet_pools_ipv6;
+        options->subnet_pools_ipv6 = sp;
     }
     else if (streq(p[0], "subnet-pool-name") && p[1] && !p[2])
     {

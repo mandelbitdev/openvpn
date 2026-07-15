@@ -130,6 +130,108 @@ subnet_pools_check(const struct subnet_pool_def *pools, in_addr_t server_network
     return true;
 }
 
+/* value of bit <i> (0 = most significant) of an IPv6 address */
+static bool
+in6_bit(const struct in6_addr *a, unsigned int i)
+{
+    return a->s6_addr[i / 8] & (0x80 >> (i % 8));
+}
+
+/* true if the first <bits> bits of the two addresses are equal */
+static bool
+in6_prefix_equal(const struct in6_addr *a, const struct in6_addr *b, unsigned int bits)
+{
+    for (unsigned int i = 0; i < bits; ++i)
+    {
+        if (in6_bit(a, i) != in6_bit(b, i))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+/* true if every bit of <a> from bit <from> on is zero */
+static bool
+in6_suffix_zero(const struct in6_addr *a, unsigned int from)
+{
+    for (unsigned int i = from; i < 128; ++i)
+    {
+        if (in6_bit(a, i))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool
+subnet_pools6_check(const struct subnet_pool6_def *pools, const struct in6_addr *server_network,
+                    unsigned int server_netbits, msglvl_t msglevel)
+{
+    for (const struct subnet_pool6_def *d = pools; d; d = d->next)
+    {
+        if (d->netbits < 64 || d->netbits > 124)
+        {
+            msg(msglevel, "--subnet-pool-ipv6 %s: network must be between /64 and /124 (not /%u)",
+                d->name, d->netbits);
+            return false;
+        }
+
+        if (!in6_suffix_zero(&d->network, d->netbits))
+        {
+            msg(msglevel, "--subnet-pool-ipv6 %s: network has host bits set", d->name);
+            return false;
+        }
+
+        if (!in6_prefix_equal(&d->gateway, &d->network, d->netbits)
+            || in6_suffix_zero(&d->gateway, d->netbits))
+        {
+            msg(msglevel,
+                "--subnet-pool-ipv6 %s: gateway must be a host address inside the network",
+                d->name);
+            return false;
+        }
+
+        if (server_netbits
+            && in6_prefix_equal(&d->network, server_network, min_uint(d->netbits, server_netbits)))
+        {
+            msg(msglevel, "--subnet-pool-ipv6 %s: network overlaps the --server-ipv6 network",
+                d->name);
+            return false;
+        }
+
+        for (const struct subnet_pool6_def *e = d->next; e; e = e->next)
+        {
+            if (!strcmp(d->name, e->name))
+            {
+                msg(msglevel, "--subnet-pool-ipv6 %s: name defined more than once", d->name);
+                return false;
+            }
+            if (in6_prefix_equal(&d->network, &e->network, min_uint(d->netbits, e->netbits)))
+            {
+                msg(msglevel, "--subnet-pool-ipv6 %s and %s: networks overlap", d->name, e->name);
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+const struct subnet_pool6_def *
+subnet_pool6_by_name(const struct subnet_pool6_def *pools, const char *name)
+{
+    for (const struct subnet_pool6_def *d = pools; d; d = d->next)
+    {
+        if (!strcmp(d->name, name))
+        {
+            return d;
+        }
+    }
+    return NULL;
+}
+
 const char *
 parse_auth_failed_temp(struct options *o, const char *reason)
 {

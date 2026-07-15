@@ -393,6 +393,10 @@ multi_init(struct context *t)
     {
         multi_get_group_pool(m, &t->options, d->name);
     }
+    for (const struct subnet_pool6_def *d = t->options.subnet_pools_ipv6; d; d = d->next)
+    {
+        multi_get_group_pool(m, &t->options, d->name);
+    }
 
     /*
      * Help us keep track of routing table.
@@ -1471,16 +1475,31 @@ multi_get_group_pool(struct multi_context *m, const struct options *o, const cha
     }
 
     const struct subnet_pool_def *d4 = subnet_pool_by_name(o->subnet_pools, name);
-    ASSERT(d4);
+    const struct subnet_pool6_def *d6 = subnet_pool6_by_name(o->subnet_pools_ipv6, name);
+    const char *pool_name = d4 ? d4->name : (d6 ? d6->name : NULL);
+    ASSERT(pool_name);
     ALLOC_OBJ_CLEAR(sp, struct subnet_pool);
-    sp->name = d4->name;
-    /* the configured dynamic range, or else every host address of the
-     * subnet, minus the gateway reserved below if it falls inside it */
-    const in_addr_t start = d4->pool_start ? d4->pool_start : d4->network + 1;
-    const in_addr_t end = d4->pool_end ? d4->pool_end : (d4->network | ~d4->netmask) - 1;
-    sp->pool = ifconfig_pool_init(true, IFCONFIG_POOL_INDIV, start, end, o->duplicate_cn, false,
-                                  in6addr_any, 0);
-    ifconfig_pool_reserve_ip(sp->pool, d4->gateway);
+    sp->name = pool_name;
+    /* the IPv4 range (configured, or else every host address of the subnet)
+     * and every host address of the IPv6 network, minus the gateways reserved
+     * below (the IPv4 and the IPv6 address of a client share one pool handle) */
+    in_addr_t start = 0, end = 0;
+    if (d4)
+    {
+        start = d4->pool_start ? d4->pool_start : d4->network + 1;
+        end = d4->pool_end ? d4->pool_end : (d4->network | ~d4->netmask) - 1;
+    }
+    sp->pool = ifconfig_pool_init(d4 != NULL, IFCONFIG_POOL_INDIV, start, end, o->duplicate_cn,
+                                  d6 != NULL, d6 ? add_in6_addr(d6->network, 1) : in6addr_any,
+                                  d6 ? (int)d6->netbits : 0);
+    if (d4)
+    {
+        ifconfig_pool_reserve_ip(sp->pool, d4->gateway);
+    }
+    if (d6)
+    {
+        ifconfig_pool_reserve_ipv6(sp->pool, &d6->gateway);
+    }
     sp->next = m->subnet_pools;
     m->subnet_pools = sp;
     return sp->pool;
@@ -1512,6 +1531,19 @@ multi_select_virtual_addr(struct multi_context *m, struct multi_instance *mi)
             mi->context.options.subnet_pool_network = d->network;
             mi->context.options.subnet_pool_netmask = d->netmask;
             mi->context.options.subnet_pool_gateway = d->gateway;
+        }
+    }
+    if (mi->context.options.subnet_pool_name)
+    {
+        const struct subnet_pool6_def *d = subnet_pool6_by_name(
+            m->top.options.subnet_pools_ipv6, mi->context.options.subnet_pool_name);
+
+        mi->context.options.subnet_pool_ipv6_defined = d != NULL;
+        if (d)
+        {
+            mi->context.options.subnet_pool_ipv6_network = d->network;
+            mi->context.options.subnet_pool_ipv6_netbits = d->netbits;
+            mi->context.options.subnet_pool_ipv6_gateway = d->gateway;
         }
     }
 
@@ -1548,15 +1580,16 @@ multi_select_virtual_addr(struct multi_context *m, struct multi_instance *mi)
                 "MULTI_sva: WARNING: if --ifconfig-push is used for IPv4, automatic IPv6 assignment from --ifconfig-ipv6-pool does not work.  Use --ifconfig-ipv6-push for IPv6 then.");
         }
     }
-    else if (mi->context.options.subnet_pool_defined)
+    else if (mi->context.options.subnet_pool_defined
+             || mi->context.options.subnet_pool_ipv6_defined)
     {
-        /* dynamic address from this client's --subnet-pool group */
+        /* dynamic address(es) from this client's --subnet-pool group */
         struct ifconfig_pool *group =
             multi_get_group_pool(m, &m->top.options, mi->context.options.subnet_pool_name);
 
         /* the address may have been acquired before the name was known (from
          * the global pool) or for a name that a later handler overrode: drop
-         * it so we serve this client from its current group */
+         * it so we serve this client from its current group only */
         if (mi->vaddr_handle >= 0 && mi->vaddr_pool != group)
         {
             ifconfig_pool_release(mi->vaddr_pool ? mi->vaddr_pool : m->ifconfig_pool,
@@ -1571,29 +1604,51 @@ multi_select_virtual_addr(struct multi_context *m, struct multi_instance *mi)
         if (mi->vaddr_handle < 0)
         {
             in_addr_t local = 0, remote = 0;
+            struct in6_addr remote_ipv6;
             const char *cn = NULL;
 
+            CLEAR(remote_ipv6);
             if (!mi->context.options.duplicate_cn)
             {
                 cn = tls_common_name(mi->context.c2.tls_multi, true);
             }
 
             mi->vaddr_pool = group;
-            mi->vaddr_handle = ifconfig_pool_acquire(mi->vaddr_pool, &local, &remote, NULL, cn);
-            if (mi->vaddr_handle >= 0)
-            {
-                mi->context.c2.push_ifconfig_local = remote;
-                mi->context.c2.push_ifconfig_remote_netmask =
-                    mi->context.options.subnet_pool_netmask;
-                mi->context.c2.push_ifconfig_defined = true;
-
-                msg(M_INFO, "MULTI_sva: --subnet-pool '%s' returned IPv4=%s",
-                    mi->context.options.subnet_pool_name, print_in_addr_t(remote, 0, &gc));
-            }
-            else
+            mi->vaddr_handle =
+                ifconfig_pool_acquire(mi->vaddr_pool, &local, &remote, &remote_ipv6, cn);
+            if (mi->vaddr_handle < 0)
             {
                 msg(D_MULTI_ERRORS, "MULTI: no free --subnet-pool '%s' addresses are available for %s",
                     mi->context.options.subnet_pool_name, multi_instance_string(mi, false, &gc));
+            }
+            else
+            {
+                if (mi->context.options.subnet_pool_defined)
+                {
+                    mi->context.c2.push_ifconfig_local = remote;
+                    mi->context.c2.push_ifconfig_remote_netmask =
+                        mi->context.options.subnet_pool_netmask;
+                    mi->context.c2.push_ifconfig_defined = true;
+                }
+                if (mi->context.options.subnet_pool_ipv6_defined)
+                {
+                    /* the server's own address is off-link for this client:
+                     * hand out the pool gateway as the remote end instead */
+                    mi->context.c2.push_ifconfig_ipv6_local = remote_ipv6;
+                    mi->context.c2.push_ifconfig_ipv6_remote =
+                        mi->context.options.subnet_pool_ipv6_gateway;
+                    mi->context.c2.push_ifconfig_ipv6_netbits =
+                        mi->context.options.subnet_pool_ipv6_netbits;
+                    mi->context.c2.push_ifconfig_ipv6_defined = true;
+                }
+
+                msg(M_INFO, "MULTI_sva: --subnet-pool '%s' returned IPv4=%s, IPv6=%s",
+                    mi->context.options.subnet_pool_name,
+                    mi->context.options.subnet_pool_defined ? print_in_addr_t(remote, 0, &gc)
+                                                            : "(Not enabled)",
+                    mi->context.options.subnet_pool_ipv6_defined
+                        ? print_in6_addr(remote_ipv6, 0, &gc)
+                        : "(Not enabled)");
             }
         }
     }
@@ -2935,7 +2990,9 @@ multi_connection_established(struct multi_context *m, struct multi_instance *mi)
     }
 
     if (mi->context.options.subnet_pool_name
-        && !subnet_pool_by_name(m->top.options.subnet_pools, mi->context.options.subnet_pool_name))
+        && !subnet_pool_by_name(m->top.options.subnet_pools, mi->context.options.subnet_pool_name)
+        && !subnet_pool6_by_name(m->top.options.subnet_pools_ipv6,
+                                 mi->context.options.subnet_pool_name))
     {
         msg(D_MULTI_ERRORS, "MULTI: client has been rejected due to unknown --subnet-pool-name '%s'",
             mi->context.options.subnet_pool_name);

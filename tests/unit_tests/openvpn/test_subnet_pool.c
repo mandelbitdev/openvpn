@@ -158,3 +158,77 @@ test_subnet_pools_check_overlap(void **state)
     struct subnet_pool_def adup = { .next = &bdup, .name = "grpA", .network = 0x0a090000, .netmask = 0xffffff00, .gateway = 0x0a090001 };
     assert_false(subnet_pools_check(&adup, 0, 0, M_WARN));
 }
+
+/* the IPv6 counterpart resolves independently: a name may refer to a v4 pool, a
+ * v6 pool, or both. */
+void
+test_subnet_pool6_by_name(void **state)
+{
+    struct subnet_pool6_def c = { .next = NULL, .name = "grpC", .netbits = 64 };
+    struct subnet_pool6_def b = { .next = &c, .name = "grpB", .netbits = 96 };
+    struct subnet_pool6_def a = { .next = &b, .name = "grpA", .netbits = 64 };
+
+    assert_ptr_equal(subnet_pool6_by_name(&a, "grpA"), &a);
+    assert_ptr_equal(subnet_pool6_by_name(&a, "grpB"), &b);
+    assert_ptr_equal(subnet_pool6_by_name(&a, "grpC"), &c);
+    assert_int_equal(subnet_pool6_by_name(&a, "grpB")->netbits, 96);
+    assert_null(subnet_pool6_by_name(&a, "nope"));
+    assert_null(subnet_pool6_by_name(NULL, "grpA"));
+}
+
+/* <prefix>::<host> as an in6_addr */
+static struct in6_addr
+in6(const char *addr)
+{
+    struct in6_addr a;
+
+    assert_int_equal(inet_pton(AF_INET6, addr, &a), 1);
+    return a;
+}
+
+/* a single IPv6 pool, checked against the fd00:8::/64 --server-ipv6 network */
+static bool
+check6_one(const char *net, unsigned int bits, const char *gw)
+{
+    const struct in6_addr server = in6("fd00:8::");
+    struct subnet_pool6_def d = { .next = NULL, .name = "grp", .network = in6(net), .netbits = bits, .gateway = in6(gw) };
+
+    return subnet_pools6_check(&d, &server, 64, M_WARN);
+}
+
+void
+test_subnet_pools6_check(void **state)
+{
+    /* /64 .. /124, any host address of the network as gateway */
+    assert_true(check6_one("fd00:9::", 64, "fd00:9::1"));
+    assert_true(check6_one("fd00:9::", 124, "fd00:9::1"));
+    assert_true(check6_one("fd00:9::", 112, "fd00:9::ffff"));
+    assert_false(check6_one("fd00:9::", 63, "fd00:9::1"));
+    assert_false(check6_one("fd00:9::", 125, "fd00:9::1"));
+
+    /* host bits in the network, gateway = network or outside it */
+    assert_false(check6_one("fd00:9::5", 64, "fd00:9::1"));
+    assert_false(check6_one("fd00:9::", 64, "fd00:9::"));
+    assert_false(check6_one("fd00:9::", 64, "fd00:a::1"));
+
+    /* overlapping the --server-ipv6 network, inside or covering it */
+    assert_false(check6_one("fd00:8::", 96, "fd00:8::1"));
+
+    /* two pools: disjoint, overlapping, same name */
+    const struct in6_addr server = in6("fd00:8::");
+    struct subnet_pool6_def b = { .next = NULL, .name = "grpB", .network = in6("fd00:a::"), .netbits = 64, .gateway = in6("fd00:a::1") };
+    struct subnet_pool6_def a = { .next = &b, .name = "grpA", .network = in6("fd00:9::"), .netbits = 64, .gateway = in6("fd00:9::1") };
+
+    assert_true(subnet_pools6_check(&a, &server, 64, M_WARN));
+    assert_true(subnet_pools6_check(&a, &server, 0, M_WARN));
+
+    /* a /120 grpB inside grpA */
+    struct subnet_pool6_def bin = { .next = NULL, .name = "grpB", .network = in6("fd00:9::100"), .netbits = 120, .gateway = in6("fd00:9::101") };
+    struct subnet_pool6_def ain = { .next = &bin, .name = "grpA", .network = in6("fd00:9::"), .netbits = 64, .gateway = in6("fd00:9::1") };
+    assert_false(subnet_pools6_check(&ain, &server, 64, M_WARN));
+
+    /* the same name defined twice */
+    struct subnet_pool6_def bdup = { .next = NULL, .name = "grpA", .network = in6("fd00:a::"), .netbits = 64, .gateway = in6("fd00:a::1") };
+    struct subnet_pool6_def adup = { .next = &bdup, .name = "grpA", .network = in6("fd00:9::"), .netbits = 64, .gateway = in6("fd00:9::1") };
+    assert_false(subnet_pools6_check(&adup, &server, 64, M_WARN));
+}

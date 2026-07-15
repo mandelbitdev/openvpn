@@ -98,6 +98,9 @@ bool ifconfig_pool_release(struct ifconfig_pool *pool, ifconfig_pool_handle hand
  */
 bool ifconfig_pool_reserve_ip(struct ifconfig_pool *pool, in_addr_t addr);
 
+/** IPv6 counterpart of ifconfig_pool_reserve_ip(). */
+bool ifconfig_pool_reserve_ipv6(struct ifconfig_pool *pool, const struct in6_addr *addr);
+
 struct ifconfig_pool_persist *ifconfig_pool_persist_init(const char *filename, int refresh_freq);
 
 void ifconfig_pool_persist_close(struct ifconfig_pool_persist *persist);

@@ -34,4 +34,8 @@ void test_subnet_pools_check_range(void **state);
 
 void test_subnet_pools_check_overlap(void **state);
 
+void test_subnet_pool6_by_name(void **state);
+
+void test_subnet_pools6_check(void **state);
+
 #endif
