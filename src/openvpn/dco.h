@@ -47,6 +47,9 @@ struct tuntap;
 #define DCO_IROUTE_METRIC  100
 #define DCO_DEFAULT_METRIC 200
 
+/** Local DCO capability bits, derived from kernel introspection */
+#define DCO_CAP_ASYM_PEER_ID (1u << 0) /**< kernel supports OVPN_A_PEER_TX_ID */
+
 #if defined(ENABLE_DCO)
 
 /**

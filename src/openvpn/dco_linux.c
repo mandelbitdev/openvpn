@@ -348,21 +348,125 @@ out:
     return ok;
 }
 
+static const struct ovpn_policy *
+ovpn_policy_by_id(const struct ovpn_policy_set *set, int policy_id)
+{
+    for (int i = 0; i < set->n_policies; i++)
+    {
+        if (set->policies[i].policy_id == policy_id)
+        {
+            return &set->policies[i];
+        }
+    }
+
+    return NULL;
+}
+
+static const struct ovpn_policy_attr *
+ovpn_policy_attr_by_id(const struct ovpn_policy *policy, int attr_id)
+{
+    if (!policy)
+    {
+        return NULL;
+    }
+
+    for (int i = 0; i < policy->n_attrs; i++)
+    {
+        if (policy->attrs[i].attr_id == attr_id)
+        {
+            return &policy->attrs[i];
+        }
+    }
+
+    return NULL;
+}
+
+static int
+ovpn_policy_id_for_cmd(const struct ovpn_policy_set *set, int cmd)
+{
+    for (int i = 0; i < set->n_cmds; i++)
+    {
+        if (set->cmds[i].cmd == cmd)
+        {
+            return set->cmds[i].policy_id;
+        }
+    }
+
+    return -1;
+}
+
+/*
+ * Return true if the doit policy of cmd has a nested attribute nested_attr
+ * whose sub-policy defines target_attr with the expected netlink type. This
+ * follows the exact attribute rather than inferring support from the number
+ * of attributes in the sub-policy.
+ */
+static bool
+ovpn_policy_accepts_attr(const struct ovpn_policy_set *set, uint16_t cmd, uint16_t nested_attr,
+                         uint16_t target_attr, int expected_type)
+{
+    int cmd_policy_id = ovpn_policy_id_for_cmd(set, cmd);
+    if (cmd_policy_id < 0)
+    {
+        return false;
+    }
+
+    const struct ovpn_policy *cmd_policy = ovpn_policy_by_id(set, cmd_policy_id);
+    const struct ovpn_policy_attr *nested = ovpn_policy_attr_by_id(cmd_policy, nested_attr);
+
+    if (!nested || nested->nested_policy_id < 0)
+    {
+        return false;
+    }
+
+    const struct ovpn_policy *sub_policy = ovpn_policy_by_id(set, nested->nested_policy_id);
+    const struct ovpn_policy_attr *target = ovpn_policy_attr_by_id(sub_policy, target_attr);
+
+    return target && target->data_type == expected_type;
+}
+
+/*
+ * DCO capability requirements. A bit is set when the doit policy of cmd has the
+ * nested attribute nested_attr whose sub-policy defines target_attr with the
+ * given netlink type. Extend by adding rows; any command is supported.
+ */
+struct dco_capability_req
+{
+    unsigned int cap;
+    uint16_t cmd;
+    uint16_t nested_attr;
+    uint16_t target_attr;
+    int expected_type;
+};
+
+static const struct dco_capability_req dco_capability_reqs[] = {
+    { DCO_CAP_ASYM_PEER_ID, OVPN_CMD_PEER_NEW, OVPN_A_PEER, OVPN_A_PEER_TX_ID, NL_ATTR_TYPE_U32 },
+};
+
 unsigned int
 dco_probe_capabilities(void)
 {
-    /* No capability requirements are defined yet; collect the policy anyway so
-     * the gathering pipeline is exercised end to end. The collected policy is
-     * turned into capability bits together with the first consumer.
-     */
     static struct ovpn_policy_set policy_set;
 
-    if (ovpn_policy_collect(D_DCO, &policy_set))
+    if (!ovpn_policy_collect(D_DCO, &policy_set))
     {
-        msg(D_DCO_DEBUG, "%s: %d commands, %d policies collected", __func__, policy_set.n_cmds, policy_set.n_policies);
+        return 0;
     }
 
-    return 0;
+    unsigned int caps = 0;
+
+    for (size_t i = 0; i < SIZE(dco_capability_reqs); i++)
+    {
+        const struct dco_capability_req *req = &dco_capability_reqs[i];
+
+        if (ovpn_policy_accepts_attr(&policy_set, req->cmd, req->nested_attr, req->target_attr,
+                                     req->expected_type))
+        {
+            caps |= req->cap;
+        }
+    }
+
+    return caps;
 }
 
 unsigned int
@@ -497,7 +601,12 @@ dco_new_peer(dco_context_t *dco, unsigned int rx_peer_id, unsigned int tx_peer_i
     int ret = -EMSGSIZE;
 
     NLA_PUT_U32(nl_msg, OVPN_A_PEER_ID, rx_peer_id);
-    NLA_PUT_U32(nl_msg, OVPN_A_PEER_TX_ID, tx_peer_id);
+    /* Only set TX_ID when the kernel advertises support for it; old kernels
+     * reject OVPN_CMD_PEER_NEW with EINVAL if they see an unknown attribute. */
+    if (dco->capabilities & DCO_CAP_ASYM_PEER_ID)
+    {
+        NLA_PUT_U32(nl_msg, OVPN_A_PEER_TX_ID, tx_peer_id);
+    }
     NLA_PUT_U32(nl_msg, OVPN_A_PEER_SOCKET, sd);
 
     /* Set the remote endpoint if defined (for UDP) */
