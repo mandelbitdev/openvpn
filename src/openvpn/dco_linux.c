@@ -348,6 +348,29 @@ out:
     return ok;
 }
 
+unsigned int
+dco_probe_capabilities(void)
+{
+    /* No capability requirements are defined yet; collect the policy anyway so
+     * the gathering pipeline is exercised end to end. The collected policy is
+     * turned into capability bits together with the first consumer.
+     */
+    static struct ovpn_policy_set policy_set;
+
+    if (ovpn_policy_collect(D_DCO, &policy_set))
+    {
+        msg(D_DCO_DEBUG, "%s: %d commands, %d policies collected", __func__, policy_set.n_cmds, policy_set.n_policies);
+    }
+
+    return 0;
+}
+
+unsigned int
+dco_get_capabilities(dco_context_t *dco)
+{
+    return dco->capabilities;
+}
+
 static struct nl_msg *
 ovpn_dco_nlmsg_create(dco_context_t *dco, uint8_t cmd)
 {
@@ -651,19 +674,8 @@ static void
 ovpn_dco_init_netlink(dco_context_t *dco)
 {
     dco->ovpn_dco_id = resolve_ovpn_netlink_id(M_FATAL);
-
-    /* Exercise the policy introspection so it can be observed and verified in
-     * the logs. This does nothing else for now; the collected policy is turned
-     * into a capability bitmap in later commits. */
-    if (check_debug_level(D_DCO_DEBUG))
-    {
-        static struct ovpn_policy_set policy_set;
-        if (ovpn_policy_collect(D_DCO_DEBUG, &policy_set))
-        {
-            msg(D_DCO_DEBUG, "%s: policy introspection: %d commands, %d policies collected",
-                __func__, policy_set.n_cmds, policy_set.n_policies);
-        }
-    }
+    dco->capabilities = dco_probe_capabilities();
+    msg(D_DCO_DEBUG, "%s: DCO local capabilities: 0x%x", __func__, dco->capabilities);
 
     dco->nl_sock = nl_socket_alloc();
 
