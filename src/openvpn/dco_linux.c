@@ -113,6 +113,241 @@ err_sock:
     return ret;
 }
 
+/*
+ * Netlink policy introspection.
+ *
+ * Since the ovpn module lives in the kernel, the attributes it accepts may
+ * differ from what userspace was built against. CTRL_CMD_GETPOLICY dumps, for
+ * a family, the validation policy of every command. The dump is a set of
+ * numbered policies: each policy is an array of per-attribute descriptors, and
+ * a NESTED attribute points (via POLICY_IDX) to the sub-policy that validates
+ * its content.
+ *
+ * The dump arrives split over several messages in arbitrary order, so we
+ * collect it all first and resolve queries afterwards. Nothing feature
+ * specific is hard-coded here.
+ */
+#define OVPN_POLICY_MAX_CMDS     32
+#define OVPN_POLICY_MAX_POLICIES 32
+#define OVPN_POLICY_MAX_ATTRS    64
+
+/* one attribute accepted by a policy, as described by the kernel */
+struct ovpn_policy_attr
+{
+    int attr_id;          /* which attribute, e.g. OVPN_A_PEER */
+    int data_type;        /* its NL_ATTR_TYPE_*, -1 if the kernel did not say */
+    int nested_policy_id; /* for NESTED: policy validating it, -1 otherwise */
+};
+
+/* the set of attributes accepted by one policy */
+struct ovpn_policy
+{
+    int policy_id;
+    int n_attrs;
+    struct ovpn_policy_attr attrs[OVPN_POLICY_MAX_ATTRS];
+};
+
+/* everything the policy dump told us about the family */
+struct ovpn_policy_set
+{
+    /* which policy validates the doit of each command */
+    int n_cmds;
+    struct
+    {
+        int cmd;
+        int policy_id;
+    } cmds[OVPN_POLICY_MAX_CMDS];
+
+    int n_policies;
+    struct ovpn_policy policies[OVPN_POLICY_MAX_POLICIES];
+
+    bool truncated; /* an array filled up: the set is incomplete */
+};
+
+/* return the policy with the given id, appending it to the set if unseen.
+ * A policy may be reported across several messages, hence find-or-add.
+ */
+static struct ovpn_policy *
+ovpn_policy_find_or_add(struct ovpn_policy_set *set, int policy_id)
+{
+    for (int i = 0; i < set->n_policies; i++)
+    {
+        if (set->policies[i].policy_id == policy_id)
+        {
+            return &set->policies[i];
+        }
+    }
+
+    if (set->n_policies >= OVPN_POLICY_MAX_POLICIES)
+    {
+        set->truncated = true;
+        return NULL;
+    }
+
+    struct ovpn_policy *policy = &set->policies[set->n_policies++];
+    policy->policy_id = policy_id;
+    policy->n_attrs = 0;
+    return policy;
+}
+
+static int
+ovpn_policy_collect_cb(struct nl_msg *msg, void *arg)
+{
+    struct ovpn_policy_set *set = arg;
+    struct nlattr *tb[CTRL_ATTR_MAX + 1];
+    struct genlmsghdr *ghdr = nlmsg_data(nlmsg_hdr(msg));
+
+    if (nla_parse(tb, CTRL_ATTR_MAX, genlmsg_attrdata(ghdr, 0), genlmsg_attrlen(ghdr, 0), NULL))
+    {
+        return NL_SKIP;
+    }
+
+    /* CTRL_ATTR_OP_POLICY: which policy validates the doit of each command */
+    if (tb[CTRL_ATTR_OP_POLICY])
+    {
+        struct nlattr *nla_cmd;
+        int rem_cmd;
+
+        nla_for_each_nested(nla_cmd, tb[CTRL_ATTR_OP_POLICY], rem_cmd)
+        {
+            struct nlattr *tb_cmd[CTRL_ATTR_POLICY_DUMP_MAX + 1];
+
+            if (nla_parse(tb_cmd, CTRL_ATTR_POLICY_DUMP_MAX, nla_data(nla_cmd), nla_len(nla_cmd), NULL))
+            {
+                continue;
+            }
+
+            if (!tb_cmd[CTRL_ATTR_POLICY_DO])
+            {
+                continue;
+            }
+
+            if (set->n_cmds >= OVPN_POLICY_MAX_CMDS)
+            {
+                set->truncated = true;
+                break;
+            }
+
+            set->cmds[set->n_cmds].cmd = nla_type(nla_cmd);
+            set->cmds[set->n_cmds].policy_id = nla_get_u32(tb_cmd[CTRL_ATTR_POLICY_DO]);
+            set->n_cmds++;
+        }
+    }
+
+    /* CTRL_ATTR_POLICY: which attributes each policy accepts */
+    if (tb[CTRL_ATTR_POLICY])
+    {
+        struct nlattr *nla_policy;
+        int rem_policy;
+
+        nla_for_each_nested(nla_policy, tb[CTRL_ATTR_POLICY], rem_policy)
+        {
+            struct ovpn_policy *policy = ovpn_policy_find_or_add(set, nla_type(nla_policy));
+            if (!policy)
+            {
+                break;
+            }
+
+            struct nlattr *nla_attr;
+            int rem_attr;
+
+            nla_for_each_nested(nla_attr, nla_policy, rem_attr)
+            {
+                struct nlattr *tb_attr[NL_POLICY_TYPE_ATTR_MAX + 1];
+
+                if (nla_parse_nested(tb_attr, NL_POLICY_TYPE_ATTR_MAX, nla_attr, NULL))
+                {
+                    continue;
+                }
+
+                if (policy->n_attrs >= OVPN_POLICY_MAX_ATTRS)
+                {
+                    set->truncated = true;
+                    break;
+                }
+
+                struct ovpn_policy_attr *desc = &policy->attrs[policy->n_attrs++];
+
+                desc->attr_id = nla_type(nla_attr);
+                desc->data_type = -1;
+                desc->nested_policy_id = -1;
+
+                if (tb_attr[NL_POLICY_TYPE_ATTR_TYPE])
+                {
+                    desc->data_type = nla_get_u32(tb_attr[NL_POLICY_TYPE_ATTR_TYPE]);
+                }
+
+                if (tb_attr[NL_POLICY_TYPE_ATTR_POLICY_IDX])
+                {
+                    desc->nested_policy_id = nla_get_u32(tb_attr[NL_POLICY_TYPE_ATTR_POLICY_IDX]);
+                }
+            }
+        }
+    }
+
+    return NL_OK;
+}
+
+/*
+ * Collect the whole policy of the ovpn family into *set. Returns false only
+ * if the netlink query could not be issued at all.
+ */
+static bool
+ovpn_policy_collect(msglvl_t msglevel, struct ovpn_policy_set *set)
+{
+    CLEAR(*set);
+
+    struct nl_sock *nl_sock = nl_socket_alloc();
+    if (!nl_sock)
+    {
+        msg(msglevel, "%s: cannot allocate netlink socket", __func__);
+        return false;
+    }
+
+    bool ok = false;
+
+    if (genl_connect(nl_sock))
+    {
+        msg(msglevel, "%s: cannot connect to generic netlink", __func__);
+        goto out;
+    }
+    set_cloexec(nl_socket_get_fd(nl_sock));
+
+    int ctrl_id = genl_ctrl_resolve(nl_sock, "nlctrl");
+    if (ctrl_id < 0)
+    {
+        msg(msglevel, "%s: cannot resolve nlctrl: %s", __func__, nl_geterror(ctrl_id));
+        goto out;
+    }
+
+    struct nl_msg *nl_msg = nlmsg_alloc();
+    if (!nl_msg)
+    {
+        goto out;
+    }
+
+    genlmsg_put(nl_msg, NL_AUTO_PORT, NL_AUTO_SEQ, ctrl_id, 0,
+                NLM_F_ROOT | NLM_F_MATCH | NLM_F_REQUEST, CTRL_CMD_GETPOLICY, 0);
+    nla_put_string(nl_msg, CTRL_ATTR_FAMILY_NAME, OVPN_FAMILY_NAME);
+
+    nl_socket_modify_cb(nl_sock, NL_CB_VALID, NL_CB_CUSTOM, ovpn_policy_collect_cb, set);
+    nl_send_auto(nl_sock, nl_msg);
+    nl_recvmsgs_default(nl_sock);
+    nlmsg_free(nl_msg);
+
+    if (set->truncated)
+    {
+        msg(msglevel, "%s: policy set exceeded internal buffers, "
+                      "capability detection may be incomplete",
+            __func__);
+    }
+    ok = true;
+
+out:
+    nl_socket_free(nl_sock);
+    return ok;
+}
+
 static struct nl_msg *
 ovpn_dco_nlmsg_create(dco_context_t *dco, uint8_t cmd)
 {
@@ -416,6 +651,19 @@ static void
 ovpn_dco_init_netlink(dco_context_t *dco)
 {
     dco->ovpn_dco_id = resolve_ovpn_netlink_id(M_FATAL);
+
+    /* Exercise the policy introspection so it can be observed and verified in
+     * the logs. This does nothing else for now; the collected policy is turned
+     * into a capability bitmap in later commits. */
+    if (check_debug_level(D_DCO_DEBUG))
+    {
+        static struct ovpn_policy_set policy_set;
+        if (ovpn_policy_collect(D_DCO_DEBUG, &policy_set))
+        {
+            msg(D_DCO_DEBUG, "%s: policy introspection: %d commands, %d policies collected",
+                __func__, policy_set.n_cmds, policy_set.n_policies);
+        }
+    }
 
     dco->nl_sock = nl_socket_alloc();
 
