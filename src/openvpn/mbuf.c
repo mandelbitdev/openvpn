@@ -85,6 +85,17 @@ mbuf_free_buf(struct mbuf_buffer *mb)
     }
 }
 
+/* reclaim dereferenced slots once they reach the head of the ring */
+static void
+mbuf_reclaim_head(struct mbuf_set *ms)
+{
+    while (ms->len && !ms->array[ms->head].instance)
+    {
+        ms->head = MBUF_INDEX(ms->head, 1, ms->capacity);
+        --ms->len;
+    }
+}
+
 void
 mbuf_add_item(struct mbuf_set *ms, const struct mbuf_item *item)
 {
@@ -125,6 +136,7 @@ mbuf_extract_item(struct mbuf_set *ms, struct mbuf_item *item)
                 break;
             }
         }
+        mbuf_reclaim_head(ms);
     }
     return ret;
 }
@@ -164,5 +176,6 @@ mbuf_dereference_instance(struct mbuf_set *ms, struct multi_instance *mi)
                 msg(D_MBUF, "MBUF: dereferenced queued packet");
             }
         }
+        mbuf_reclaim_head(ms);
     }
 }
