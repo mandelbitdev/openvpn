@@ -4205,6 +4205,9 @@ tunnel_server_loop(struct multi_context *multi)
 
     while (true)
     {
+        /* flush the bcast/mcast/c2c queue */
+        multi_io_flush_mbuf(multi);
+
         /* wait on tun/socket list */
         multi_get_timeout(multi, &multi->top.c2.timeval);
         status = multi_io_wait(multi);

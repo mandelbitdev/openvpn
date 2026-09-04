@@ -562,16 +562,17 @@ multi_io_process_io(struct multi_context *m)
         }
     }
     multi_io->n_esr = 0;
+}
 
-    /*
-     * Process queued mbuf packets destined for TCP socket
-     */
+/* drain the bcast/mcast/c2c queue (not only multi_io_process_io() feeds it) */
+void
+multi_io_flush_mbuf(struct multi_context *m)
+{
+    struct multi_instance *mi;
+
+    while (!IS_SIG(&m->top) && (mi = mbuf_peek(m->mbuf)) != NULL)
     {
-        struct multi_instance *mi;
-        while (!IS_SIG(&m->top) && (mi = mbuf_peek(m->mbuf)) != NULL)
-        {
-            multi_io_action(m, mi, TA_SOCKET_WRITE, true);
-        }
+        multi_io_action(m, mi, TA_SOCKET_WRITE, true);
     }
 }
 
