@@ -177,10 +177,6 @@ p2mp_iow_flags(const struct multi_context *m, struct link_socket *sock)
             flags |= IOW_TO_LINK;
         }
     }
-    else if (mbuf_defined(m->mbuf))
-    {
-        flags |= IOW_MBUF;
-    }
     else
     {
         flags |= IOW_READ;

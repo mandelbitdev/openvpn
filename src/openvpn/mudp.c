@@ -425,10 +425,10 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated, struct lin
 static inline void
 multi_process_outgoing_link(struct multi_context *m, const unsigned int mpp_flags)
 {
-    struct multi_instance *mi = multi_process_outgoing_link_pre(m);
-    if (mi)
+    /* the queue is drained by multi_io_flush_mbuf() */
+    if (m->pending)
     {
-        multi_process_outgoing_link_dowork(m, mi, mpp_flags);
+        multi_process_outgoing_link_dowork(m, m->pending, mpp_flags);
     }
 }
 
