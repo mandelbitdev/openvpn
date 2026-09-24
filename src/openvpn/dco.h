@@ -254,6 +254,15 @@ const char *dco_get_supported_ciphers(void);
  */
 bool
 dco_supports_epoch_data(struct context *c);
+
+/**
+ * Return a bitmap of DCO_CAP_* bits describing what the local kernel supports.
+ * Resolved once and reused; platforms without capability probing return 0.
+ *
+ * @return  bitmask of DCO_CAP_* flags; 0 both when the kernel has none of them
+ *          and when it could not be asked
+ */
+unsigned int dco_probe_capabilities(void);
 #else  /* if defined(ENABLE_DCO) */
 
 typedef void *dco_context_t;
@@ -387,6 +396,12 @@ static inline bool
 dco_supports_epoch_data(struct context *c)
 {
     return false;
+}
+
+static inline unsigned int
+dco_probe_capabilities(void)
+{
+    return 0;
 }
 #endif /* defined(ENABLE_DCO) */
 #endif /* ifndef DCO_H */

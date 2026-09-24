@@ -40,6 +40,12 @@ test_binaries += pkcs11_testdriver
 endif
 endif
 
+if HAVE_SITNL
+if ENABLE_DCO
+test_binaries += dco_testdriver
+endif
+endif
+
 if !CROSS_COMPILING
 TESTS = $(test_binaries)
 endif
@@ -424,3 +430,14 @@ socket_testdriver_SOURCES = test_socket.c \
 	$(top_srcdir)/src/openvpn/env_set.c \
 	$(top_srcdir)/src/openvpn/run_command.c \
 	$(top_srcdir)/src/openvpn/socket_util.c
+
+dco_testdriver_CFLAGS  = \
+	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
+	@TEST_CFLAGS@ $(OPTIONAL_CRYPTO_CFLAGS)
+dco_testdriver_LDFLAGS = @TEST_LDFLAGS@ $(OPTIONAL_CRYPTO_LIBS)
+dco_testdriver_SOURCES = test_dco.c \
+	mock_msg.c mock_msg.h mock_dco_dependencies.c mock_get_random.c test_common.h \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/fdmisc.c \
+	$(top_srcdir)/src/openvpn/platform.c \
+	$(top_srcdir)/src/openvpn/win32-util.c

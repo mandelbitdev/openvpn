@@ -113,6 +113,287 @@ err_sock:
     return ret;
 }
 
+/*
+ * Netlink policy introspection: the ovpn module lives in the kernel, so the
+ * attributes it accepts may differ from what we were built against.
+ * CTRL_CMD_GETPOLICY says which attributes a command takes and of what type,
+ * and CTRL_ATTR_OP narrows the dump to a single command.
+ */
+
+/* one row per capability; a row on a command of its own costs one more dump */
+struct dco_capability_req
+{
+    unsigned int cap;
+    uint16_t cmd;
+    uint16_t nested_attr; /* 0 if target_attr is not nested */
+    uint16_t target_attr;
+    int expected_type;
+};
+
+/** the outcome of resolving one capability requirement */
+enum ovpn_cap_status
+{
+    OVPN_CAP_UNKNOWN,     /**< the question could not be asked */
+    OVPN_CAP_SUPPORTED,   /**< the kernel accepts the attribute */
+    OVPN_CAP_UNSUPPORTED, /**< the kernel answered, and does not accept it */
+};
+
+struct ovpn_cap_query
+{
+    const struct dco_capability_req *req;
+
+    int cmd_policy; /* policy validating the doit of req->cmd, -1 until seen */
+    int sub_policy; /* where nested_attr points, -1 until seen */
+    int type;       /* type of target_attr in the sub-policy, -1 until seen */
+
+    /* policies walked past before their role was known */
+    int unclassified;
+};
+
+/* What the local kernel supports. It cannot change while we run, so the first
+ * caller resolves it and the rest just read it. */
+static unsigned int dco_caps = 0;
+static bool dco_caps_resolved = false;
+
+/*
+ * The command map arrives before any policy and a nested policy after the one
+ * nesting it, so one pass suffices. That order is not promised, so policies
+ * walked past unclassified are counted: an incomplete chain then means we could
+ * not tell, not that the attribute is missing.
+ */
+static int
+ovpn_cap_query_cb(struct nl_msg *msg, void *arg)
+{
+    struct ovpn_cap_query *query = arg;
+    struct nlattr *tb[CTRL_ATTR_MAX + 1];
+    const struct genlmsghdr *ghdr = nlmsg_data(nlmsg_hdr(msg));
+
+    if (nla_parse(tb, CTRL_ATTR_MAX, genlmsg_attrdata(ghdr, 0), genlmsg_attrlen(ghdr, 0), NULL))
+    {
+        return NL_SKIP;
+    }
+
+    /* CTRL_ATTR_OP_POLICY: which policy validates the doit of each command */
+    if (tb[CTRL_ATTR_OP_POLICY])
+    {
+        const struct nlattr *nla_cmd;
+        int rem_cmd;
+
+        nla_for_each_nested(nla_cmd, tb[CTRL_ATTR_OP_POLICY], rem_cmd)
+        {
+            struct nlattr *tb_cmd[CTRL_ATTR_POLICY_DUMP_MAX + 1];
+
+            /* the dump is filtered, but do not rely on that */
+            if (nla_type(nla_cmd) != query->req->cmd)
+            {
+                continue;
+            }
+
+            if (nla_parse(tb_cmd, CTRL_ATTR_POLICY_DUMP_MAX, nla_data(nla_cmd), nla_len(nla_cmd),
+                          NULL))
+            {
+                continue;
+            }
+
+            if (tb_cmd[CTRL_ATTR_POLICY_DO])
+            {
+                query->cmd_policy = (int)nla_get_u32(tb_cmd[CTRL_ATTR_POLICY_DO]);
+                if (!query->req->nested_attr)
+                {
+                    query->sub_policy = query->cmd_policy;
+                }
+            }
+        }
+    }
+
+    /* CTRL_ATTR_POLICY: which attributes each policy accepts */
+    if (!tb[CTRL_ATTR_POLICY])
+    {
+        return NL_OK;
+    }
+
+    const struct nlattr *nla_policy;
+    int rem_policy;
+
+    nla_for_each_nested(nla_policy, tb[CTRL_ATTR_POLICY], rem_policy)
+    {
+        struct nlattr *nla_attr;
+        int rem_attr;
+        int policy_id = nla_type(nla_policy);
+
+        if (policy_id != query->cmd_policy && policy_id != query->sub_policy)
+        {
+            if (query->sub_policy < 0)
+            {
+                query->unclassified++;
+            }
+            continue;
+        }
+
+        nla_for_each_nested(nla_attr, nla_policy, rem_attr)
+        {
+            struct nlattr *tb_attr[NL_POLICY_TYPE_ATTR_MAX + 1];
+            int attr_id = nla_type(nla_attr);
+
+            if (attr_id != query->req->nested_attr && attr_id != query->req->target_attr)
+            {
+                continue;
+            }
+
+            if (nla_parse_nested(tb_attr, NL_POLICY_TYPE_ATTR_MAX, nla_attr, NULL))
+            {
+                continue;
+            }
+
+            /* an attribute id only means something inside its own policy */
+            if (policy_id == query->cmd_policy && attr_id == query->req->nested_attr
+                && tb_attr[NL_POLICY_TYPE_ATTR_POLICY_IDX])
+            {
+                query->sub_policy = (int)nla_get_u32(tb_attr[NL_POLICY_TYPE_ATTR_POLICY_IDX]);
+            }
+
+            if (policy_id == query->sub_policy && attr_id == query->req->target_attr
+                && tb_attr[NL_POLICY_TYPE_ATTR_TYPE])
+            {
+                query->type = (int)nla_get_u32(tb_attr[NL_POLICY_TYPE_ATTR_TYPE]);
+            }
+        }
+    }
+
+    return NL_OK;
+}
+
+/* Dump the policy of req->cmd and let the callback pick the chain out of it.
+ * Returns false if we could not ask at all, with the netlink error in *perr. */
+static bool
+ovpn_cap_ask(const struct dco_capability_req *req, struct ovpn_cap_query *query, int *perr)
+{
+    struct nl_msg *nl_msg = NULL;
+    int ret = 0;
+
+    struct nl_sock *nl_sock = nl_socket_alloc();
+    if (!nl_sock)
+    {
+        *perr = -NLE_NOMEM;
+        return false;
+    }
+
+    ret = genl_connect(nl_sock);
+    if (ret < 0)
+    {
+        goto out;
+    }
+    set_cloexec(nl_socket_get_fd(nl_sock));
+
+    nl_msg = nlmsg_alloc();
+    if (!nl_msg)
+    {
+        ret = -NLE_NOMEM;
+        goto out;
+    }
+
+    /* nlctrl has a fixed family id, so there is nothing to resolve first */
+    if (!genlmsg_put(nl_msg, NL_AUTO_PORT, NL_AUTO_SEQ, GENL_ID_CTRL, 0,
+                     NLM_F_ROOT | NLM_F_MATCH | NLM_F_REQUEST, CTRL_CMD_GETPOLICY, 0))
+    {
+        ret = -NLE_MSGSIZE;
+        goto out;
+    }
+
+    ret = nla_put_string(nl_msg, CTRL_ATTR_FAMILY_NAME, OVPN_FAMILY_NAME);
+    if (ret < 0)
+    {
+        goto out;
+    }
+
+    ret = nla_put_u32(nl_msg, CTRL_ATTR_OP, req->cmd);
+    if (ret < 0)
+    {
+        goto out;
+    }
+
+    ret = nl_socket_modify_cb(nl_sock, NL_CB_VALID, NL_CB_CUSTOM, ovpn_cap_query_cb, query);
+    if (ret < 0)
+    {
+        goto out;
+    }
+
+    ret = nl_send_auto(nl_sock, nl_msg);
+    if (ret < 0)
+    {
+        goto out;
+    }
+
+    ret = nl_recvmsgs_default(nl_sock);
+
+out:
+    if (ret < 0)
+    {
+        *perr = ret;
+    }
+    nlmsg_free(nl_msg);
+    nl_socket_free(nl_sock);
+
+    return ret >= 0;
+}
+
+/* Turn what the dump left in the query into an answer. A link the kernel did
+ * not mention is a no; a chain we could not place is not an answer at all. */
+static enum ovpn_cap_status
+ovpn_cap_resolve(const struct ovpn_cap_query *query)
+{
+    if (query->cmd_policy < 0)
+    {
+        return OVPN_CAP_UNKNOWN;
+    }
+
+    if (query->sub_policy < 0 || query->type < 0)
+    {
+        return query->unclassified ? OVPN_CAP_UNKNOWN : OVPN_CAP_UNSUPPORTED;
+    }
+
+    return (query->type == query->req->expected_type) ? OVPN_CAP_SUPPORTED : OVPN_CAP_UNSUPPORTED;
+}
+
+/* Resolve one capability requirement against the running kernel. */
+static enum ovpn_cap_status
+ovpn_cap_probe_one(const struct dco_capability_req *req, int *perr)
+{
+    struct ovpn_cap_query query = {
+        .req = req, .cmd_policy = -1, .sub_policy = -1, .type = -1, .unclassified = 0
+    };
+
+    if (!ovpn_cap_ask(req, &query, perr))
+    {
+        return OVPN_CAP_UNKNOWN;
+    }
+
+    return ovpn_cap_resolve(&query);
+}
+
+unsigned int
+dco_probe_capabilities(void)
+{
+    if (dco_caps_resolved)
+    {
+        return dco_caps;
+    }
+
+    /* no capability is defined yet: resolve one whose answer we already know */
+    static const struct dco_capability_req self_test = { 0, OVPN_CMD_PEER_NEW, OVPN_A_PEER,
+                                                         OVPN_A_PEER_ID, NL_ATTR_TYPE_U32 };
+    int err = 0;
+    enum ovpn_cap_status status = ovpn_cap_probe_one(&self_test, &err);
+
+    msg(D_DCO_DEBUG, "%s: policy introspection self-test: %s (status %d, err %d)", __func__,
+        status == OVPN_CAP_SUPPORTED ? "ok" : "unexpected", (int)status, err);
+
+    dco_caps_resolved = true;
+    msg(D_DCO_DEBUG, "%s: DCO local capabilities: 0x%x", __func__, dco_caps);
+
+    return dco_caps;
+}
+
 static struct nl_msg *
 ovpn_dco_nlmsg_create(dco_context_t *dco, uint8_t cmd)
 {
@@ -414,6 +695,12 @@ static void
 ovpn_dco_init_netlink(dco_context_t *dco)
 {
     dco->ovpn_dco_id = resolve_ovpn_netlink_id(M_FATAL);
+
+    /* nothing consumes the bitmap yet; resolve it here to exercise the path */
+    if (check_debug_level(D_DCO_DEBUG))
+    {
+        dco_probe_capabilities();
+    }
 
     dco->nl_sock = nl_socket_alloc();
 
