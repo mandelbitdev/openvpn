@@ -19,6 +19,7 @@ include(CheckCCompilerFlag)
 include(CheckLinkerFlag OPTIONAL)
 include(CheckTypeSize)
 include(CheckStructHasMember)
+include(CheckCSourceCompiles)
 include(CTest)
 
 option(UNSUPPORTED_BUILDS "Allow unsupported builds" OFF)
@@ -204,6 +205,11 @@ if (HAVE_UNISTD_H)
     check_symbol_exists(daemon "unistd.h;stdlib.h" HAVE_DAEMON)
     check_symbol_exists(getpeereid "unistd.h;sys/socket.h" HAVE_GETPEEREID)
 endif()
+
+if (ENABLE_LINUXDCO)
+    check_c_source_compiles("#include <linux/genetlink.h>
+int main(void) { return CTRL_ATTR_OP_POLICY; }" HAVE_DECL_CTRL_ATTR_OP_POLICY)
+endif ()
 
 check_include_files(grp.h HAVE_GRP_H)
 if (HAVE_GRP_H)

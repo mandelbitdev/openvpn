@@ -87,6 +87,9 @@
 /* Define to 1 if you have the `daemon' function. */
 #cmakedefine HAVE_DAEMON
 
+/* Define to 1 if linux/genetlink.h has netlink policy introspection (5.10) */
+#cmakedefine01 HAVE_DECL_CTRL_ATTR_OP_POLICY
+
 /* Define to 1 if you have the <direct.h> header file. */
 #cmakedefine HAVE_DIRECT_H
 
