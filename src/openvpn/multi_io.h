@@ -68,11 +68,9 @@ int multi_io_wait(struct multi_context *m);
 
 void multi_io_process_io(struct multi_context *m);
 
-void multi_io_action(struct multi_context *m, struct multi_instance *mi, int action, bool poll);
+void multi_io_action(struct multi_context *m, struct multi_instance *mi, struct link_socket *sock,
+                     int action, bool poll);
 
 void multi_io_delete_event(struct multi_io *multi_io, event_t event);
-
-bool multi_io_send_link(struct multi_context *m, struct multi_instance *mi,
-                        const unsigned int mpp_flags);
 
 #endif /* ifndef MULTI_IO_H */
