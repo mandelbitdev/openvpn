@@ -4251,7 +4251,7 @@ tunnel_server_loop(struct multi_context *multi)
         }
         else if (status == 0)
         {
-            multi_io_action(multi, NULL, TA_TIMEOUT, false);
+            multi_io_action(multi, NULL, NULL, TA_TIMEOUT, false);
         }
 
         MULTI_CHECK_SIG(multi);
