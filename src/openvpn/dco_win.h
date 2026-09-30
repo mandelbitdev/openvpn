@@ -50,7 +50,7 @@ struct dco_context
     struct rw_handle rwhandle;   /**< Used to hook async I/O to the OpenVPN event loop. */
     int ov_ret;                  /**< Win32 error code for overlapped operation, 0 for success */
 
-    int dco_message_peer_id;
+    int dco_message_rx_peer_id;
     int dco_message_type;
     int dco_del_peer_reason;
     struct sockaddr_storage dco_float_peer_ss;
@@ -68,10 +68,10 @@ void dco_p2p_new_peer(HANDLE handle, OVERLAPPED *ov, struct link_socket *sock,
 bool dco_win_supports_multipeer(void);
 
 void dco_win_add_iroute_ipv4(dco_context_t *dco, in_addr_t dst, unsigned int netbits,
-                             unsigned int peer_id);
+                             unsigned int rx_peer_id);
 
 void dco_win_add_iroute_ipv6(dco_context_t *dco, struct in6_addr dst, unsigned int netbits,
-                             unsigned int peer_id);
+                             unsigned int rx_peer_id);
 
 void dco_win_del_iroute_ipv4(dco_context_t *dco, in_addr_t dst, unsigned int netbits);
 
