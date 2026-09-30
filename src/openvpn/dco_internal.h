@@ -59,18 +59,18 @@ dco_get_cipher(const char *cipher)
  * They are implemented by dco_linux.c
  */
 
-int dco_new_peer(dco_context_t *dco, unsigned int peerid, socket_descriptor_t sd, struct sockaddr *localaddr,
+int dco_new_peer(dco_context_t *dco, unsigned int rx_peer_id, socket_descriptor_t sd, struct sockaddr *localaddr,
                  struct sockaddr *remoteaddr, const struct in_addr *vpn_ipv4, const struct in6_addr *vpn_ipv6);
 
-int dco_del_peer(dco_context_t *dco, unsigned int peerid);
+int dco_del_peer(dco_context_t *dco, unsigned int rx_peer_id);
 
-int dco_new_key(dco_context_t *dco, unsigned int peerid, int keyid, dco_key_slot_t slot,
+int dco_new_key(dco_context_t *dco, unsigned int rx_peer_id, int keyid, dco_key_slot_t slot,
                 const uint8_t *encrypt_key, const uint8_t *encrypt_iv, const uint8_t *decrypt_key,
                 const uint8_t *decrypt_iv, const char *ciphername, bool epoch);
 
-int dco_del_key(dco_context_t *dco, unsigned int peerid, dco_key_slot_t slot);
+int dco_del_key(dco_context_t *dco, unsigned int rx_peer_id, dco_key_slot_t slot);
 
-int dco_swap_keys(dco_context_t *dco, unsigned int peerid);
+int dco_swap_keys(dco_context_t *dco, unsigned int rx_peer_id);
 
 #endif /* defined(ENABLE_DCO) */
 #endif /* ifndef DCO_INTERNAL_H */

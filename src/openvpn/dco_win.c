@@ -415,11 +415,11 @@ dco_p2p_new_peer(HANDLE handle, OVERLAPPED *ov, struct link_socket *sock,
 }
 
 int
-dco_new_peer(dco_context_t *dco, unsigned int peerid, socket_descriptor_t sd,
+dco_new_peer(dco_context_t *dco, unsigned int rx_peer_id, socket_descriptor_t sd,
              struct sockaddr *localaddr, struct sockaddr *remoteaddr,
              const struct in_addr *vpn_ipv4, const struct in6_addr *vpn_ipv6)
 {
-    msg(D_DCO_DEBUG, "%s: peer-id %d, fd " SOCKET_PRINTF, __func__, peerid, sd);
+    msg(D_DCO_DEBUG, "%s: rx-peer-id %d, fd " SOCKET_PRINTF, __func__, rx_peer_id, sd);
 
     if (dco->ifmode == DCO_MODE_P2P)
     {
@@ -454,7 +454,7 @@ dco_new_peer(dco_context_t *dco, unsigned int peerid, socket_descriptor_t sd,
         newPeer.VpnAddr6 = *vpn_ipv6;
     }
 
-    newPeer.PeerId = peerid;
+    newPeer.PeerId = rx_peer_id;
 
     DWORD bytesReturned;
     if (!DeviceIoControl(dco->tt->hand, OVPN_IOCTL_MP_NEW_PEER, &newPeer, sizeof(newPeer), NULL, 0,
@@ -468,11 +468,11 @@ dco_new_peer(dco_context_t *dco, unsigned int peerid, socket_descriptor_t sd,
 }
 
 int
-dco_del_peer(dco_context_t *dco, unsigned int peerid)
+dco_del_peer(dco_context_t *dco, unsigned int rx_peer_id)
 {
-    msg(D_DCO_DEBUG, "%s: peer-id %d", __func__, peerid);
+    msg(D_DCO_DEBUG, "%s: rx-peer-id %d", __func__, rx_peer_id);
 
-    OVPN_MP_DEL_PEER del_peer = { peerid };
+    OVPN_MP_DEL_PEER del_peer = { rx_peer_id };
     VOID *buf = NULL;
     DWORD len = 0;
     DWORD ioctl = OVPN_IOCTL_DEL_PEER;
@@ -494,13 +494,13 @@ dco_del_peer(dco_context_t *dco, unsigned int peerid)
 }
 
 int
-dco_set_peer(dco_context_t *dco, unsigned int peerid, int keepalive_interval, int keepalive_timeout,
-             int mss)
+dco_set_peer(dco_context_t *dco, unsigned int rx_peer_id, int keepalive_interval,
+             int keepalive_timeout, int mss)
 {
-    msg(D_DCO_DEBUG, "%s: peer-id %d, keepalive %d/%d, mss %d", __func__, peerid,
-        keepalive_interval, keepalive_timeout, mss);
+    msg(D_DCO_DEBUG, "%s: rx-peer-id %d, keepalive %d/%d, mss %d", __func__,
+        rx_peer_id, keepalive_interval, keepalive_timeout, mss);
 
-    OVPN_MP_SET_PEER mp_peer = { peerid, keepalive_interval, keepalive_timeout, mss };
+    OVPN_MP_SET_PEER mp_peer = { rx_peer_id, keepalive_interval, keepalive_timeout, mss };
     OVPN_SET_PEER peer = { keepalive_interval, keepalive_timeout, mss };
     VOID *buf = NULL;
     DWORD len = 0;
@@ -528,11 +528,11 @@ dco_set_peer(dco_context_t *dco, unsigned int peerid, int keepalive_interval, in
 }
 
 int
-dco_new_key(dco_context_t *dco, unsigned int peerid, int keyid, dco_key_slot_t slot,
+dco_new_key(dco_context_t *dco, unsigned int rx_peer_id, int keyid, dco_key_slot_t slot,
             const uint8_t *encrypt_key, const uint8_t *encrypt_iv, const uint8_t *decrypt_key,
             const uint8_t *decrypt_iv, const char *ciphername, bool epoch)
 {
-    msg(D_DCO_DEBUG, "%s: slot %d, key-id %d, peer-id %d, cipher %s", __func__, slot, keyid, peerid,
+    msg(D_DCO_DEBUG, "%s: slot %d, key-id %d, rx-peer-id %d, cipher %s", __func__, slot, keyid, rx_peer_id,
         ciphername);
 
     const int nonce_len = 8;
@@ -547,7 +547,7 @@ dco_new_key(dco_context_t *dco, unsigned int peerid, int keyid, dco_key_slot_t s
     v1->CipherAlg = dco_get_cipher(ciphername);
     ASSERT(keyid >= 0 && keyid <= UCHAR_MAX);
     v1->KeyId = (unsigned char)keyid;
-    v1->PeerId = peerid;
+    v1->PeerId = rx_peer_id;
     v1->KeySlot = slot;
 
     /* for epoch we use key material as a seed, no as actual key */
@@ -583,19 +583,19 @@ dco_new_key(dco_context_t *dco, unsigned int peerid, int keyid, dco_key_slot_t s
 }
 
 int
-dco_del_key(dco_context_t *dco, unsigned int peerid, dco_key_slot_t slot)
+dco_del_key(dco_context_t *dco, unsigned int rx_peer_id, dco_key_slot_t slot)
 {
-    msg(D_DCO, "%s: peer-id %d, slot %d called but ignored", __func__, peerid, slot);
+    msg(D_DCO, "%s: rx-peer-id %d, slot %d called but ignored", __func__, rx_peer_id, slot);
     /* FIXME: Implement in driver first */
     return 0;
 }
 
 int
-dco_swap_keys(dco_context_t *dco, unsigned int peer_id)
+dco_swap_keys(dco_context_t *dco, unsigned int rx_peer_id)
 {
-    msg(D_DCO_DEBUG, "%s: peer-id %d", __func__, peer_id);
+    msg(D_DCO_DEBUG, "%s: rx-peer-id %d", __func__, rx_peer_id);
 
-    OVPN_MP_SWAP_KEYS swap = { peer_id };
+    OVPN_MP_SWAP_KEYS swap = { rx_peer_id };
     DWORD ioctl = OVPN_IOCTL_SWAP_KEYS;
     VOID *buf = NULL;
     DWORD len = 0;
@@ -686,7 +686,7 @@ dco_handle_overlapped_success(dco_context_t *dco, bool queued)
         msg(D_DCO_DEBUG, "%s: completion%s success [%ld]", __func__, queued ? "" : " non-queued",
             bytes_read);
 
-        dco->dco_message_peer_id = dco->notif_buf.PeerId;
+        dco->dco_message_rx_peer_id = dco->notif_buf.PeerId;
         dco->dco_message_type = dco->notif_buf.Cmd;
         dco->dco_del_peer_reason = dco->notif_buf.DelPeerReason;
         dco->dco_float_peer_ss = dco->notif_buf.FloatAddress;
@@ -705,7 +705,7 @@ dco_read_and_process(dco_context_t *dco)
         ASSERT(false);
     }
 
-    dco->dco_message_peer_id = -1;
+    dco->dco_message_rx_peer_id = -1;
     dco->dco_message_type = 0;
 
     switch (dco->iostate)
@@ -843,7 +843,7 @@ dco_get_peer_stats_multi(dco_context_t *dco, const bool raise_sigusr1_on_err)
 
         if (stat->PeerId >= (int)dco->c->multi->max_clients)
         {
-            msg(M_WARN, "%s: received out of bound peer_id %d (max=%u)", __func__, stat->PeerId,
+            msg(M_WARN, "%s: received out of bound rx_peer_id %d (max=%u)", __func__, stat->PeerId,
                 dco->c->multi->max_clients);
             continue;
         }
@@ -851,7 +851,7 @@ dco_get_peer_stats_multi(dco_context_t *dco, const bool raise_sigusr1_on_err)
         struct multi_instance *mi = dco->c->multi->instances[stat->PeerId];
         if (!mi)
         {
-            msg(M_WARN, "%s: received data for a non-existing peer %u", __func__, stat->PeerId);
+            msg(M_WARN, "%s: received data for a non-existing peer with RX ID %u", __func__, stat->PeerId);
             continue;
         }
 
@@ -914,7 +914,7 @@ dco_get_peer_stats(struct context *c, const bool raise_sigusr1_on_err)
     }
 
     /* first, try a new ioctl */
-    OVPN_GET_PEER_STATS ps = { .PeerId = c->c2.tls_multi->dco_peer_id };
+    OVPN_GET_PEER_STATS ps = { .PeerId = c->c2.tls_multi->dco_rx_peer_id };
 
     OVPN_PEER_STATS peer_stats = { 0 };
     DWORD bytes_returned = 0;
@@ -1024,16 +1024,16 @@ dco_win_supports_multipeer(void)
 
 void
 dco_win_add_iroute_ipv4(dco_context_t *dco, in_addr_t dst, unsigned int netbits,
-                        unsigned int peer_id)
+                        unsigned int rx_peer_id)
 {
     struct gc_arena gc = gc_new();
 
     OVPN_MP_IROUTE route = {
-        .Addr.Addr4.S_un.S_addr = dst, .Netbits = netbits, .PeerId = peer_id, .IPv6 = 0
+        .Addr.Addr4.S_un.S_addr = dst, .Netbits = netbits, .PeerId = rx_peer_id, .IPv6 = 0
     };
 
-    msg(D_DCO_DEBUG, "%s: %s/%d -> peer %d", __func__, print_in_addr_t(dst, IA_NET_ORDER, &gc),
-        netbits, peer_id);
+    msg(D_DCO_DEBUG, "%s: %s/%d -> rx-peer-id %d", __func__, print_in_addr_t(dst, IA_NET_ORDER, &gc),
+        netbits, rx_peer_id);
 
     DWORD bytes_returned = 0;
     if (!DeviceIoControl(dco->tt->hand, OVPN_IOCTL_MP_ADD_IROUTE, &route, sizeof(route), NULL, 0,
@@ -1047,14 +1047,14 @@ dco_win_add_iroute_ipv4(dco_context_t *dco, in_addr_t dst, unsigned int netbits,
 
 void
 dco_win_add_iroute_ipv6(dco_context_t *dco, struct in6_addr dst, unsigned int netbits,
-                        unsigned int peer_id)
+                        unsigned int rx_peer_id)
 {
     struct gc_arena gc = gc_new();
 
-    OVPN_MP_IROUTE route = { .Addr.Addr6 = dst, .Netbits = netbits, .PeerId = peer_id, .IPv6 = 1 };
+    OVPN_MP_IROUTE route = { .Addr.Addr6 = dst, .Netbits = netbits, .PeerId = rx_peer_id, .IPv6 = 1 };
 
-    msg(D_DCO_DEBUG, "%s: %s/%d -> peer %d", __func__, print_in6_addr(dst, IA_NET_ORDER, &gc),
-        netbits, peer_id);
+    msg(D_DCO_DEBUG, "%s: %s/%d -> rx-peer-id %d", __func__, print_in6_addr(dst, IA_NET_ORDER, &gc),
+        netbits, rx_peer_id);
 
     DWORD bytes_returned = 0;
     if (!DeviceIoControl(dco->tt->hand, OVPN_IOCTL_MP_ADD_IROUTE, &route, sizeof(route), NULL, 0,

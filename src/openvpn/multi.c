@@ -3277,7 +3277,7 @@ process_incoming_del_peer(struct multi_context *m, struct multi_instance *mi, dc
 
     /* When kernel already deleted the peer, the socket is no longer
      * installed, and we do not need to clean up the state in the kernel */
-    mi->context.c2.tls_multi->dco_peer_id = -1;
+    mi->context.c2.tls_multi->dco_rx_peer_id = -1;
     mi->context.sig->signal_text = reason;
     multi_signal_instance(m, mi, SIGTERM);
 }
@@ -3289,19 +3289,19 @@ multi_process_incoming_dco(dco_context_t *dco)
 
     struct multi_context *m = dco->c->multi;
 
-    int peer_id = dco->dco_message_peer_id;
+    int rx_peer_id = dco->dco_message_rx_peer_id;
 
     /* no peer-specific message delivered -> nothing to process.
      * bail out right away
      */
-    if (peer_id < 0)
+    if (rx_peer_id < 0)
     {
         return;
     }
 
-    if (((uint32_t)peer_id < m->max_clients) && m->instances[peer_id])
+    if (((uint32_t)rx_peer_id < m->max_clients) && m->instances[rx_peer_id])
     {
-        struct multi_instance *mi = m->instances[peer_id];
+        struct multi_instance *mi = m->instances[rx_peer_id];
         set_prefix(mi);
         if (dco->dco_message_type == OVPN_CMD_DEL_PEER)
         {
@@ -3338,9 +3338,9 @@ multi_process_incoming_dco(dco_context_t *dco)
             msglevel = D_DCO_DEBUG;
         }
         msg(msglevel,
-            "Received DCO message for unknown peer-id: %d, "
+            "Received DCO message for unknown rx-peer-id: %d, "
             "type %d, del_peer_reason %d",
-            peer_id, dco->dco_message_type, dco->dco_del_peer_reason);
+            rx_peer_id, dco->dco_message_type, dco->dco_del_peer_reason);
     }
 }
 #endif /* if defined(ENABLE_DCO) */
