@@ -380,9 +380,8 @@ void init_management_callback_multi(struct multi_context *m);
  * Continues authentication and sends push_repl
  *
  * @param m multi_context
- * @param mpp_flags
  */
-void multi_process_file_closed(struct multi_context *m, const unsigned int mpp_flags);
+void multi_process_file_closed(struct multi_context *m);
 
 #endif
 
