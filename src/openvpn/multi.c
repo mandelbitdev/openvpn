@@ -2829,7 +2829,7 @@ multi_connection_established(struct multi_context *m, struct multi_instance *mi)
  * (or be deferred again by client-connect)
  */
 void
-multi_process_file_closed(struct multi_context *m, const unsigned int mpp_flags)
+multi_process_file_closed(struct multi_context *m)
 {
     char buffer[INOTIFY_EVENT_BUFFER_SIZE];
     ssize_t buffer_i = 0;
@@ -2857,7 +2857,7 @@ multi_process_file_closed(struct multi_context *m, const unsigned int mpp_flags)
             if (mi)
             {
                 /* continue authentication, perform NCP negotiation and send push_reply */
-                multi_process_post(m, mi, mpp_flags);
+                multi_io_action(m, mi, NULL, TA_INSTANCE_POST, false);
             }
             else
             {

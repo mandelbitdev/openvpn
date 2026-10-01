@@ -85,6 +85,9 @@ pract(int action)
         case TA_TUN_WRITE_TIMEOUT:
             return "TA_TUN_WRITE_TIMEOUT";
 
+        case TA_INSTANCE_POST:
+            return "TA_INSTANCE_POST";
+
         default:
             return "?";
     }
@@ -500,6 +503,11 @@ multi_io_dispatch(struct multi_context *m, struct multi_instance *mi, struct lin
             multi_process_post(m, mi, mpp_flags);
             break;
 
+        case TA_INSTANCE_POST:
+            ASSERT(mi);
+            multi_process_post(m, mi, mpp_flags);
+            break;
+
         default:
             msg(M_FATAL, "MULTI IO: multi_io_dispatch, unhandled action=%d", action);
     }
@@ -670,7 +678,7 @@ multi_io_process_io(struct multi_context *m)
 #ifdef ENABLE_ASYNC_PUSH
                 else if (e->arg == MULTI_IO_FILE_CLOSE_WRITE)
                 {
-                    multi_process_file_closed(m, MPP_PRE_SELECT | MPP_RECORD_TOUCH);
+                    multi_process_file_closed(m);
                 }
 #endif
         }
