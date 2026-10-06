@@ -255,8 +255,26 @@ dco_update_keys(dco_context_t *dco, struct tls_multi *multi)
 }
 
 static bool
-dco_check_option_ce(const struct connection_entry *ce, msglvl_t msglevel, int mode)
+dco_check_option_ce(const struct connection_entry *ce, msglvl_t msglevel, int mode,
+                    unsigned int sockflags)
 {
+#if defined(TARGET_LINUX)
+    /* the kernel ovpn module cannot attach to an MPTCP socket */
+    if (sockflags & SF_MPTCP)
+    {
+        bool tcp = !proto_is_dgram(ce->proto);
+        for (int i = 0; ce->local_list && i < ce->local_list->len; i++)
+        {
+            tcp = tcp || !proto_is_dgram(ce->local_list->array[i]->proto);
+        }
+        if (tcp)
+        {
+            msg(msglevel, "Note: --mptcp disables data channel offload.");
+            return false;
+        }
+    }
+#endif
+
     if (ce->fragment)
     {
         msg(msglevel, "Note: --fragment disables data channel offload.");
@@ -356,7 +374,7 @@ dco_check_startup_option(msglvl_t msglevel, const struct options *o)
         const struct connection_list *l = o->connection_list;
         for (int i = 0; i < l->len; ++i)
         {
-            if (!dco_check_option_ce(l->array[i], msglevel, o->mode))
+            if (!dco_check_option_ce(l->array[i], msglevel, o->mode, o->sockflags))
             {
                 return false;
             }
@@ -364,7 +382,7 @@ dco_check_startup_option(msglvl_t msglevel, const struct options *o)
     }
     else
     {
-        if (!dco_check_option_ce(&o->ce, msglevel, o->mode))
+        if (!dco_check_option_ce(&o->ce, msglevel, o->mode, o->sockflags))
         {
             return false;
         }

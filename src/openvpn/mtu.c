@@ -31,6 +31,7 @@
 #include "error.h"
 #include "integer.h"
 #include "mtu.h"
+#include "socket_util.h"
 #include "options.h"
 #include "crypto.h"
 
@@ -222,7 +223,8 @@ set_mtu_discover_type(socket_descriptor_t sd, int mtu_type, sa_family_t proto_af
 #if defined(IP_MTU_DISCOVER)
             case AF_INET:
                 if (setsockopt(sd, IPPROTO_IP, IP_MTU_DISCOVER, (void *)&mtu_type,
-                               sizeof(mtu_type)))
+                               sizeof(mtu_type))
+                    && !(openvpn_errno() == EOPNOTSUPP && socket_is_mptcp(sd)))
                 {
                     msg(M_ERR, "Error setting IP_MTU_DISCOVER type=%d on TCP/UDP socket", mtu_type);
                 }
@@ -232,7 +234,8 @@ set_mtu_discover_type(socket_descriptor_t sd, int mtu_type, sa_family_t proto_af
 #if defined(IPV6_MTU_DISCOVER)
             case AF_INET6:
                 if (setsockopt(sd, IPPROTO_IPV6, IPV6_MTU_DISCOVER, (void *)&mtu_type,
-                               sizeof(mtu_type)))
+                               sizeof(mtu_type))
+                    && !(openvpn_errno() == EOPNOTSUPP && socket_is_mptcp(sd)))
                 {
                     msg(M_ERR, "Error setting IPV6_MTU_DISCOVER type=%d on TCP6/UDP6 socket",
                         mtu_type);
@@ -399,7 +402,8 @@ set_sock_extended_error_passing(int sd, sa_family_t proto_af)
     /* see "man 7 ip" (on Linux)
      * this works on IPv4 and IPv6(-dual-stack) sockets (v4-mapped)
      */
-    if (setsockopt(sd, SOL_IP, IP_RECVERR, (void *)&on, sizeof(on)) != 0)
+    if (setsockopt(sd, SOL_IP, IP_RECVERR, (void *)&on, sizeof(on)) != 0
+        && !(openvpn_errno() == EOPNOTSUPP && socket_is_mptcp(sd)))
     {
         msg(M_WARN | M_ERRNO,
             "Note: enable extended error passing on TCP/UDP socket failed (IP_RECVERR)");
@@ -408,7 +412,8 @@ set_sock_extended_error_passing(int sd, sa_family_t proto_af)
      * this only works on IPv6 sockets
      */
     if (proto_af == AF_INET6
-        && setsockopt(sd, IPPROTO_IPV6, IPV6_RECVERR, (void *)&on, sizeof(on)) != 0)
+        && setsockopt(sd, IPPROTO_IPV6, IPV6_RECVERR, (void *)&on, sizeof(on)) != 0
+        && !(openvpn_errno() == EOPNOTSUPP && socket_is_mptcp(sd)))
     {
         msg(M_WARN | M_ERRNO,
             "Note: enable extended error passing on TCP/UDP socket failed (IPV6_RECVERR)");

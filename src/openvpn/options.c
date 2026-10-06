@@ -332,6 +332,7 @@ static const char usage_message[] =
     "--bind-dev dev  : Bind to the given device when making connection to a peer or\n"
     "                  listening for connections. This allows sending encrypted packets\n"
     "                  via a VRF present on the system.\n"
+    "--mptcp         : Create the TCP transport sockets as Multipath TCP sockets.\n"
 #endif
     "--txqueuelen n  : Set the tun/tap TX queue length to n (Linux only).\n"
     "--mlock         : Disable Paging -- ensures key material and tunnel\n"
@@ -5529,6 +5530,15 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->sockflags |= SF_HOST_RANDOMIZE;
+    }
+    else if (streq(p[0], "mptcp") && !p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+#if defined(TARGET_LINUX)
+        options->sockflags |= SF_MPTCP;
+#else
+        msg(M_WARN, "Note: --mptcp is not supported by this build, ignoring");
+#endif
     }
     else if (streq(p[0], "setenv") && p[1] && !p[3])
     {

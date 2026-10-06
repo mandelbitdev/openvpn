@@ -146,6 +146,21 @@ the local and the remote host.
   (:code:`p2p`). OpenVPN 2.0 introduces a new mode (:code:`server`) which
   implements a multi-client server capability.
 
+--mptcp
+  Create the TCP transport sockets as Multipath TCP (MPTCP) sockets. UDP
+  sockets are not affected, so in a multisocket setup only the TCP
+  ``--local`` entries use MPTCP. An MPTCP listening socket still accepts
+  plain TCP clients.
+
+  Additional subflows require MPTCP endpoints to be configured in the
+  kernel (``ip mptcp endpoint``); without them the connection uses a
+  single subflow.
+
+  This option is only supported on Linux. If an MPTCP socket cannot be
+  created, OpenVPN logs a warning and falls back to plain TCP. ``--mptcp``
+  disables data channel offload, and ``--mtu-disc`` has no effect on MPTCP
+  connections.
+
 --mssfix args
 
   Valid syntax:

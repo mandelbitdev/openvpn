@@ -180,6 +180,23 @@ proto_is_tcp(int proto)
     return proto == PROTO_TCP_CLIENT || proto == PROTO_TCP_SERVER;
 }
 
+/**
+ * @brief Returns true if the socket is an MPTCP socket
+ */
+static inline bool
+socket_is_mptcp(socket_descriptor_t sd)
+{
+#if defined(TARGET_LINUX)
+    int protocol = 0;
+    socklen_t len = sizeof(protocol);
+
+    return getsockopt(sd, SOL_SOCKET, SO_PROTOCOL, &protocol, &len) == 0
+           && protocol == IPPROTO_MPTCP;
+#else
+    return false;
+#endif
+}
+
 int ascii2proto(const char *proto_name);
 
 sa_family_t ascii2af(const char *proto_name);

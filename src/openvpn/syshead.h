@@ -398,6 +398,10 @@ typedef int MIB_TCP_STATE;
 #define SOL_IP IPPROTO_IP
 #endif
 
+#if defined(TARGET_LINUX) && !defined(IPPROTO_MPTCP)
+#define IPPROTO_MPTCP 262
+#endif
+
 /*
  * Define type sa_family_t if it isn't defined in the socket headers
  */
