@@ -215,6 +215,7 @@ struct link_socket
 #define SF_DCO_WIN           (1 << 5)
 #define SF_PREPEND_SA        (1 << 6)
 #define SF_PKTINFO_COPY_IIF  (1 << 7)
+#define SF_MPTCP             (1 << 8)
     unsigned int sockflags;
     int mark;
     const char *bind_dev;
@@ -399,7 +400,7 @@ void link_socket_update_buffer_sizes(struct link_socket *sock, int rcvbuf, int s
  * Low-level functions
  */
 
-socket_descriptor_t create_socket_tcp(struct addrinfo *);
+socket_descriptor_t create_socket_tcp(struct addrinfo *, unsigned int flags);
 
 /**
  * Create a UDP socket for @p af set up the way a link socket is: --sndbuf/--rcvbuf,

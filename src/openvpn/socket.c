@@ -533,15 +533,34 @@ link_socket_update_buffer_sizes(struct link_socket *sock, int rcvbuf, int sndbuf
  */
 
 socket_descriptor_t
-create_socket_tcp(struct addrinfo *addrinfo)
+create_socket_tcp(struct addrinfo *addrinfo, unsigned int flags)
 {
     socket_descriptor_t sd;
+    int protocol = addrinfo->ai_protocol;
 
     ASSERT(addrinfo);
     ASSERT(addrinfo->ai_socktype == SOCK_STREAM);
 
-    if ((sd = socket(addrinfo->ai_family, addrinfo->ai_socktype, addrinfo->ai_protocol))
-        == SOCKET_UNDEFINED)
+#if defined(TARGET_LINUX) && defined(IPPROTO_MPTCP)
+    if (flags & SF_MPTCP)
+    {
+        protocol = IPPROTO_MPTCP;
+    }
+#endif
+
+    sd = socket(addrinfo->ai_family, addrinfo->ai_socktype, protocol);
+
+#if defined(TARGET_LINUX) && defined(IPPROTO_MPTCP)
+    if (sd == SOCKET_UNDEFINED && protocol == IPPROTO_MPTCP)
+    {
+        msg(M_WARN | M_ERRNO,
+            "MPTCP: cannot create MPTCP socket, falling back to plain TCP "
+            "(check kernel support and net.mptcp.enabled)");
+        sd = socket(addrinfo->ai_family, addrinfo->ai_socktype, addrinfo->ai_protocol);
+    }
+#endif
+
+    if (sd == SOCKET_UNDEFINED)
     {
         msg(M_ERR, "Cannot create TCP socket");
     }
@@ -713,13 +732,13 @@ create_socket(struct link_socket *sock, struct addrinfo *addr)
             struct addrinfo addrinfo_tmp = *addr;
             addrinfo_tmp.ai_socktype = SOCK_STREAM;
             addrinfo_tmp.ai_protocol = IPPROTO_TCP;
-            sock->ctrl_sd = create_socket_tcp(&addrinfo_tmp);
+            sock->ctrl_sd = create_socket_tcp(&addrinfo_tmp, 0);
             bind_local(sock);
         }
     }
     else if (addr->ai_protocol == IPPROTO_TCP || addr->ai_socktype == SOCK_STREAM)
     {
-        sock->sd = create_socket_tcp(addr);
+        sock->sd = create_socket_tcp(addr, sock->sockflags);
         socket_apply_options(sock->sd, &sock->socket_buffer_sizes, sock->mark, sock->bind_dev);
         bind_local(sock);
     }
@@ -1601,7 +1620,7 @@ phase2_tcp_client(struct link_socket *sock, struct signal_info *sig_info)
         if (proxy_retry)
         {
             openvpn_close_socket(sock->sd);
-            sock->sd = create_socket_tcp(sock->info.lsa->current_remote);
+            sock->sd = create_socket_tcp(sock->info.lsa->current_remote, sock->sockflags);
         }
 
     } while (proxy_retry);

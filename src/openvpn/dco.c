@@ -450,6 +450,13 @@ dco_check_startup_option(msglvl_t msglevel, const struct options *o)
 bool
 dco_check_option(msglvl_t msglevel, const struct options *o)
 {
+    /* the kernel ovpn module cannot attach to an MPTCP socket */
+    if (o->sockflags & SF_MPTCP)
+    {
+        msg(msglevel, "Note: --mptcp disables data channel offload.");
+        return false;
+    }
+
     /* At this point the ciphers have already been normalised */
     if (o->enable_ncp_fallback
         && !tls_item_in_cipher_list(o->ciphername, dco_get_supported_ciphers()))

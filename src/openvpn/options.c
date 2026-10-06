@@ -5690,6 +5690,15 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->sockflags |= SF_HOST_RANDOMIZE;
     }
+    else if (streq(p[0], "mptcp") && !p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+#if defined(TARGET_LINUX) && defined(IPPROTO_MPTCP)
+        options->sockflags |= SF_MPTCP;
+#else
+        msg(M_WARN, "Note: --mptcp is only supported on Linux, ignoring");
+#endif
+    }
     else if (streq(p[0], "setenv") && p[1] && !p[3])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
