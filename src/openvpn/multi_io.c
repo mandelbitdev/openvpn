@@ -135,36 +135,6 @@ multi_io_free(struct multi_io *multi_io)
     }
 }
 
-/*
- * Return the io flags appropriate for
- * a point-to-multipoint tunnel.
- */
-static unsigned int
-p2mp_iow_flags(const struct multi_context *m, const struct link_socket *sock)
-{
-    unsigned int flags = IOW_WAIT_SIGNAL;
-
-    if (m->pending)
-    {
-        if (TUN_OUT(&m->pending->context))
-        {
-            flags |= IOW_TO_TUN;
-        }
-
-        /* If the to be processed socket happens to be the same one on the pending
-         * UDP client instance, we set that socket ready for write */
-        if (LINK_OUT(&m->pending->context) && m->pending->context.c2.link_sockets[0] == sock)
-        {
-            flags |= IOW_TO_LINK;
-        }
-    }
-    else
-    {
-        flags |= IOW_READ;
-    }
-    return flags;
-}
-
 int
 multi_io_wait(struct multi_context *m)
 {
@@ -177,7 +147,7 @@ multi_io_wait(struct multi_context *m)
 
         if (proto_is_dgram(sock->info.proto))
         {
-            multi_io_process_flags(&m->top, m->multi_io->es, sock, p2mp_iow_flags(m, sock));
+            multi_io_process_flags(&m->top, m->multi_io->es, sock, IOW_READ | IOW_WAIT_SIGNAL);
         }
         else if (!tuntap_is_dco_win(m->top.c1.tuntap))
         {
@@ -281,6 +251,7 @@ multi_io_wait_lite(struct multi_context *m, struct multi_instance *mi, const int
  * perform server-mode postprocessing.
  *
  * @param m            - The single \c multi_context structure.
+ * @param mi           - The \c multi_instance with the packet to send.
  * @param mpp_flags    - Fast I/O optimization flags.
  *
  * @return
@@ -289,12 +260,10 @@ multi_io_wait_lite(struct multi_context *m, struct multi_instance *mi, const int
  *  - Falls, if the \c multi_instance was closed.
  */
 static bool
-multi_io_write_tun(struct multi_context *m, const unsigned int mpp_flags)
+multi_io_write_tun(struct multi_context *m, struct multi_instance *mi, const unsigned int mpp_flags)
 {
-    struct multi_instance *mi = m->pending;
     bool ret = true;
 
-    ASSERT(mi);
 #ifdef MULTI_DEBUG_EVENT_LOOP
     printf("%s -> TUN len=%d\n", id(mi), mi->context.c2.to_tun.len);
 #endif
@@ -310,12 +279,8 @@ multi_io_write_tun(struct multi_context *m, const unsigned int mpp_flags)
  * Drop a TUN/TAP outgoing packet..
  */
 static void
-multi_io_drop_tun(struct multi_context *m, const unsigned int mpp_flags)
+multi_io_drop_tun(struct multi_context *m, struct multi_instance *mi, const unsigned int mpp_flags)
 {
-    struct multi_instance *mi = m->pending;
-
-    ASSERT(mi);
-
     set_prefix(mi);
 
     msg(D_MULTI_ERRORS, "MULTI: Outgoing TUN queue full, dropped packet len=%d",
@@ -328,24 +293,22 @@ multi_io_drop_tun(struct multi_context *m, const unsigned int mpp_flags)
 }
 
 /*
- * Determine which instance has pending output
- * and prepare the output for sending in
- * the to_link buffer.
+ * Determine which instance has output for the
+ * link: mi itself, or else the next queued
+ * bcast/c2c packet, prepared in its to_link buffer.
  */
 static struct multi_instance *
-multi_io_write_link_pre(struct multi_context *m)
+multi_io_write_link_pre(struct multi_context *m, struct multi_instance *mi)
 {
-    struct multi_instance *mi = NULL;
-
-    if (m->pending)
+    if (mi && LINK_OUT(&mi->context))
     {
-        mi = m->pending;
+        return mi;
     }
-    else if (mbuf_defined(m->mbuf))
+    if (mbuf_defined(m->mbuf))
     {
-        mi = multi_get_queue(m->mbuf);
+        return multi_get_queue(m->mbuf);
     }
-    return mi;
+    return NULL;
 }
 
 static bool
@@ -381,11 +344,12 @@ multi_io_write_link_deferred(struct multi_context *m, struct multi_instance *mi,
 }
 
 static bool
-multi_io_write_link(struct multi_context *m, bool defer, const unsigned int mpp_flags)
+multi_io_write_link(struct multi_context *m, struct multi_instance *mi, bool defer,
+                    const unsigned int mpp_flags)
 {
-    struct multi_instance *mi = multi_io_write_link_pre(m);
     bool ret = true;
 
+    mi = multi_io_write_link_pre(m, mi);
     if (mi)
     {
         if ((defer && !proto_is_dgram(mi->context.c2.link_sockets[0]->info.proto))
@@ -406,20 +370,12 @@ multi_io_write_link(struct multi_context *m, bool defer, const unsigned int mpp_
                 mbuf_free_buf(mb);
                 buf_reset(buf);
                 ret = multi_process_post(m, mi, mpp_flags);
-                if (!ret)
-                {
-                    mi = NULL;
-                }
                 clear_prefix();
             }
         }
         else
         {
             ret = multi_io_send_link(m, mi, mpp_flags);
-            if (!ret)
-            {
-                mi = NULL;
-            }
         }
     }
     return ret;
@@ -477,11 +433,13 @@ multi_io_dispatch(struct multi_context *m, struct multi_instance *mi, struct lin
             break;
 
         case TA_TUN_WRITE:
-            multi_io_write_tun(m, mpp_flags);
+            ASSERT(mi);
+            multi_io_write_tun(m, mi, mpp_flags);
             break;
 
         case TA_TUN_WRITE_TIMEOUT:
-            multi_io_drop_tun(m, mpp_flags);
+            ASSERT(mi);
+            multi_io_drop_tun(m, mi, mpp_flags);
             break;
 
         case TA_SOCKET_WRITE_READY:
@@ -490,11 +448,11 @@ multi_io_dispatch(struct multi_context *m, struct multi_instance *mi, struct lin
             break;
 
         case TA_SOCKET_WRITE:
-            multi_io_write_link(m, false, mpp_flags);
+            multi_io_write_link(m, mi, false, mpp_flags);
             break;
 
         case TA_SOCKET_WRITE_DEFERRED:
-            multi_io_write_link(m, true, mpp_flags);
+            multi_io_write_link(m, mi, true, mpp_flags);
             break;
 
         case TA_INITIAL:
@@ -629,10 +587,6 @@ multi_io_process_io(struct multi_context *m)
                             multi_io_action(m, mi, NULL, TA_INITIAL, false);
                         }
                     }
-                    else if (e->rwflags & EVENT_WRITE)
-                    {
-                        multi_io_action(m, NULL, NULL, TA_SOCKET_WRITE, false);
-                    }
                     else if (e->rwflags & EVENT_READ)
                     {
                         multi_io_action(m, NULL, ev_arg->u.sock, TA_SOCKET_READ, false);
@@ -653,11 +607,7 @@ multi_io_process_io(struct multi_context *m)
                 /* incoming data on TUN? */
                 if (e->arg == MULTI_IO_TUN)
                 {
-                    if (e->rwflags & EVENT_WRITE)
-                    {
-                        multi_io_action(m, NULL, NULL, TA_TUN_WRITE, false);
-                    }
-                    else if (e->rwflags & EVENT_READ)
+                    if (e->rwflags & EVENT_READ)
                     {
                         multi_io_action(m, NULL, NULL, TA_TUN_READ, false);
                     }
@@ -749,17 +699,17 @@ multi_io_action(struct multi_context *m, struct multi_instance *mi, struct link_
                 mi = NULL;
             }
             multi_close_instance_on_signal(m, touched);
+            touched = NULL;
         }
 
-
         /*
-         * If dispatch produced any pending output
-         * for a particular instance, point to
-         * that instance.
+         * touched is the only instance this action
+         * post-processed: having closed it above if
+         * it was signalled, write its output if any.
          */
-        if (m->pending)
+        if (touched && ANY_OUT(&touched->context))
         {
-            mi = m->pending;
+            mi = touched;
         }
 
         /*

@@ -575,10 +575,6 @@ multi_close_instance(struct multi_context *m, struct multi_instance *mi, bool sh
     mi->n_clients_delta = 0;
 
     /* prevent dangling pointers */
-    if (m->pending == mi)
-    {
-        multi_set_pending(m, NULL);
-    }
     if (m->earliest_wakeup == mi)
     {
         m->earliest_wakeup = NULL;
@@ -3098,18 +3094,15 @@ multi_process_post(struct multi_context *m, struct multi_instance *mi, const uns
             ret = false;
         }
     }
+#ifdef MULTI_DEBUG_EVENT_LOOP
     else
     {
-        /* continue to pend on output? */
-        multi_set_pending(m, ANY_OUT(&mi->context) ? mi : NULL);
-
-#ifdef MULTI_DEBUG_EVENT_LOOP
-        printf("POST %s[%d] to=%d lo=%d/%d w=%" PRIi64 "/%ld\n", id(mi), (int)(mi == m->pending),
+        printf("POST %s[%d] to=%d lo=%d/%d w=%" PRIi64 "/%ld\n", id(mi), (int)ANY_OUT(&mi->context),
                mi->context.c2.to_tun.len, mi->context.c2.to_link.len,
                mi->context.c2.fragment ? mi->context.c2.fragment->outgoing.len : -1,
                (int64_t)mi->context.c2.timeval.tv_sec, (long)mi->context.c2.timeval.tv_usec);
-#endif
     }
+#endif
 
     if ((flags & MPP_RECORD_TOUCH) && m->mpp_touched)
     {
@@ -3400,13 +3393,14 @@ multi_process_incoming_dco(dco_context_t *dco)
  * data packets.
  */
 static void
-multi_process_incoming_link_data(struct multi_context *m, bool floated, struct link_socket *sock)
+multi_process_incoming_link_data(struct multi_context *m, struct multi_instance *mi, bool floated,
+                                 struct link_socket *sock)
 {
     struct link_socket_info *lsi = &sock->info;
     const uint8_t *orig_buf;
 
     /* decrypt in instance context */
-    struct context *c = &m->pending->context;
+    struct context *c = &mi->context;
 
     orig_buf = c->c2.buf.data;
     if (process_incoming_link_part1(c, lsi, floated))
@@ -3414,7 +3408,7 @@ multi_process_incoming_link_data(struct multi_context *m, bool floated, struct l
         /* nonzero length means that we have a valid, decrypted packed */
         if (floated && c->c2.buf.len > 0)
         {
-            multi_process_float(m, m->pending, sock);
+            multi_process_float(m, mi, sock);
         }
 
         process_incoming_link_part2(c, lsi, orig_buf);
@@ -3433,7 +3427,7 @@ multi_process_incoming_link_data(struct multi_context *m, bool floated, struct l
             c->c2.to_tun.len = 0;
         }
         /* make sure that source address is associated with this client */
-        else if (multi_get_instance_by_virtual_addr(m, &src, true) != m->pending)
+        else if (multi_get_instance_by_virtual_addr(m, &src, true) != mi)
         {
             /* IPv6 link-local address (fe80::xxx)? */
             if ((src.type & MR_ADDR_MASK) == MR_ADDR_IPV6
@@ -3458,18 +3452,18 @@ multi_process_incoming_link_data(struct multi_context *m, bool floated, struct l
             if (mroute_flags & MROUTE_EXTRACT_MCAST)
             {
                 /* for now, treat multicast as broadcast */
-                multi_bcast(m, &c->c2.to_tun, m->pending, 0);
+                multi_bcast(m, &c->c2.to_tun, mi, 0);
             }
             else /* possible client to client routing */
             {
                 ASSERT(!(mroute_flags & MROUTE_EXTRACT_BCAST));
-                struct multi_instance *mi = multi_get_instance_by_virtual_addr(m, &dest, true);
+                struct multi_instance *dest_mi = multi_get_instance_by_virtual_addr(m, &dest, true);
 
                 /* if dest addr is a known client, route to it */
-                if (mi)
+                if (dest_mi)
                 {
                     {
-                        multi_unicast(m, &c->c2.to_tun, mi);
+                        multi_unicast(m, &c->c2.to_tun, dest_mi);
                         register_activity(c, BLEN(&c->c2.to_tun));
                     }
                     c->c2.to_tun.len = 0;
@@ -3502,23 +3496,24 @@ multi_process_incoming_link_data(struct multi_context *m, bool floated, struct l
 
         if (mroute_flags & MROUTE_EXTRACT_SUCCEEDED)
         {
-            if (multi_learn_addr(m, m->pending, &src, 0) == m->pending)
+            if (multi_learn_addr(m, mi, &src, 0) == mi)
             {
                 /* check for broadcast */
                 if (m->enable_c2c)
                 {
                     if (mroute_flags & (MROUTE_EXTRACT_BCAST | MROUTE_EXTRACT_MCAST))
                     {
-                        multi_bcast(m, &c->c2.to_tun, m->pending, vid);
+                        multi_bcast(m, &c->c2.to_tun, mi, vid);
                     }
                     else /* try client-to-client routing */
                     {
-                        struct multi_instance *mi = multi_get_instance_by_virtual_addr(m, &dest, false);
+                        struct multi_instance *dest_mi =
+                            multi_get_instance_by_virtual_addr(m, &dest, false);
 
                         /* if dest addr is a known client, route to it */
-                        if (mi)
+                        if (dest_mi)
                         {
-                            multi_unicast(m, &c->c2.to_tun, mi);
+                            multi_unicast(m, &c->c2.to_tun, dest_mi);
                             register_activity(c, BLEN(&c->c2.to_tun));
                             c->c2.to_tun.len = 0;
                         }
@@ -3550,35 +3545,27 @@ bool
 multi_process_incoming_link(struct multi_context *m, struct multi_instance *instance,
                             const unsigned int mpp_flags, struct link_socket *sock)
 {
+    struct multi_instance *mi = instance;
     struct context *c;
     bool ret = true;
     bool floated = false;
 
-    if (m->pending)
-    {
-        return true;
-    }
-
-    if (!instance)
+    if (!mi)
     {
 #ifdef MULTI_DEBUG_EVENT_LOOP
         printf("TCP/UDP -> TUN [%d]\n", BLEN(&m->top.c2.buf));
 #endif
-        multi_set_pending(m, multi_get_create_instance_udp(m, &floated, sock));
-    }
-    else
-    {
-        multi_set_pending(m, instance);
+        mi = multi_get_create_instance_udp(m, &floated, sock);
     }
 
-    if (!m->pending)
+    if (!mi)
     {
         return true;
     }
-    set_prefix(m->pending);
+    set_prefix(mi);
 
     /* get instance context */
-    c = &m->pending->context;
+    c = &mi->context;
 
     if (!instance)
     {
@@ -3594,11 +3581,11 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
 
     if (BLEN(&c->c2.buf) > 0)
     {
-        multi_process_incoming_link_data(m, floated, sock);
+        multi_process_incoming_link_data(m, mi, floated, sock);
     }
 
     /* postprocess and set wakeup */
-    ret = multi_process_post(m, m->pending, mpp_flags);
+    ret = multi_process_post(m, mi, mpp_flags);
 
     clear_prefix();
 
@@ -3624,11 +3611,6 @@ multi_process_incoming_tun(struct multi_context *m, const unsigned int mpp_flags
 #ifdef MULTI_DEBUG_EVENT_LOOP
         printf("TUN -> TCP/UDP [%d]\n", BLEN(&m->top.c2.buf));
 #endif
-
-        if (m->pending)
-        {
-            return true;
-        }
 
         if (dev_type == DEV_TYPE_TAP && m->top.options.vlan_tagging)
         {
@@ -3657,18 +3639,18 @@ multi_process_incoming_tun(struct multi_context *m, const unsigned int mpp_flags
             }
             else
             {
-                multi_set_pending(
-                    m, multi_get_instance_by_virtual_addr(m, &dest, dev_type == DEV_TYPE_TUN));
+                struct multi_instance *mi =
+                    multi_get_instance_by_virtual_addr(m, &dest, dev_type == DEV_TYPE_TUN);
 
-                if (m->pending)
+                if (mi)
                 {
                     /* get instance context */
-                    c = &m->pending->context;
+                    c = &mi->context;
 
-                    set_prefix(m->pending);
+                    set_prefix(mi);
 
                     {
-                        if (multi_output_queue_ready(m, m->pending))
+                        if (multi_output_queue_ready(m, mi))
                         {
                             /* transfer packet pointer from top-level context buffer to instance */
                             c->c2.buf = m->top.c2.buf;
@@ -3686,7 +3668,7 @@ multi_process_incoming_tun(struct multi_context *m, const unsigned int mpp_flags
                     process_incoming_tun(c, c->c2.link_sockets[0]);
 
                     /* postprocess and set wakeup */
-                    ret = multi_process_post(m, m->pending, mpp_flags);
+                    ret = multi_process_post(m, mi, mpp_flags);
 
                     clear_prefix();
                 }

@@ -206,8 +206,11 @@ struct multi_context
     unsigned long cid_counter;
 #endif
 
-    struct multi_instance *pending;
     struct multi_instance *earliest_wakeup;
+    /* While multi_io_dispatch() runs an action, points to its local where
+     * multi_process_post() with MPP_RECORD_TOUCH stores the instance it
+     * processed.  An action post-processes at most one instance, which
+     * multi_io_action() then closes on signal or writes the output of. */
     struct multi_instance **mpp_touched;
     struct context_buffers *context_buffers;
     time_t per_second_trigger;
@@ -638,11 +641,6 @@ multi_check_push_ifconfig_ipv6_extra_route(const struct options *o, const struct
  */
 #define MULTI_CHECK_SIG(m) EVENT_LOOP_CHECK_SIGNAL(&(m)->top, multi_process_signal, (m))
 
-static inline void
-multi_set_pending(struct multi_context *m, struct multi_instance *mi)
-{
-    m->pending = mi;
-}
 /**
  * Assigns a peer-id to a a client and adds the instance to the
  * the instances array of the \c multi_context structure.
