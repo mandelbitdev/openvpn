@@ -76,9 +76,6 @@ pract(int action)
         case TA_TUN_WRITE:
             return "TA_TUN_WRITE";
 
-        case TA_INITIAL:
-            return "TA_INITIAL";
-
         case TA_TIMEOUT:
             return "TA_TIMEOUT";
 
@@ -455,12 +452,6 @@ multi_io_dispatch(struct multi_context *m, struct multi_instance *mi, struct lin
             multi_io_write_link(m, mi, true, mpp_flags);
             break;
 
-        case TA_INITIAL:
-            ASSERT(mi);
-            multi_tcp_set_global_rw_flags(m, mi);
-            multi_process_post(m, mi, mpp_flags);
-            break;
-
         case TA_INSTANCE_POST:
             ASSERT(mi);
             multi_process_post(m, mi, mpp_flags);
@@ -506,13 +497,16 @@ multi_io_post(struct multi_context *m, struct multi_instance *mi, const int acti
             break;
 
         case MTP_NONE:
-            if (mi && sockets_read_residual(c))
+            if (mi && link_socket_connection_oriented(mi->context.c2.link_sockets[0]))
             {
-                newaction = TA_SOCKET_READ_RESIDUAL;
-            }
-            else
-            {
-                multi_tcp_set_global_rw_flags(m, mi);
+                if (sockets_read_residual(c))
+                {
+                    newaction = TA_SOCKET_READ_RESIDUAL;
+                }
+                else
+                {
+                    multi_tcp_set_global_rw_flags(m, mi);
+                }
             }
             break;
 
@@ -584,7 +578,7 @@ multi_io_process_io(struct multi_context *m)
                          * before returning to the main loop. */
                         if (mi)
                         {
-                            multi_io_action(m, mi, NULL, TA_INITIAL, false);
+                            multi_io_action(m, mi, NULL, TA_INSTANCE_POST, false);
                         }
                     }
                     else if (e->rwflags & EVENT_READ)
