@@ -188,6 +188,9 @@ struct link_socket
     /* used for long-term queueing of pre-accepted socket listen */
     bool listen_persistent_queued;
 
+    /* last rwflags set on the shared server-side UDP socket */
+    unsigned int rwflags_persistent;
+
     const char *remote_host;
     const char *remote_port;
     const char *local_host;
