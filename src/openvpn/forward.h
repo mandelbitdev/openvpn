@@ -73,8 +73,7 @@ extern counter_type link_write_bytes_global;
  * Evaluates the current I/O state (`flags`) and context mode to determine
  * which READ or WRITE events to register in the event loop.
  *
- * @note This function gets called from client instances from @c io_wait()
- * and from p2mp (Point-to-multipoint) instances in @c multi_io_wait().
+ * @note This function gets called from @c io_wait().
  *
  * @param c      Pointer to the core context.
  * @param es     The event set where descriptors are registered.
