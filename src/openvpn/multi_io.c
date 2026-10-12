@@ -136,7 +136,6 @@ int
 multi_io_wait(struct multi_context *m)
 {
     int status;
-    unsigned int *persistent = &m->multi_io->tun_rwflags;
 
     for (int i = 0; i < m->top.c1.link_sockets_num; i++)
     {
@@ -144,7 +143,7 @@ multi_io_wait(struct multi_context *m)
 
         if (proto_is_dgram(sock->info.proto))
         {
-            multi_io_process_flags(&m->top, m->multi_io->es, sock, IOW_READ | IOW_WAIT_SIGNAL);
+            socket_set(sock, m->multi_io->es, EVENT_READ, &sock->ev_arg, &sock->rwflags_persistent);
         }
         else if (!tuntap_is_dco_win(m->top.c1.tuntap))
         {
@@ -152,7 +151,7 @@ multi_io_wait(struct multi_context *m)
         }
     }
 
-    tun_set(m->top.c1.tuntap, m->multi_io->es, EVENT_READ, MULTI_IO_TUN, persistent);
+    tun_set(m->top.c1.tuntap, m->multi_io->es, EVENT_READ, MULTI_IO_TUN, &m->multi_io->tun_rwflags);
 #if defined(ENABLE_DCO)
     dco_event_set(&m->top.c1.tuntap->dco, m->multi_io->es, MULTI_IO_DCO);
 #endif
@@ -167,7 +166,11 @@ multi_io_wait(struct multi_context *m)
 
 #ifdef ENABLE_ASYNC_PUSH
     /* arm inotify watcher */
-    event_ctl(m->multi_io->es, m->top.c2.inotify_fd, EVENT_READ, MULTI_IO_FILE_CLOSE_WRITE);
+    if (!m->multi_io->inotify_set)
+    {
+        event_ctl(m->multi_io->es, m->top.c2.inotify_fd, EVENT_READ, MULTI_IO_FILE_CLOSE_WRITE);
+        m->multi_io->inotify_set = true;
+    }
 #endif
 
     status =

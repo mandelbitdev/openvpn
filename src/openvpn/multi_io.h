@@ -55,6 +55,7 @@ struct multi_io
     int n_esr;
     int maxevents;
     unsigned int tun_rwflags;
+    bool inotify_set;
 #ifdef ENABLE_MANAGEMENT
     unsigned int management_persist_flags;
 #endif
