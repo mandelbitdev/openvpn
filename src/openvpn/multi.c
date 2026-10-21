@@ -775,11 +775,7 @@ multi_create_instance(struct multi_context *m, const struct mroute_addr *real,
     mi->inotify_watch = -1;
 #endif
 
-    if (!multi_process_post(m, mi, MPP_PRE_SELECT))
-    {
-        msg(D_MULTI_ERRORS, "MULTI: signal occurred during client instance initialization");
-        goto err;
-    }
+    multi_process_post(m, mi, MPP_PRE_SELECT);
 
     mi->ev_arg.type = EVENT_ARG_MULTI_INSTANCE;
     mi->ev_arg.u.mi = mi;
@@ -3021,14 +3017,10 @@ add_inotify_file_watch(struct multi_context *m, struct multi_instance *mi, int i
  * Figure instance-specific timers, convert
  * earliest to absolute time in mi->wakeup,
  * call scheduler with our future wakeup time.
- *
- * Also close context on signal.
  */
-bool
+void
 multi_process_post(struct multi_context *m, struct multi_instance *mi, const unsigned int flags)
 {
-    bool ret = true;
-
     if (!IS_SIG(&mi->context)
         && ((flags & MPP_PRE_SELECT)))
     {
@@ -3086,16 +3078,8 @@ multi_process_post(struct multi_context *m, struct multi_instance *mi, const uns
         }
     }
 
-    if (IS_SIG(&mi->context))
-    {
-        if (flags & MPP_CLOSE_ON_SIGNAL)
-        {
-            multi_close_instance_on_signal(m, mi);
-            ret = false;
-        }
-    }
 #ifdef MULTI_DEBUG_EVENT_LOOP
-    else
+    if (!IS_SIG(&mi->context))
     {
         printf("POST %s[%d] to=%d lo=%d/%d w=%" PRIi64 "/%ld\n", id(mi), (int)ANY_OUT(&mi->context),
                mi->context.c2.to_tun.len, mi->context.c2.to_link.len,
@@ -3108,8 +3092,6 @@ multi_process_post(struct multi_context *m, struct multi_instance *mi, const uns
     {
         *m->mpp_touched = mi;
     }
-
-    return ret;
 }
 
 /**
@@ -3541,13 +3523,12 @@ multi_process_incoming_link_data(struct multi_context *m, struct multi_instance 
  * Process packets in the TCP/UDP socket -> TUN/TAP interface direction,
  * i.e. client -> server direction.
  */
-bool
+void
 multi_process_incoming_link(struct multi_context *m, struct multi_instance *instance,
                             const unsigned int mpp_flags, struct link_socket *sock)
 {
     struct multi_instance *mi = instance;
     struct context *c;
-    bool ret = true;
     bool floated = false;
 
     if (!mi)
@@ -3560,7 +3541,7 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
 
     if (!mi)
     {
-        return true;
+        return;
     }
     set_prefix(mi);
 
@@ -3585,22 +3566,18 @@ multi_process_incoming_link(struct multi_context *m, struct multi_instance *inst
     }
 
     /* postprocess and set wakeup */
-    ret = multi_process_post(m, mi, mpp_flags);
+    multi_process_post(m, mi, mpp_flags);
 
     clear_prefix();
-
-    return ret;
 }
 
 /*
  * Process packets in the TUN/TAP interface -> TCP/UDP socket direction,
  * i.e. server -> client direction.
  */
-bool
+void
 multi_process_incoming_tun(struct multi_context *m, const unsigned int mpp_flags)
 {
-    bool ret = true;
-
     if (BLEN(&m->top.c2.buf) > 0)
     {
         unsigned int mroute_flags;
@@ -3617,7 +3594,7 @@ multi_process_incoming_tun(struct multi_context *m, const unsigned int mpp_flags
             vid = vlan_decapsulate(&m->top, &m->top.c2.buf);
             if (vid < 0)
             {
-                return false;
+                return;
             }
         }
 
@@ -3668,14 +3645,13 @@ multi_process_incoming_tun(struct multi_context *m, const unsigned int mpp_flags
                     process_incoming_tun(c, c->c2.link_sockets[0]);
 
                     /* postprocess and set wakeup */
-                    ret = multi_process_post(m, mi, mpp_flags);
+                    multi_process_post(m, mi, mpp_flags);
 
                     clear_prefix();
                 }
             }
         }
     }
-    return ret;
 }
 
 /*
@@ -3718,11 +3694,9 @@ multi_get_queue(struct mbuf_set *ms)
  * Called when an I/O wait times out.  Usually means that a particular
  * client instance object needs timer-based service.
  */
-bool
+void
 multi_process_timeout(struct multi_context *m, const unsigned int mpp_flags)
 {
-    bool ret = true;
-
 #ifdef MULTI_DEBUG_EVENT_LOOP
     printf("%s -> TIMEOUT\n", id(m->earliest_wakeup));
 #endif
@@ -3739,12 +3713,11 @@ multi_process_timeout(struct multi_context *m, const unsigned int mpp_flags)
         else
         {
             set_prefix(m->earliest_wakeup);
-            ret = multi_process_post(m, m->earliest_wakeup, mpp_flags);
+            multi_process_post(m, m->earliest_wakeup, mpp_flags);
             clear_prefix();
         }
         m->earliest_wakeup = NULL;
     }
-    return ret;
 }
 
 /*
