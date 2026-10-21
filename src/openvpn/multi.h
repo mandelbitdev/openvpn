@@ -282,11 +282,10 @@ struct multi_instance *multi_create_instance(struct multi_context *m,
 
 void multi_close_instance(struct multi_context *m, struct multi_instance *mi, bool shutdown);
 
-bool multi_process_timeout(struct multi_context *m, const unsigned int mpp_flags);
+void multi_process_timeout(struct multi_context *m, const unsigned int mpp_flags);
 
-#define MPP_PRE_SELECT      (1 << 0)
-#define MPP_CLOSE_ON_SIGNAL (1 << 1)
-#define MPP_RECORD_TOUCH    (1 << 2)
+#define MPP_PRE_SELECT   (1 << 0)
+#define MPP_RECORD_TOUCH (1 << 2)
 
 
 /**************************************************************************/
@@ -305,13 +304,8 @@ bool multi_process_timeout(struct multi_context *m, const unsigned int mpp_flags
  * @param mi           - The \c multi_instance of the VPN tunnel to be
  *                       postprocessed.
  * @param flags        - Fast I/O optimization flags.
- *
- * @return
- *  - True, if the VPN tunnel instance \a mi was not closed due to a
- *    signal during processing.
- *  - False, if the VPN tunnel instance \a mi was closed.
  */
-bool multi_process_post(struct multi_context *m, struct multi_instance *mi,
+void multi_process_post(struct multi_context *m, struct multi_instance *mi,
                         const unsigned int flags);
 
 /**
@@ -345,7 +339,7 @@ void multi_process_incoming_dco(dco_context_t *dco);
  * @param mpp_flags    - Fast I/O optimization flags.
  * @param sock         - Socket where the packet was received.
  */
-bool multi_process_incoming_link(struct multi_context *m, struct multi_instance *instance,
+void multi_process_incoming_link(struct multi_context *m, struct multi_instance *instance,
                                  const unsigned int mpp_flags, struct link_socket *sock);
 
 
@@ -364,7 +358,7 @@ bool multi_process_incoming_link(struct multi_context *m, struct multi_instance 
  * @param m            - The single \c multi_context structure.
  * @param mpp_flags    - Fast I/O optimization flags.
  */
-bool multi_process_incoming_tun(struct multi_context *m, const unsigned int mpp_flags);
+void multi_process_incoming_tun(struct multi_context *m, const unsigned int mpp_flags);
 
 
 struct multi_instance *multi_get_queue(struct mbuf_set *ms);
