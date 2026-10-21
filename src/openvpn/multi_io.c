@@ -253,26 +253,18 @@ multi_io_wait_lite(struct multi_context *m, struct multi_instance *mi, const int
  * @param m            - The single \c multi_context structure.
  * @param mi           - The \c multi_instance with the packet to send.
  * @param mpp_flags    - Fast I/O optimization flags.
- *
- * @return
- *  - True, if the \c multi_instance associated with the packet sent was
- *    not closed due to a signal during processing.
- *  - Falls, if the \c multi_instance was closed.
  */
-static bool
+static void
 multi_io_write_tun(struct multi_context *m, struct multi_instance *mi, const unsigned int mpp_flags)
 {
-    bool ret = true;
-
 #ifdef MULTI_DEBUG_EVENT_LOOP
     printf("%s -> TUN len=%d\n", id(mi), mi->context.c2.to_tun.len);
 #endif
     set_prefix(mi);
     vlan_process_outgoing_tun(m, mi);
     process_outgoing_tun(&mi->context, mi->context.c2.link_sockets[0]);
-    ret = multi_process_post(m, mi, mpp_flags);
+    multi_process_post(m, mi, mpp_flags);
     clear_prefix();
-    return ret;
 }
 
 /*
@@ -292,23 +284,20 @@ multi_io_drop_tun(struct multi_context *m, struct multi_instance *mi, const unsi
     clear_prefix();
 }
 
-static bool
+static void
 multi_io_send_link(struct multi_context *m, struct multi_instance *mi, const unsigned int mpp_flags)
 {
-    bool ret = true;
     set_prefix(mi);
     process_outgoing_link(&mi->context, mi->context.c2.link_sockets[0]);
-    ret = multi_process_post(m, mi, mpp_flags);
+    multi_process_post(m, mi, mpp_flags);
     clear_prefix();
-    return ret;
 }
 
-static bool
+static void
 multi_io_write_link_deferred(struct multi_context *m, struct multi_instance *mi,
                              const unsigned int mpp_flags)
 {
     struct mbuf_item item;
-    bool ret = true;
     ASSERT(mi);
 
     /* extract from queue */
@@ -318,18 +307,15 @@ multi_io_write_link_deferred(struct multi_context *m, struct multi_instance *mi,
 
         ASSERT(mi == item.instance);
         mi->context.c2.to_link = item.buffer->buf;
-        ret = multi_io_send_link(m, mi, mpp_flags);
+        multi_io_send_link(m, mi, mpp_flags);
         mbuf_free_buf(item.buffer);
     }
-    return ret;
 }
 
-static bool
+static void
 multi_io_write_link(struct multi_context *m, struct multi_instance *mi, bool defer,
                     const unsigned int mpp_flags)
 {
-    bool ret = true;
-
     if (mi && LINK_OUT(&mi->context))
     {
         if ((defer && !proto_is_dgram(mi->context.c2.link_sockets[0]->info.proto))
@@ -349,16 +335,15 @@ multi_io_write_link(struct multi_context *m, struct multi_instance *mi, bool def
                 mbuf_add_item(mi->tcp_link_out_deferred, &item);
                 mbuf_free_buf(mb);
                 buf_reset(buf);
-                ret = multi_process_post(m, mi, mpp_flags);
+                multi_process_post(m, mi, mpp_flags);
                 clear_prefix();
             }
         }
         else
         {
-            ret = multi_io_send_link(m, mi, mpp_flags);
+            multi_io_send_link(m, mi, mpp_flags);
         }
     }
-    return ret;
 }
 
 static struct multi_instance *
