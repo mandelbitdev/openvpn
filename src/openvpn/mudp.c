@@ -29,7 +29,6 @@
 #include "multi.h"
 #include <inttypes.h>
 #include "forward.h"
-#include "multi_io.h"
 
 #include "memdbg.h"
 #include "ssl_pkt.h"
@@ -461,40 +460,4 @@ multi_get_create_instance_udp(struct multi_context *m, bool *floated, struct lin
 
     ASSERT(!(mi && mi->halt));
     return mi;
-}
-
-/*
- * Send a packet to UDP socket.
- */
-static inline void
-multi_process_outgoing_link(struct multi_context *m, const unsigned int mpp_flags)
-{
-    if (m->pending)
-    {
-        multi_io_send_link(m, m->pending, mpp_flags);
-    }
-}
-
-/*
- * Process a UDP socket event.
- */
-void
-multi_process_io_udp(struct multi_context *m, struct link_socket *sock, unsigned int rwflags)
-{
-    const unsigned int mpp_flags = (MPP_PRE_SELECT | MPP_CLOSE_ON_SIGNAL);
-
-    /* UDP port ready to accept write */
-    if (rwflags & SOCKET_WRITE)
-    {
-        multi_process_outgoing_link(m, mpp_flags);
-    }
-    /* Incoming data on UDP port */
-    else if (rwflags & SOCKET_READ)
-    {
-        read_incoming_link(&m->top, sock);
-        if (!IS_SIG(&m->top))
-        {
-            multi_process_incoming_link(m, NULL, mpp_flags, sock);
-        }
-    }
 }

@@ -2869,7 +2869,7 @@ multi_process_file_closed(struct multi_context *m)
             if (mi)
             {
                 /* continue authentication, perform NCP negotiation and send push_reply */
-                multi_io_action(m, mi, TA_INSTANCE_POST, false);
+                multi_io_action(m, mi, NULL, TA_INSTANCE_POST, false);
             }
             else
             {
@@ -4266,7 +4266,7 @@ tunnel_server_loop(struct multi_context *multi)
         }
         else if (status == 0)
         {
-            multi_io_action(multi, NULL, TA_TIMEOUT, false);
+            multi_io_action(multi, NULL, NULL, TA_TIMEOUT, false);
         }
 
         MULTI_CHECK_SIG(multi);
