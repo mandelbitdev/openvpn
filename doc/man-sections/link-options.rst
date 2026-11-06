@@ -156,6 +156,12 @@ the local and the remote host.
   kernel (``ip mptcp endpoint``); without them the connection uses a
   single subflow.
 
+  With ``--pull`` (implied by ``--client``), addresses announced by the
+  server (MPTCP ADD_ADDR) before the routes are added are routed like the
+  ``--remote`` address. An address announced later has to be excluded from
+  the tunnel manually, e.g. with
+  ``--route address 255.255.255.255 net_gateway``.
+
   This option is only supported on Linux. If an MPTCP socket cannot be
   created, OpenVPN logs a warning and falls back to plain TCP. ``--mptcp``
   disables data channel offload, and ``--mtu-disc`` has no effect on MPTCP

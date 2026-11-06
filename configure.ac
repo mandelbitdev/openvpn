@@ -458,6 +458,7 @@ AC_CHECK_HEADERS([ \
 	syslog.h pwd.h grp.h \
 	sys/sockio.h sys/uio.h \
 	poll.h sys/epoll.h err.h \
+	linux/mptcp.h \
 ])
 
 SOCKET_INCLUDES="

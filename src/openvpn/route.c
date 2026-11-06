@@ -741,6 +741,37 @@ ipv6_net_contains_host(const struct in6_addr *network, unsigned int bits, const 
     return false;
 }
 
+static bool
+add_remote_host_route_ipv6(struct route_ipv6_list *rl6, const struct in6_addr *host)
+{
+    if ((rl6->rgi6.flags & (RGI_ADDR_DEFINED | RGI_IFACE_DEFINED))
+        != (RGI_ADDR_DEFINED | RGI_IFACE_DEFINED))
+    {
+        return false;
+    }
+
+    struct route_ipv6 *r6;
+    ALLOC_OBJ_CLEAR_GC(r6, struct route_ipv6, &rl6->gc);
+
+    r6->network = *host;
+    r6->netbits = 128;
+    if (!(rl6->rgi6.flags & RGI_ON_LINK))
+    {
+        r6->gateway = rl6->rgi6.gateway.addr_ipv6;
+    }
+    r6->metric = 1;
+#ifdef _WIN32
+    r6->adapter_index = rl6->rgi6.adapter_index;
+#else
+    r6->iface = rl6->rgi6.iface;
+#endif
+    r6->flags = RT_DEFINED | RT_METRIC_DEFINED;
+
+    r6->next = rl6->routes_ipv6;
+    rl6->routes_ipv6 = r6;
+    return true;
+}
+
 bool
 init_route_ipv6_list(struct route_ipv6_list *rl6, const struct route_ipv6_option_list *opt6,
                      const char *remote_endpoint, int default_metric,
@@ -839,36 +870,10 @@ init_route_ipv6_list(struct route_ipv6_list *rl6, const struct route_ipv6_option
     }
 
     /* add VPN server host route if needed */
-    if (need_remote_ipv6_route)
+    if (need_remote_ipv6_route && !add_remote_host_route_ipv6(rl6, remote_host_ipv6))
     {
-        if ((rl6->rgi6.flags & (RGI_ADDR_DEFINED | RGI_IFACE_DEFINED))
-            == (RGI_ADDR_DEFINED | RGI_IFACE_DEFINED))
-        {
-            struct route_ipv6 *r6;
-            ALLOC_OBJ_CLEAR_GC(r6, struct route_ipv6, &rl6->gc);
-
-            r6->network = *remote_host_ipv6;
-            r6->netbits = 128;
-            if (!(rl6->rgi6.flags & RGI_ON_LINK))
-            {
-                r6->gateway = rl6->rgi6.gateway.addr_ipv6;
-            }
-            r6->metric = 1;
-#ifdef _WIN32
-            r6->adapter_index = rl6->rgi6.adapter_index;
-#else
-            r6->iface = rl6->rgi6.iface;
-#endif
-            r6->flags = RT_DEFINED | RT_METRIC_DEFINED;
-
-            r6->next = rl6->routes_ipv6;
-            rl6->routes_ipv6 = r6;
-        }
-        else
-        {
-            msg(M_WARN,
-                "ROUTE6: IPv6 route overlaps with IPv6 remote address, but could not determine IPv6 gateway address + interface, expect failure\n");
-        }
+        msg(M_WARN,
+            "ROUTE6: IPv6 route overlaps with IPv6 remote address, but could not determine IPv6 gateway address + interface, expect failure\n");
     }
 
     gc_free(&gc);
@@ -938,6 +943,65 @@ del_bypass_routes(const struct route_bypass *rb, in_addr_t gateway,
         }
     }
 }
+
+#if defined(TARGET_LINUX) && !defined(TARGET_ANDROID)
+void
+route_list_add_extra_remote(struct route_list *rl, in_addr_t host)
+{
+    if (!(rl->flags & RG_ENABLE)
+        || ((rl->spec.flags & RTSA_REMOTE_HOST) && host == rl->spec.remote_host)
+        || test_local_addr(host, &rl->rgi) == TLA_LOCAL)
+    {
+        return;
+    }
+
+    struct gc_arena gc = gc_new();
+    if (add_bypass_address(&rl->spec.bypass, host))
+    {
+        msg(M_INFO, "ROUTE: %s is routed like the remote host", print_in_addr_t(host, 0, &gc));
+    }
+    else
+    {
+        msg(M_WARN, "ROUTE: no room for bypass route to %s", print_in_addr_t(host, 0, &gc));
+    }
+    gc_free(&gc);
+}
+
+void
+route_ipv6_list_add_extra_remote(struct route_ipv6_list *rl6, const struct in6_addr *host)
+{
+    if ((rl6->spec_flags & RTSA_REMOTE_HOST) && IN6_ARE_ADDR_EQUAL(host, &rl6->remote_host_ipv6))
+    {
+        return;
+    }
+
+    bool overlap = false;
+    for (const struct route_ipv6 *r6 = rl6->routes_ipv6; r6; r6 = r6->next)
+    {
+        if (r6->netbits == 128 && IN6_ARE_ADDR_EQUAL(&r6->network, host))
+        {
+            return;
+        }
+        overlap = overlap || ipv6_net_contains_host(&r6->network, r6->netbits, host);
+    }
+    if (!overlap)
+    {
+        return;
+    }
+
+    struct gc_arena gc = gc_new();
+    if (add_remote_host_route_ipv6(rl6, host))
+    {
+        msg(M_INFO, "ROUTE6: %s is routed like the remote host", print_in6_addr(*host, 0, &gc));
+    }
+    else
+    {
+        msg(M_WARN, "ROUTE6: could not determine IPv6 gateway address + interface for %s",
+            print_in6_addr(*host, 0, &gc));
+    }
+    gc_free(&gc);
+}
+#endif /* if defined(TARGET_LINUX) && !defined(TARGET_ANDROID) */
 
 static bool
 redirect_default_route_to_vpn(struct route_list *rl, const struct tuntap *tt, unsigned int flags,

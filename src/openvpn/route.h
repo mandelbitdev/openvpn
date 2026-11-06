@@ -311,6 +311,19 @@ bool add_route(struct route_ipv4 *r, const struct tuntap *tt, unsigned int flags
                const struct route_gateway_info *rgi, const struct env_set *es,
                openvpn_net_ctx_t *ctx);
 
+#if defined(TARGET_LINUX) && !defined(TARGET_ANDROID)
+/**
+ * Route @p host like the remote host: via the original default gateway when
+ * it would otherwise be routed into the tunnel.
+ */
+void route_list_add_extra_remote(struct route_list *rl, in_addr_t host);
+
+/**
+ * IPv6 counterpart of route_list_add_extra_remote().
+ */
+void route_ipv6_list_add_extra_remote(struct route_ipv6_list *rl6, const struct in6_addr *host);
+#endif
+
 void add_route_to_option_list(struct route_option_list *l, const char *network, const char *netmask,
                               const char *gateway, const char *metric, int table_id);
 

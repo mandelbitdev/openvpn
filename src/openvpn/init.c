@@ -58,6 +58,10 @@
 #include "resolve.h"
 #include "acc.h"
 
+#if defined(TARGET_LINUX) && defined(HAVE_LINUX_MPTCP_H)
+#include <linux/mptcp.h>
+#endif
+
 #include "memdbg.h"
 
 
@@ -1698,6 +1702,61 @@ do_init_tun(struct context *c)
     c->c1.tuntap_owned = true;
 }
 
+#if defined(TARGET_LINUX) && !defined(TARGET_ANDROID) && defined(MPTCP_SUBFLOW_ADDRS)
+static void
+do_init_mptcp_subflow_routes(struct context *c)
+{
+    const struct link_socket *sock = c->c2.link_sockets[0];
+    if (!(sock->sockflags & SF_MPTCP))
+    {
+        return;
+    }
+
+    struct mptcp_subflow_data hdr = {
+        .size_subflow_data = sizeof(hdr),
+        .size_user = sizeof(struct mptcp_subflow_addrs),
+    };
+    socklen_t len = sizeof(hdr);
+    if (getsockopt(sock->sd, SOL_MPTCP, MPTCP_SUBFLOW_ADDRS, &hdr, &len) != 0
+        || hdr.size_user != sizeof(struct mptcp_subflow_addrs) || hdr.num_subflows == 0)
+    {
+        return;
+    }
+
+    struct
+    {
+        struct mptcp_subflow_data d;
+        struct mptcp_subflow_addrs a[];
+    } *sf;
+    struct gc_arena gc = gc_new();
+    const size_t size = sizeof(*sf) + hdr.num_subflows * sizeof(sf->a[0]);
+    sf = gc_malloc(size, true, &gc);
+    sf->d.size_subflow_data = sizeof(sf->d);
+    sf->d.size_user = sizeof(sf->a[0]);
+    len = (socklen_t)size;
+    if (getsockopt(sock->sd, SOL_MPTCP, MPTCP_SUBFLOW_ADDRS, sf, &len) == 0
+        && len >= sizeof(sf->d))
+    {
+        const size_t n = (len - sizeof(sf->d)) / sizeof(sf->a[0]);
+        for (size_t i = 0; i < n; i++)
+        {
+            const struct mptcp_subflow_addrs *a = &sf->a[i];
+            if (a->sin_remote.sin_family == AF_INET && c->c1.route_list)
+            {
+                route_list_add_extra_remote(c->c1.route_list,
+                                            ntohl(a->sin_remote.sin_addr.s_addr));
+            }
+            else if (a->sin6_remote.sin6_family == AF_INET6 && c->c1.route_ipv6_list)
+            {
+                route_ipv6_list_add_extra_remote(c->c1.route_ipv6_list,
+                                                 &a->sin6_remote.sin6_addr);
+            }
+        }
+    }
+    gc_free(&gc);
+}
+#endif
+
 /*
  * Open tun/tap device, ifconfig, call up script, etc.
  */
@@ -1854,6 +1913,9 @@ do_open_tun(struct context *c, unsigned int *error_flags)
             do_init_route_ipv6_list(&c->options, c->c1.route_ipv6_list,
                                     &c->c2.link_sockets[0]->info, c->c2.es, &c->net_ctx);
         }
+#if defined(TARGET_LINUX) && !defined(TARGET_ANDROID) && defined(MPTCP_SUBFLOW_ADDRS)
+        do_init_mptcp_subflow_routes(c);
+#endif
 
         /* do ifconfig */
         if (!ifconfig_noexec_enabled(c) && ifconfig_order(c->c1.tuntap) == IFCONFIG_BEFORE_TUN_OPEN)

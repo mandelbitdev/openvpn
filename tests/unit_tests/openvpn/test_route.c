@@ -166,11 +166,133 @@ test_route_ipv6_clear_host_bits(void **state)
     assert_clear_host_bits("2001:db8::1", 0, "::");
 }
 
+#if defined(TARGET_LINUX) && !defined(TARGET_ANDROID)
+static in_addr_t
+ip4(const char *s)
+{
+    in_addr_t a;
+    assert_int_equal(inet_pton(AF_INET, s, &a), 1);
+    return ntohl(a);
+}
+
+static void
+test_route_list_add_extra_remote(void **state)
+{
+    struct route_list rl;
+    CLEAR(rl);
+    rl.flags = RG_ENABLE;
+    rl.spec.flags = RTSA_REMOTE_HOST;
+    rl.spec.remote_host = ip4("192.0.2.1");
+    rl.rgi.flags = RGI_ADDR_DEFINED | RGI_NETMASK_DEFINED | RGI_IFACE_DEFINED;
+    rl.rgi.gateway.addr = ip4("10.0.1.1");
+    rl.rgi.gateway.netmask = ip4("255.255.255.0");
+
+    /* the remote host and on-link addresses are skipped */
+    route_list_add_extra_remote(&rl, ip4("192.0.2.1"));
+    route_list_add_extra_remote(&rl, ip4("10.0.1.7"));
+    assert_int_equal(rl.spec.bypass.n_bypass, 0);
+
+    /* added once */
+    route_list_add_extra_remote(&rl, ip4("198.51.100.1"));
+    route_list_add_extra_remote(&rl, ip4("198.51.100.1"));
+    assert_int_equal(rl.spec.bypass.n_bypass, 1);
+    assert_int_equal(rl.spec.bypass.bypass[0], ip4("198.51.100.1"));
+
+    /* full bypass list */
+    for (in_addr_t a = ip4("198.51.100.2"); rl.spec.bypass.n_bypass < N_ROUTE_BYPASS; a++)
+    {
+        route_list_add_extra_remote(&rl, a);
+    }
+    route_list_add_extra_remote(&rl, ip4("198.51.100.100"));
+    assert_int_equal(rl.spec.bypass.n_bypass, N_ROUTE_BYPASS);
+    assert_int_not_equal(rl.spec.bypass.bypass[N_ROUTE_BYPASS - 1], ip4("198.51.100.100"));
+
+    /* nothing without --redirect-gateway */
+    CLEAR(rl.spec.bypass);
+    rl.flags = 0;
+    route_list_add_extra_remote(&rl, ip4("198.51.100.1"));
+    assert_int_equal(rl.spec.bypass.n_bypass, 0);
+}
+
+static void
+add_test_route_ipv6(struct route_ipv6_list *rl6, const char *network, unsigned int netbits)
+{
+    struct route_ipv6 *r6;
+    ALLOC_OBJ_CLEAR_GC(r6, struct route_ipv6, &rl6->gc);
+    assert_int_equal(inet_pton(AF_INET6, network, &r6->network), 1);
+    r6->netbits = netbits;
+    r6->next = rl6->routes_ipv6;
+    rl6->routes_ipv6 = r6;
+}
+
+static int
+count_routes_ipv6(const struct route_ipv6_list *rl6)
+{
+    int n = 0;
+    for (const struct route_ipv6 *r6 = rl6->routes_ipv6; r6; r6 = r6->next)
+    {
+        n++;
+    }
+    return n;
+}
+
+static void
+test_route_ipv6_list_add_extra_remote(void **state)
+{
+    struct route_ipv6_list rl6;
+    struct in6_addr host, gateway;
+
+    CLEAR(rl6);
+    rl6.gc = gc_new();
+    rl6.spec_flags = RTSA_REMOTE_HOST;
+    assert_int_equal(inet_pton(AF_INET6, "2001:db8:1::1", &rl6.remote_host_ipv6), 1);
+    rl6.rgi6.flags = RGI_ADDR_DEFINED | RGI_IFACE_DEFINED;
+    assert_int_equal(inet_pton(AF_INET6, "fd00:1::1", &gateway), 1);
+    rl6.rgi6.gateway.addr_ipv6 = gateway;
+    strlcpy(rl6.rgi6.iface, "eth0", sizeof(rl6.rgi6.iface));
+    add_test_route_ipv6(&rl6, "2000::", 3);
+
+    /* the remote host is skipped */
+    route_ipv6_list_add_extra_remote(&rl6, &rl6.remote_host_ipv6);
+    assert_int_equal(count_routes_ipv6(&rl6), 1);
+
+    /* not routed into the tunnel */
+    assert_int_equal(inet_pton(AF_INET6, "fd00:2::1", &host), 1);
+    route_ipv6_list_add_extra_remote(&rl6, &host);
+    assert_int_equal(count_routes_ipv6(&rl6), 1);
+
+    /* added once, as a host route via the original gateway */
+    assert_int_equal(inet_pton(AF_INET6, "2001:db8:2::1", &host), 1);
+    route_ipv6_list_add_extra_remote(&rl6, &host);
+    route_ipv6_list_add_extra_remote(&rl6, &host);
+    assert_int_equal(count_routes_ipv6(&rl6), 2);
+
+    const struct route_ipv6 *r6 = rl6.routes_ipv6;
+    assert_memory_equal(&r6->network, &host, sizeof(host));
+    assert_int_equal(r6->netbits, 128);
+    assert_memory_equal(&r6->gateway, &gateway, sizeof(gateway));
+    assert_string_equal(r6->iface, "eth0");
+    assert_int_equal(r6->flags, RT_DEFINED | RT_METRIC_DEFINED);
+
+    /* nothing without the original gateway */
+    rl6.rgi6.flags = 0;
+    assert_int_equal(inet_pton(AF_INET6, "2001:db8:3::1", &host), 1);
+    route_ipv6_list_add_extra_remote(&rl6, &host);
+    assert_int_equal(count_routes_ipv6(&rl6), 2);
+
+    gc_free(&rl6.gc);
+}
+#endif
+
 static const struct CMUnitTest route_test_list[] = {
     cmocka_unit_test(test_is_special_addr),
     cmocka_unit_test(test_netmask_to_netbits),
     cmocka_unit_test(test_netmask_to_netbits2),
     cmocka_unit_test(test_route_ipv6_clear_host_bits),
+#if defined(TARGET_LINUX) && !defined(TARGET_ANDROID)
+    cmocka_unit_test(test_route_list_add_extra_remote),
+    cmocka_unit_test(test_route_ipv6_list_add_extra_remote),
+#endif
 };
 
 int
