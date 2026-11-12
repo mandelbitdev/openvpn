@@ -344,6 +344,17 @@ man_delete_unix_socket(const struct management *man)
 #endif
 }
 
+#ifndef _WIN32
+static void
+man_delete_event(struct management *man, const socket_descriptor_t sd)
+{
+    if (man->persist.callback.delete_event)
+    {
+        (*man->persist.callback.delete_event)(man->persist.callback.arg, sd);
+    }
+}
+#endif
+
 static void
 man_close_socket(struct management *man, const socket_descriptor_t sd)
 {
@@ -352,10 +363,7 @@ man_close_socket(struct management *man, const socket_descriptor_t sd)
      * Windows doesn't need this because the ne32 event is permanently
      * enabled at struct management scope.
      */
-    if (man->persist.callback.delete_event)
-    {
-        (*man->persist.callback.delete_event)(man->persist.callback.arg, sd);
-    }
+    man_delete_event(man, sd);
 #endif
     openvpn_close_socket(sd);
 }
@@ -2070,6 +2078,8 @@ man_accept(struct management *man)
         {
 #ifdef _WIN32
             man_stop_ne32(man);
+#else
+            man_delete_event(man, man->connection.sd_top);
 #endif
         }
 
