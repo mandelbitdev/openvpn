@@ -410,6 +410,9 @@ socket_descriptor_t create_socket_udp_configured(sa_family_t af, unsigned int so
                                                  const char *bind_dev, struct addrinfo *bind_addr,
                                                  bool bind_ipv6_only, bool optional);
 
+/* Seconds left before accept() is retried after it failed for lack of resources */
+time_t socket_accept_paused(void);
+
 socket_descriptor_t socket_do_accept(socket_descriptor_t sd, struct link_socket_actual *act,
                                      const bool nowait);
 
@@ -842,6 +845,16 @@ socket_set_listen_persistent(struct link_socket *sock, struct event_set *es, voi
     {
         event_ctl(es, socket_listen_event_handle(sock), EVENT_READ, arg);
         sock->listen_persistent_queued = true;
+    }
+}
+
+static inline void
+socket_unset_listen_persistent(struct link_socket *sock, struct event_set *es)
+{
+    if (sock && sock->listen_persistent_queued)
+    {
+        event_del(es, socket_listen_event_handle(sock));
+        sock->listen_persistent_queued = false;
     }
 }
 

@@ -3292,6 +3292,18 @@ management_auth_token(const char *token)
     msg(M_CLIENT, ">PASSWORD:Auth-Token:%s", token);
 }
 
+/**
+ * Track which event the management socket is registered for in a persistent
+ * event set, so that event_ctl() is only called when it changes.
+ *
+ * @param persistent  The cached state, or NULL if the event set is rebuilt
+ *                    before every wait.
+ * @param n           The new state: 1 listening, 2 waiting to read from the
+ *                    client, 3 waiting to write to the client, 4 listening
+ *                    while accept() is paused for lack of resources.
+ *
+ * @return true if the socket must be registered again with event_ctl().
+ */
 static inline bool
 man_persist_state(unsigned int *persistent, const int n)
 {
@@ -3320,11 +3332,14 @@ management_socket_set(struct management *man, struct event_set *es, void *arg,
         switch (man->connection.state)
         {
             case MS_LISTEN:
-                if (man_persist_state(persistent, 1))
+            {
+                const bool paused = (man->settings.flags & MF_SERVER) && socket_accept_paused();
+                if (man_persist_state(persistent, paused ? 4 : 1))
                 {
-                    event_ctl(es, ev, EVENT_READ, arg);
+                    event_ctl(es, ev, paused ? 0 : EVENT_READ, arg);
                 }
                 break;
+            }
 
             case MS_CC_WAIT_READ:
                 if (man_persist_state(persistent, 2))
@@ -3402,11 +3417,14 @@ management_socket_set(struct management *man, struct event_set *es, void *arg,
     switch (man->connection.state)
     {
         case MS_LISTEN:
-            if (man_persist_state(persistent, 1))
+        {
+            const bool paused = (man->settings.flags & MF_SERVER) && socket_accept_paused();
+            if (man_persist_state(persistent, paused ? 4 : 1))
             {
-                event_ctl(es, man->connection.sd_top, EVENT_READ, arg);
+                event_ctl(es, man->connection.sd_top, paused ? 0 : EVENT_READ, arg);
             }
             break;
+        }
 
         case MS_CC_WAIT_READ:
             if (man_persist_state(persistent, 2))

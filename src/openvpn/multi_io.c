@@ -187,8 +187,23 @@ multi_io_wait(struct multi_context *m)
         }
         else if (!tuntap_is_dco_win(m->top.c1.tuntap))
         {
-            socket_set_listen_persistent(sock, m->multi_io->es, &sock->ev_arg);
+            if (socket_accept_paused())
+            {
+                socket_unset_listen_persistent(sock, m->multi_io->es);
+            }
+            else
+            {
+                socket_set_listen_persistent(sock, m->multi_io->es, &sock->ev_arg);
+            }
         }
+    }
+
+    const time_t delay = socket_accept_paused();
+    if (delay && m->top.c2.timeval.tv_sec >= delay)
+    {
+        m->top.c2.timeval.tv_sec = (tv_sec_t)delay;
+        m->top.c2.timeval.tv_usec = 0;
+        m->earliest_wakeup = NULL;
     }
 
     tun_set(m->top.c1.tuntap, m->multi_io->es, EVENT_READ, MULTI_IO_TUN, persistent);

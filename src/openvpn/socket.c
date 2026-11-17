@@ -422,6 +422,38 @@ socket_do_listen(socket_descriptor_t sd, const struct addrinfo *local, bool do_l
     gc_free(&gc);
 }
 
+/* accept() failed for lack of resources: no new accept() before this time */
+static time_t accept_resume = 0;       /* GLOBAL */
+static time_t accept_pause_logged = 0; /* GLOBAL */
+
+static void
+accept_check_resources(const int err)
+{
+#ifdef _WIN32
+    const bool out_of_resources = (err == WSAEMFILE || err == WSAENOBUFS);
+#else
+    const bool out_of_resources =
+        (err == EMFILE || err == ENFILE || err == ENOBUFS || err == ENOMEM);
+#endif
+    if (out_of_resources)
+    {
+        accept_resume = now + 1;
+        if (now >= accept_pause_logged + 60)
+        {
+            msg(M_WARN, "WARNING: out of resources to accept new connections, not accepting any "
+                        "for a second. New connections may fail meanwhile; check the open files "
+                        "limit. This message is shown at most once a minute.");
+            accept_pause_logged = now;
+        }
+    }
+}
+
+time_t
+socket_accept_paused(void)
+{
+    return now < accept_resume ? accept_resume - now : 0;
+}
+
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsign-conversion"
@@ -456,6 +488,10 @@ socket_do_accept(socket_descriptor_t sd, struct link_socket_actual *act, const b
     else
     {
         new_sd = accept(sd, &act->dest.addr.sa, &remote_len);
+        if (!socket_defined(new_sd))
+        {
+            accept_check_resources(openvpn_errno());
+        }
     }
 
 #if 0 /* For debugging only, test the effect of accept() failures */
@@ -2699,6 +2735,10 @@ socket_accept_unix(socket_descriptor_t sd, struct sockaddr_un *remote)
         /* set socket file descriptor to not pass across execs, so that
          * scripts don't have access to it */
         set_cloexec(ret);
+    }
+    else
+    {
+        accept_check_resources(openvpn_errno());
     }
     return ret;
 }
